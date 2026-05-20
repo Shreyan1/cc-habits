@@ -6,9 +6,9 @@
 
 ---
 
-Claude Code is great. But out of the box it doesn't know your style. Every developer has years of accumulated micro-decisions — naming conventions, error handling patterns, preferred abstractions — that the model cannot see. Today you encode these manually in `CLAUDE.md`. That works, but it requires discipline.
+Claude Code is great. But out of the box it doesn't know your style. Every developer has years of accumulated micro-decisions (naming conventions, error handling patterns, preferred abstractions) that the model cannot see. These days you generate a `CLAUDE.md` from a quick discussion and move on. But that's a snapshot of what you said you wanted on one afternoon. It never sees the corrections you make for weeks after, and you never reopen it to update it.
 
-`cc-habits` automates this. It watches your edits, infers patterns, and quietly updates a `habits.md` file that Claude Code reads on every session — using the same `@import` mechanism you already know. A re-injection hook re-asserts your habits on every prompt so they survive context compaction.
+`cc-habits` fills the gap. It watches your edits, infers patterns, and quietly updates a `habits.md` file that Claude Code reads on every session, using the same `@import` mechanism you already know. A re-injection hook re-asserts your habits on every prompt so they survive context compaction.
 
 **No new concepts. No vendor lock-in. Just a TypeScript package that makes the Claude Code you already paid for, genuinely yours.**
 
@@ -45,7 +45,7 @@ cc-habits init        # cch init works too
 
 > `cch` is a short alias for `cc-habits`. All commands work with either (`cch init`, `cch view`, `cch pending`, etc.).
 
-During init, if cc-habits finds past Claude Code sessions for this project, it offers to **bootstrap** — learning habits from your existing work instantly:
+During init, if cc-habits finds past Claude Code sessions for this project, it offers to **bootstrap**, learning habits from your existing work instantly:
 
 ```
   Found 4 Claude Code sessions for this project.
@@ -60,7 +60,7 @@ You can also run this any time with `cc-habits bootstrap`.
 **Requirements:**
 - Node.js 20+ (already installed if you use Claude Code)
 - Claude Code installed
-- An AI provider — see below
+- An AI provider (see below)
 
 > **One-off install (no global install):** `npx cc-habits@latest init` runs just the init step. You will still need `npm install -g cc-habits` to use `cc-habits view`, `cch view`, and `cc-habits reset`.
 
@@ -75,7 +75,7 @@ You can also run this any time with `cc-habits bootstrap`.
 | **OpenAI API** | your key | [platform.openai.com](https://platform.openai.com) |
 | **Groq API** | free tier | [console.groq.com](https://console.groq.com) |
 
-> **No API key?** A Claude Code subscription and an Anthropic API key are separate purchases. If you only have a Claude Code plan, Ollama is the recommended free alternative — it runs locally, no API key needed.
+> **No API key?** A Claude Code subscription and an Anthropic API key are separate purchases. If you only have a Claude Code plan, Ollama is the recommended free alternative: it runs locally, no API key needed.
 >
 > ```bash
 > # Quickest path with no API key:
@@ -130,7 +130,7 @@ cc-habits sync all          # also writes .cursor/rules/cc-habits.mdc and .cline
 cc-habits sync cursor       # just Cursor
 ```
 
-It merges a marked block into existing files, so your hand-written `AGENTS.md` content is preserved. Only **active** habits are emitted — the `## Learning` section never leaks out. The same habits you learned in Claude Code now travel to Codex, Cursor, Cline, Amp, and anything else that reads `AGENTS.md`.
+It merges a marked block into existing files, so your hand-written `AGENTS.md` content is preserved. Only **active** habits are emitted: the `## Learning` section never leaks out. The same habits you learned in Claude Code now travel to Codex, Cursor, Cline, Amp, and anything else that reads `AGENTS.md`.
 
 ---
 
@@ -240,7 +240,7 @@ Your API key is stored in `~/.claude/habits/config.yml` on your machine. cc-habi
 
 One small model call per session. That's it.
 
-**With Ollama (recommended if you don't have an API key):** $0/month — runs entirely on your machine.
+**With Ollama (recommended if you don't have an API key):** $0/month, runs entirely on your machine.
 
 **With Anthropic Haiku (if you have an API key):**
 
@@ -303,14 +303,23 @@ cc-habits --version                   # print installed version
 **Does this work on all my projects?**
 Yes. Hooks are registered in `~/.claude/settings.json` (user-level, not project-level). Habits are stored in `~/.claude/habits/`. Everything is global by default.
 
-**What if I already have a CLAUDE.md?**
-`cc-habits init` adds one `@import` line to the end of your existing `~/.claude/CLAUDE.md`. It does not overwrite anything.
+**I already auto-generate a CLAUDE.md. Does this replace it?**
+No. It fills the gap. `cch init` adds a single `@import` line to your existing `~/.claude/CLAUDE.md` and overwrites nothing. Your generated file stays; cc-habits keeps it current with what you actually do.
+
+**Will it slow down or break my Claude Code sessions?**
+No. The capture and inject hooks run locally in under 50ms. Every hook is wrapped in try/catch and exits 0 on error, so cc-habits can never fail or block a session.
 
 **What if the extractor makes a mistake?**
-Habits accumulate confidence gradually. A single bad extraction won't stick — it needs reinforcing signals to grow above 0.50. You can also directly edit `habits.md` to remove any rule you don't agree with.
+Habits accumulate confidence gradually. A single bad extraction won't stick: it needs reinforcing signals to grow above 0.50. You can also directly edit `habits.md` to remove any rule you don't agree with.
+
+**Do I need an Anthropic API key on top of my Claude Code plan?**
+They are separate purchases. If you only have a Claude Code plan, run with Ollama: free and fully local, no key required. Anthropic Haiku (~$0.09/mo), OpenAI, and Groq are also supported.
+
+**Does cc-habits phone home?**
+Never. There is no cc-habits server, no telemetry, no analytics, no error-reporting endpoint. The only outbound call is the extractor call to the provider you pick.
 
 **Does this work offline?**
-The signal capture (PostToolUse hook) works offline. The extraction (Stop hook) requires the Anthropic API. If you're offline, the Stop hook logs the error and exits 0 — no signals are lost.
+Signal capture (PostToolUse hook) works offline. Extraction (Stop hook) requires the API; if you are offline it logs the error and exits 0, no signals lost.
 
 **Is the habits.md format stable?**
 The v0.1 format (markdown, confidence scores, signal counts, dates) is documented. Future versions will migrate it forward. The format is intentionally human-readable so manual edits survive.
@@ -349,7 +358,7 @@ cc-habits is MIT-licensed. Before opening a PR:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 ---
 
