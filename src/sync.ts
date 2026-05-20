@@ -1,0 +1,153 @@
+import fs from 'fs';
+import path from 'path';
+import { readHabitsMd, parseHabits, HabitsMap, Habit } from './storage';
+
+// cc-habits sync — emit learned habits into tool-agnostic preference files so any
+// coding agent (Claude Code, Codex, Cursor, Cline, Amp, …) picks them up, not just
+// Claude Code via @import. Addresses the most-requested gap in the space: a single
+// portable rules file rather than tool-specific CLAUDE.md.
+
+export const BEGIN_MARKER = '<!-- BEGIN cc-habits (auto-generated; edit habits via `cc-habits`) -->';
+export const END_MARKER = '<!-- END cc-habits -->';
+
+export type SyncTarget = 'agents' | 'cursor' | 'cline';
+
+const DEFAULT_MIN_CONFIDENCE = 0.3;
+
+// Only active, sufficiently-confident habits leave the cc-habits store. Learning-section
+// (single-session) habits are never exported — they are not yet trusted.
+function activeHabits(cats: HabitsMap, minConfidence: number): HabitsMap {
+  const active: HabitsMap = {};
+  for (const category of Object.keys(cats)) {
+    for (const h of cats[category] ?? []) {
+      if ((h.sessions_seen ?? 1) >= 2 && h.confidence >= minConfidence) {
+        if (!active[category]) active[category] = [];
+        active[category].push(h);
+      }
+    }
+  }
+  return active;
+}
+
+function ruleLine(h: Habit): string {
+  return `- ${h.rule.trim().replace(/\.$/, '')}.`;
+}
+
+// The portable body shared by every target: a clean, instruction-style markdown
+// section with no confidence math or signal counts — those are cc-habits internals
+// that would only add noise to an agent's context.
+export function renderPortableBody(cats: HabitsMap, minConfidence = DEFAULT_MIN_CONFIDENCE): string {
+  const active = activeHabits(cats, minConfidence);
+  const categories = Object.keys(active).sort();
+  const lines: string[] = [
+    '# Coding preferences',
+    '',
+    'Learned coding habits. Follow them when generating or editing code in this repository.',
+  ];
+  for (const category of categories) {
+    const habits = active[category];
+    if (!habits || habits.length === 0) continue;
+    lines.push('', `## ${category}`, '');
+    for (const h of habits) lines.push(ruleLine(h));
+  }
+  return lines.join('\n');
+}
+
+// Returns null when there is nothing worth emitting (no active habits). Callers
+// should skip writing in that case rather than emit an empty block.
+export function renderBlockOrNull(minConfidence = DEFAULT_MIN_CONFIDENCE): string | null {
+  const cats = parseHabits(readHabitsMd());
+  const active = activeHabits(cats, minConfidence);
+  if (Object.keys(active).length === 0) return null;
+  return renderPortableBody(cats, minConfidence);
+}
+
+// Insert or replace the cc-habits block in existing content. Everything outside the
+// markers is preserved verbatim, so a hand-written AGENTS.md keeps its own content.
+export function mergeBlock(existing: string, body: string): string {
+  const block = `${BEGIN_MARKER}\n${body}\n${END_MARKER}`;
+  const begin = existing.indexOf(BEGIN_MARKER);
+  const end = existing.indexOf(END_MARKER);
+  if (begin !== -1 && end !== -1 && end > begin) {
+    const before = existing.slice(0, begin);
+    const after = existing.slice(end + END_MARKER.length);
+    return `${before.trimEnd()}\n\n${block}\n${after.trimStart() ? '\n' + after.trimStart() : ''}`.trimEnd() + '\n';
+  }
+  if (!existing.trim()) return block + '\n';
+  return existing.trimEnd() + `\n\n${block}\n`;
+}
+
+// Cursor reads .cursor/rules/*.mdc files with YAML frontmatter. alwaysApply makes
+// the rule unconditional, matching the "inject every conversation" intent.
+function cursorMdc(body: string): string {
+  return [
+    '---',
+    'description: Learned coding habits (cc-habits)',
+    'alwaysApply: true',
+    '---',
+    '',
+    body,
+    '',
+  ].join('\n');
+}
+
+function targetPath(target: SyncTarget, baseDir: string): string {
+  switch (target) {
+    case 'agents': return path.join(baseDir, 'AGENTS.md');
+    case 'cursor': return path.join(baseDir, '.cursor', 'rules', 'cc-habits.mdc');
+    case 'cline': {
+      // .clinerules can be a real directory or a single file. Use lstatSync (not
+      // statSync) so that a symlink pointing at a directory is treated as a file —
+      // we want the flat .clinerules path, not a file inside a symlinked directory.
+      const dir = path.join(baseDir, '.clinerules');
+      if (fs.existsSync(dir) && fs.lstatSync(dir).isDirectory()) {
+        return path.join(dir, 'cc-habits.md');
+      }
+      return dir;
+    }
+  }
+}
+
+function safeWriteProjectFile(filePath: string, content: string): void {
+  if (fs.existsSync(filePath)) {
+    const stat = fs.lstatSync(filePath);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`refusing to write through symlink: ${filePath}`);
+    }
+  }
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+export interface SyncResult {
+  written: string[];
+  skipped: boolean; // true when there were no active habits to emit
+}
+
+// Write habits into the chosen target files under baseDir (defaults to cwd).
+// Cursor gets a dedicated .mdc file (overwritten); agents/cline merge a marked
+// block so any existing user content is preserved.
+export function syncTargets(
+  targets: SyncTarget[],
+  opts: { baseDir?: string; minConfidence?: number } = {},
+): SyncResult {
+  const baseDir = opts.baseDir ?? process.cwd();
+  const minConfidence = opts.minConfidence ?? DEFAULT_MIN_CONFIDENCE;
+  const body = renderBlockOrNull(minConfidence);
+  if (body === null) return { written: [], skipped: true };
+
+  const written: string[] = [];
+  for (const target of targets) {
+    const dest = targetPath(target, baseDir);
+    if (target === 'cursor') {
+      safeWriteProjectFile(dest, cursorMdc(body));
+    } else {
+      const existing = fs.existsSync(dest) && !fs.lstatSync(dest).isSymbolicLink()
+        ? fs.readFileSync(dest, 'utf-8')
+        : '';
+      safeWriteProjectFile(dest, mergeBlock(existing, body));
+    }
+    written.push(dest);
+  }
+  return { written, skipped: false };
+}
