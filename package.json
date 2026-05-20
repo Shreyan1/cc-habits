@@ -4,10 +4,17 @@
   "description": "Claude Code learns your coding habits, automatically.",
   "license": "MIT",
   "author": "Shreyan Basu Ray",
-  "keywords": ["claude-code", "habits", "anthropic", "coding", "ai", "developer-tools"],
+  "keywords": [
+    "claude-code",
+    "habits",
+    "anthropic",
+    "coding",
+    "ai",
+    "developer-tools"
+  ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Shreyan1/cc-habits"
+    "url": "git+https://github.com/Shreyan1/cc-habits.git"
   },
   "bugs": {
     "url": "https://github.com/Shreyan1/cc-habits/issues"
@@ -17,14 +24,18 @@
     "cc-habits": "dist/index.js",
     "cc-habits-hook": "dist/hook-entry.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "node build.mjs",
     "test": "vitest run",
     "lint": "eslint src tests-ts",
     "prepublishOnly": "npm run build"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0"
   },
