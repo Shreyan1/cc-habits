@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Docs - cc-habits</title>
+    <meta
+      name="description"
+      content="cc-habits documentation and the habits-format v0.2 specification." />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet" />
+
+    <link rel="stylesheet" href="styles.css?v=5" />
+    <link rel="stylesheet" href="docs-styles.css?v=5" />
+    <script>
+      // Apply palette from localStorage before paint (no flash)
+      try {
+        var p = localStorage.getItem("cch_palette");
+        if (p === "crt" || p === "acid" || p === "paper") {
+          document.documentElement.setAttribute("data-pending-palette", p);
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <header class="nav">
+      <div class="container nav__inner">
+        <a href="index.html" aria-label="cc-habits home">
+          <span class="wordmark" style="font-size: 1.1rem">cc-habits<span class="wordmark__cursor" aria-hidden="true"></span></span>
+        </a>
+        <div class="nav__links">
+          <a class="nav__link" href="docs.html#getting-started">Docs</a>
+          <a class="nav__link" href="docs.html#spec">Spec</a>
+          <a class="nav__link" href="https://github.com/Shreyan1/cc-habits" target="_blank" rel="noreferrer">GitHub</a>
+          <a class="nav__link" href="https://www.npmjs.com/package/cc-habits" target="_blank" rel="noreferrer">npm</a>
+        </div>
+        <div class="nav__cta">
+          <button
+            type="button"
+            class="theme-toggle"
+            data-state="light"
+            id="docs-theme-toggle"
+            aria-label="Toggle day/night mode"
+            title="Toggle day/night mode">
+            <span class="theme-toggle__thumb" aria-hidden="true"></span>
+            <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14"
+                   fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+              </svg>
+            </span>
+            <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14"
+                   fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z" />
+              </svg>
+            </span>
+          </button>
+          <a class="btn btn--primary" href="index.html"><span class="btn__label btn__label--desktop">back to site</span><span class="btn__label btn__label--mobile">site</span> &nbsp;<span class="arr">→</span></a>
+        </div>
+      </div>
+    </header>
+
+    <main class="docs-page">
+      <div class="container docs-grid">
+
+        <!-- Sidebar -->
+        <aside class="docs-side">
+          <p class="t-caption ink-dim">getting started</p>
+          <ul>
+            <li><a href="#install">Install</a></li>
+            <li><a href="#how-it-works">How it works</a></li>
+            <li><a href="#what-it-learns">What it learns</a></li>
+            <li><a href="#view">View your habits</a></li>
+          </ul>
+          <p class="t-caption ink-dim">reference</p>
+          <ul>
+            <li><a href="#confidence">Confidence math</a></li>
+            <li><a href="#cost">Cost</a></li>
+            <li><a href="#commands">Commands</a></li>
+            <li><a href="#guarantees">Safety guarantees</a></li>
+          </ul>
+          <p class="t-caption ink-dim">privacy</p>
+          <ul>
+            <li><a href="#privacy">Overview</a></li>
+            <li><a href="#privacy-storage">What is stored</a></li>
+            <li><a href="#privacy-network">What leaves</a></li>
+            <li><a href="#privacy-redaction">Redaction</a></li>
+            <li><a href="#privacy-controller">Data controller</a></li>
+            <li><a href="#privacy-hygiene">Hygiene</a></li>
+            <li><a href="#privacy-never">Won't do</a></li>
+          </ul>
+          <p class="t-caption ink-dim">spec</p>
+          <ul>
+            <li><a href="#spec">habits-format v0.2</a></li>
+            <li><a href="#spec-structure">File structure</a></li>
+            <li><a href="#spec-semantics">Semantics</a></li>
+            <li><a href="#spec-companion">Companion files</a></li>
+            <li><a href="#spec-grammar">Reference grammar</a></li>
+          </ul>
+        </aside>
+
+        <!-- Reading column -->
+        <article class="docs-body">
+          <p class="t-caption ink-dim">cc-habits  ·  docs</p>
+          <h1 id="getting-started" class="docs-h1">Getting started</h1>
+          <p class="docs-lede">
+            Everything cc-habits does, in roughly the order you'll need it.
+            Start at Install.
+          </p>
+
+          <hr class="hairline" />
+
+          <h2 id="install">Install</h2>
+          <p>
+            cc-habits is a global npm package. You'll need Node 20+
+            (already installed if you use Claude Code).
+          </p>
+          <pre class="code"><code>$ npm install -g cc-habits
+$ <strong><em>cc-habits init</em></strong>        # <strong><em>cch init</em></strong> works too</code></pre>
+          <p>
+            <code>cch</code> is a short alias for <code>cc-habits</code>. All
+            commands work with either form (<code><strong><em>cch init</em></strong></code>,
+            <code><strong><em>cch view</em></strong></code>, <code><strong><em>cch pending</em></strong></code>, etc.).
+          </p>
+          <p>
+            <code><strong><em>cc-habits init</em></strong></code> walks you through provider setup interactively.
+            Pick whichever fits your situation:
+          </p>
+          <div class="provider-table">
+            <div class="row hd"><span>Provider</span><span>Cost</span><span>Setup</span></div>
+            <div class="row"><span>Anthropic API</span><span>~$0.09 / month (light)</span><span>console.anthropic.com</span></div>
+            <div class="row"><span>Ollama (free, local)</span><span>$0</span><span>ollama.com/download</span></div>
+            <div class="row"><span>OpenAI API</span><span>your key</span><span>platform.openai.com</span></div>
+            <div class="row"><span>Groq API</span><span>free tier</span><span>console.groq.com</span></div>
+          </div>
+          <p>
+            <strong>No Anthropic API key?</strong> A Claude Code subscription and an
+            Anthropic API key are billed separately. If you only have a Claude Code
+            plan, Ollama is the recommended free alternative - it runs locally and
+            needs no API key.
+          </p>
+          <pre class="code"><code># Quickest path with no API key:
+brew install ollama          # or download from ollama.com
+ollama pull llama3.2
+ollama serve &amp;
+<strong><em>cc-habits init --provider ollama</em></strong></code></pre>
+
+          <p>
+            During init, if cc-habits finds past Claude Code sessions for this
+            project, it offers to <strong>bootstrap</strong> - retroactively
+            learning habits from your existing work:
+          </p>
+          <pre class="code"><code>  Found 4 Claude Code sessions for this project.
+  Bootstrap habits from past sessions? [y/N] y
+
+  Extracting patterns...
+  ✓ Learned 7 habits across 4 categories from 42 edits</code></pre>
+          <p>You can re-run this at any time with <code><strong><em>cc-habits bootstrap</em></strong></code>.</p>
+
+          <h2 id="how-it-works">How it works</h2>
+          <p>
+            cc-habits installs three Claude Code hooks into your
+            <code>~/.claude/settings.json</code>:
+          </p>
+          <pre class="code"><code>PostToolUse (Write|Edit|MultiEdit)
+  → captures the diff
+  → appends to ~/.claude/habits/log.jsonl
+  → exits in &lt;50ms, never blocks a session
+
+Stop (session end)
+  → reads session signals from log.jsonl
+  → one Haiku call to extract patterns
+  → updates ~/.claude/habits/habits.md
+  → prints "cc-habits: learned 2, updated 3."
+
+UserPromptSubmit (every prompt)
+  → injects your strongest active habits into context
+  → survives context compaction; "laws, not requests"
+  → set CC_HABITS_INJECT=0 to disable</code></pre>
+          <p>
+            <code>habits.md</code> is also auto-imported into every Claude Code session
+            via an <code>@import</code> line appended to your existing
+            <code>~/.claude/CLAUDE.md</code>. The import gives Claude the full
+            picture at session start; the UserPromptSubmit hook re-asserts the
+            top habits on every turn so they don't get summarised away when the
+            context compacts mid-session.
+          </p>
+          <p>
+            No per-project setup. Hooks live at the user level; habits live in
+            <code>~/.claude/habits/</code>. cc-habits works globally across every
+            repository you open.
+          </p>
+
+          <h2 id="what-it-learns">What it learns</h2>
+          <p>
+            After a few sessions of Claude Code, your <code>habits.md</code>
+            might look like this:
+          </p>
+          <pre class="code"><code># Coding habits
+
+Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
+
+## Python
+
+- Add type hints to all function parameters and return types. Confidence: 0.75
+  - Signal: 7 reinforcing, 0 contradicting
+  - First learned: 2026-05-18
+  - Last updated: 2026-05-20
+
+- Use f-strings instead of .format() or string concatenation. Confidence: 0.65
+  - Signal: 4 reinforcing, 1 contradicting
+  - First learned: 2026-05-18
+
+## Error Handling
+
+- Wrap external I/O in try/except and re-raise as RuntimeError. Confidence: 0.55
+  - Signal: 2 reinforcing, 0 contradicting</code></pre>
+          <p>
+            Claude Code reads this file at the start of every session.
+            When it generates code, it already knows your preferences.
+          </p>
+
+          <h2 id="view">View your habits</h2>
+          <pre class="code"><code>$ <strong><em>cc-habits view</em></strong>
+
+  cc-habits · your coding habits
+
+  3 active habits across 2 categories  ·  12 signals processed
+
+  ── Python ──────────────────────────────────────────
+
+  Add type hints to all function parameters and return types
+  [███████████████░░░░░░░] 75%  ↑7  ↓0  · since 2026-05-18
+
+  Use f-strings instead of .format()
+  [█████████████░░░░░░░░░] 65%  ↑4  ↓1  · since 2026-05-18
+
+  ── Error Handling ──────────────────────────────────
+
+  Wrap external I/O in try/except and re-raise as RuntimeError
+  [███████████░░░░░░░░░░░] 55%  ↑2  ↓0  · since 2026-05-19</code></pre>
+
+          <hr class="hairline" />
+
+          <h2 id="confidence">The confidence math</h2>
+          <p>Habits are weighted by how consistently you apply them.</p>
+          <div class="provider-table">
+            <div class="row hd"><span>Event</span><span>Delta</span></div>
+            <div class="row"><span>New habit created</span><span>0.50 (in ## Learning, not yet active)</span></div>
+            <div class="row"><span>Reinforced in a new session</span><span>+0.05 (cap 0.95), graduates at 2 sessions</span></div>
+            <div class="row"><span>Contradicted</span><span>−0.10 (−0.20 in a burst of 3+)</span></div>
+            <div class="row"><span>Unused for &gt;7 days</span><span>−0.05 / week decay</span></div>
+            <div class="row"><span>Confidence below 0.30</span><span>pruned</span></div>
+          </div>
+          <p>
+            Intentionally simple. Symbolic Bayesian-ish updates with session
+            gating, contradiction velocity, and staleness decay. Honest about
+            the math.
+          </p>
+
+          <h2 id="privacy">Privacy</h2>
+          <p>
+            cc-habits is a <strong>local-first</strong> tool. It is designed
+            so that <strong>you</strong> are the only data controller for everything it captures.
+          </p>
+
+          <h3 id="privacy-storage">What is stored, where</h3>
+          <p>Every artifact lives in your home directory. None of these are synced or uploaded by cc-habits.</p>
+          <div class="provider-table privacy-table">
+            <div class="row hd"><span>Artifact</span><span>Path</span><span>Mode</span></div>
+            <div class="row"><span>Habits file</span><span>~/.claude/habits/habits.md</span><span>0600</span></div>
+            <div class="row"><span>Signal log</span><span>~/.claude/habits/log.jsonl</span><span>0600</span></div>
+            <div class="row"><span>Snapshot</span><span>~/.claude/habits/.snapshot.json</span><span>0600</span></div>
+            <div class="row"><span>Tombstones</span><span>~/.claude/habits/.tombstones.json</span><span>0600</span></div>
+            <div class="row"><span>Pending</span><span>~/.claude/habits/.pending.json</span><span>0600</span></div>
+            <div class="row"><span>Error log</span><span>~/.claude/habits/error.log</span><span>0600</span></div>
+            <div class="row"><span>Config (API key)</span><span>~/.claude/habits/config.yml</span><span>0600</span></div>
+          </div>
+
+          <h3 id="privacy-network">What leaves the machine</h3>
+          <p>
+            Exactly <strong>one outbound call per Claude Code session</strong>:
+            the Stop hook sends a redacted batch of session signals to the
+            Anthropic API (or the provider you chose) for habit extraction.
+            This call uses <strong>your</strong> API key, hits the provider
+            directly, and is governed by <strong>your</strong> agreement with them.
+          </p>
+          <p>
+            cc-habits does not operate a server. There is
+            <strong>no telemetry, no analytics, no error reporting endpoint</strong>.
+          </p>
+
+          <h3 id="privacy-redaction">Redaction before any outbound call</h3>
+          <p>Three patterns are replaced with sentinel tokens before signals reach the model:</p>
+          <div class="provider-table">
+            <div class="row hd"><span>Pattern</span><span>Replacement</span></div>
+            <div class="row"><span>Email addresses (RFC 5322 basic)</span><span>&lt;REDACTED:email&gt;</span></div>
+            <div class="row"><span>Indian PAN (5 letters + 4 digits + 1 letter)</span><span>&lt;REDACTED:pan&gt;</span></div>
+            <div class="row"><span>Credit card numbers (12-19 digits passing Luhn)</span><span>&lt;REDACTED:card&gt;</span></div>
+          </div>
+          <p>
+            The extractor prompt explicitly instructs the model:
+            <em>"Never output content marked &lt;REDACTED:…&gt;."</em>
+          </p>
+          <p>
+            In addition, extracted rules are <strong>sanitized</strong> before
+            being written into <code>habits.md</code>: control characters,
+            URLs, and prompt-injection keywords (e.g. "IGNORE PREVIOUS",
+            <code>SYSTEM:</code>) are stripped to prevent a compromised signal
+            from poisoning your <code>CLAUDE.md</code> context.
+          </p>
+          <p>
+            If you process other categories of sensitive data (non-Latin PII,
+            custom tokens, healthcare identifiers), audit <code>log.jsonl</code>
+            periodically and consider stricter retention.
+          </p>
+
+          <h3 id="privacy-controller">You are the data controller</h3>
+          <p>
+            Because everything lives in your home directory and the only
+            outbound call uses your own API key,
+            <strong>you are the data controller and data processor under
+            GDPR, DPDP, CCPA, and similar regimes</strong>. cc-habits has no
+            privileged access to your data.
+          </p>
+          <p>If you are operating in a regulated environment:</p>
+          <ul class="docs-list">
+            <li>Treat <code>~/.claude/habits/</code> as you would any folder containing source-code diffs.</li>
+            <li>Set <code>ANTHROPIC_API_KEY</code> via your secrets manager rather than storing it in <code>config.yml</code>.</li>
+            <li>Periodically run <code><strong><em>cc-habits reset --yes</em></strong></code> (or <code><strong><em>cch reset --yes</em></strong></code>) to clear local history. Tombstones survive.</li>
+            <li>For air-gapped contexts, do not run <code><strong><em>cc-habits init</em></strong></code>. Without an API key, the Stop hook fails closed.</li>
+          </ul>
+
+          <h3 id="privacy-hygiene">Recommended hygiene</h3>
+          <ul class="docs-list">
+            <li>
+              <strong>Do not sync <code>~/.claude/habits/</code></strong> via
+              Dropbox, iCloud, Syncthing, or similar. Diffs of your code
+              travelling between machines materially expands the data-loss
+              surface. Add it to your sync tool's ignore list.
+            </li>
+            <li>
+              <strong>Move your API key to a secrets manager.</strong>
+              Storing it in <code>config.yml</code> is convenient but
+              co-resident processes can read it. Setting
+              <code>ANTHROPIC_API_KEY</code> via your shell profile + a
+              secrets agent is stronger.
+            </li>
+            <li>
+              <strong>Audit <code>log.jsonl</code> if you handle sensitive
+              data.</strong> It contains 30+ days of code diffs by default.
+              Consider periodic rotation.
+            </li>
+          </ul>
+
+          <h3 id="privacy-never">What cc-habits will never do</h3>
+          <ul class="docs-list">
+            <li>It will not phone home. There is no cc-habits server.</li>
+            <li>It will not modify code in your repositories. It only writes to <code>~/.claude/</code>.</li>
+            <li>It will not register itself with Claude Code without <code><strong><em>cc-habits init</em></strong></code> (or <code><strong><em>cch init</em></strong></code>) running explicitly.</li>
+            <li>It will not fail a Claude Code session. Every hook is wrapped in <code>try/catch</code> and exits 0 on error.</li>
+          </ul>
+
+          <h3 id="privacy-report">Reporting a privacy concern</h3>
+          <p>
+            If you believe cc-habits has leaked data or has a vulnerability
+            with privacy impact, please report it via a GitHub security
+            advisory rather than a public issue:
+            <a href="https://github.com/Shreyan1/cc-habits/security/advisories/new"
+               target="_blank" rel="noreferrer">github.com/Shreyan1/cc-habits/security/advisories/new</a>.
+          </p>
+
+          <h2 id="cost">Cost</h2>
+          <p>One small-model call per session. That's it.</p>
+          <p>
+            <strong>With Ollama (free, local):</strong> $0 / month - runs entirely
+            on your machine.
+          </p>
+          <p><strong>With Anthropic Haiku 4.5:</strong></p>
+          <div class="provider-table">
+            <div class="row hd"><span>Usage</span><span>Cost / month</span></div>
+            <div class="row"><span>Light (1 session / day)</span><span>~$0.09</span></div>
+            <div class="row"><span>Medium (3 sessions / day)</span><span>~$0.27</span></div>
+            <div class="row"><span>Heavy (5+ sessions / day)</span><span>~$0.60</span></div>
+          </div>
+          <p>You provide your own API key. cc-habits does not collect or proxy keys.</p>
+
+          <h2 id="commands">Commands</h2>
+          <pre class="code"><code><strong><em>cc-habits init</em></strong>                        # install hooks, choose a provider
+<strong><em>cc-habits bootstrap</em></strong>                   # learn habits from past Claude Code sessions
+<strong><em>cc-habits view</em></strong>                        # show current habits + recent signals
+<strong><em>cc-habits diff</em></strong> [--since N]            # changes since the last write
+<strong><em>cc-habits explain</em></strong> "&lt;rule&gt;"            # show signals that produced a habit
+<strong><em>cc-habits lint</em></strong> &lt;file&gt; [--json]        # check a source file against your habits
+<strong><em>cc-habits export</em></strong> [path]               # print habits.md (or write to path)
+<strong><em>cc-habits import</em></strong> &lt;file&gt;               # merge a portable habits file
+<strong><em>cc-habits sync</em></strong> [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline
+<strong><em>cc-habits pending</em></strong> [--approve|--discard]  # review queued updates
+<strong><em>cc-habits tombstone</em></strong> "&lt;rule&gt;"          # block a rule permanently
+<strong><em>cc-habits tombstones</em></strong>                  # list tombstoned rules
+<strong><em>cc-habits reset</em></strong> --yes                 # wipe habits.md, log.jsonl, pending
+<strong><em>cc-habits --version</em></strong>                   # print installed version</code></pre>
+
+          <h2 id="guarantees">Safety guarantees</h2>
+          <ol class="docs-list">
+            <li>
+              <strong>Never fails a Claude Code session.</strong> Every hook is
+              wrapped in <code>try/catch</code>. On error: logs to
+              <code>~/.claude/habits/error.log</code>, exits 0. The
+              <code>|| true</code> in the hook command is an extra layer.
+            </li>
+            <li>
+              <strong>No data leaves your machine</strong> except the extraction
+              API call. No telemetry, no analytics, no server.
+            </li>
+            <li>
+              <strong>habits.md is human-readable.</strong> Read, edit, or delete
+              it at any time. <code>cc-habits reset --yes</code> gives you a
+              clean slate.
+            </li>
+            <li>
+              <strong>Append-only log.</strong> Signals in <code>log.jsonl</code>
+              are never modified or deleted except by <code>cc-habits reset</code>.
+            </li>
+          </ol>
+
+          <hr class="hairline divider-major" />
+
+          <!-- ============== SPEC SECTION ============== -->
+          <p class="t-caption ink-dim">cc-habits  ·  spec</p>
+          <h1 id="spec" class="docs-h1">habits-format v0.2</h1>
+          <div class="spec-badges">
+            <span>Status: Draft v0.2</span>
+            <span>·</span>
+            <span>Editor: Shreyan Basu Ray</span>
+            <span>·</span>
+            <span>License: <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC-BY 4.0</a></span>
+            <span>·</span>
+            <span>Reference: <a href="https://github.com/Shreyan1/cc-habits" target="_blank" rel="noreferrer">cc-habits</a></span>
+          </div>
+          <p class="docs-lede">
+            A portable, human-readable schema for representing a developer's learned
+            coding habits. Designed so any tool - not just cc-habits - can read,
+            write, and exchange habits files.
+          </p>
+          <p>
+            <em>This document is the normative specification. Where the reference
+            implementation and this document disagree, this document governs the
+            on-disk format and the implementation is the bug.</em>
+          </p>
+
+          <h2 id="spec-goals">1. Design goals</h2>
+          <ol class="docs-list">
+            <li><strong>Human-readable.</strong> Anyone can <code>cat</code> the file and understand it.</li>
+            <li><strong>Markdown-native.</strong> It IS markdown. No second parser needed for rendering.</li>
+            <li><strong>Idempotent round-trip.</strong> Parsing and re-serialising must preserve all semantic content.</li>
+            <li><strong>Editor-friendly.</strong> A user can manually edit, delete, or reorder rules without breaking tools.</li>
+            <li><strong>Tool-portable.</strong> cc-habits is one valid renderer; nothing in the spec depends on its internals.</li>
+          </ol>
+
+          <h2 id="spec-structure">2. File structure</h2>
+          <p>A habits file is a single UTF-8 markdown document with these sections, in order:</p>
+          <pre class="code"><code>1. Format version comment      (REQUIRED)
+2. Document title              (REQUIRED)
+3. Edit-policy note            (RECOMMENDED)
+4. Zero or more category sections   (## &lt;CategoryName&gt;)
+5. Zero or one Learning section     (## Learning (not yet active))</code></pre>
+
+          <h3>2.1 Format version comment</h3>
+          <p>The first non-empty line MUST be an HTML comment of the form:</p>
+          <pre class="code"><code>&lt;!-- cc-habits format v0.2 --&gt;</code></pre>
+          <p>
+            Readers MUST refuse to parse files whose major version they do not
+            implement. Older minor versions SHOULD be parsed best-effort
+            (v0.x minor versions are additive).
+          </p>
+
+          <h3>2.2 Document title</h3>
+          <p>The document title MUST be exactly:</p>
+          <pre class="code"><code># Coding habits</code></pre>
+
+          <h3>2.3 Edit-policy note</h3>
+          <p>A single paragraph explaining the file's behaviour. Recommended text:</p>
+          <pre class="code"><code>Auto-generated by cc-habits. You may edit this file; rules you delete will not be recreated.</code></pre>
+
+          <h3>2.4 Category section</h3>
+          <pre class="code"><code>## &lt;CategoryName&gt;
+
+- &lt;Rule text&gt;. Confidence: &lt;0.00-1.00&gt;
+  - Signal: &lt;int&gt; reinforcing, &lt;int&gt; contradicting
+  - Sessions seen: &lt;int&gt;
+  - Languages: &lt;comma-separated list&gt;     [OPTIONAL]
+  - First learned: &lt;YYYY-MM-DD&gt;            [OPTIONAL]
+  - Last updated: &lt;YYYY-MM-DD&gt;             [OPTIONAL]</code></pre>
+          <p>
+            <strong>Rule text</strong> is a single declarative sentence. The
+            trailing period before <code>Confidence:</code> is REQUIRED.
+            <strong>Confidence</strong> is a decimal between 0.00 and 1.00 with
+            two decimal places.
+          </p>
+
+          <h3>2.5 Learning section</h3>
+          <pre class="code"><code>## Learning (not yet active)
+
+&gt; These habits have been observed in only one session. They are
+&gt; quarantined here until reinforced in a second distinct session.
+&gt; Claude should not apply rules in this section.
+
+- [&lt;CategoryName&gt;] &lt;Rule text&gt;. Confidence: &lt;0.00-1.00&gt;
+  - Signal: ...
+  - Sessions seen: 1
+  ...</code></pre>
+          <p>
+            Learning rules carry their owning category in <code>[brackets]</code>.
+            Once observed in a second distinct session, the writer MUST move
+            the rule out of Learning into its category section.
+          </p>
+
+          <h2 id="spec-semantics">3. Semantics</h2>
+
+          <h3>3.1 Sessions seen</h3>
+          <p>
+            <code>Sessions seen: N</code> is the count of distinct work sessions
+            in which this rule has been observed. It is the canonical promotion gate:
+          </p>
+          <ul class="docs-list">
+            <li><code>Sessions seen: 1</code> → Learning section, NOT applied</li>
+            <li><code>Sessions seen ≥ 2</code> → category section, applied</li>
+          </ul>
+
+          <h3>3.2 Confidence</h3>
+          <p>
+            Confidence is updated by the writer according to its own model.
+            The reference cc-habits implementation uses:
+          </p>
+          <ul class="docs-list">
+            <li>New rule: start at 0.50</li>
+            <li>Reinforcing signal: +0.05 (cap 0.95)</li>
+            <li>Contradicting signal: −0.10 (−0.20 when 3+ in the same batch)</li>
+            <li>Decay: −0.05 per week unused after a 7-day grace period</li>
+            <li>Prune: rules below 0.30 are removed</li>
+          </ul>
+          <p>
+            Other implementations MAY use different update rules. The on-disk
+            number is the source of truth.
+          </p>
+
+          <h3>3.3 Languages &amp; dates</h3>
+          <p>
+            <code>Languages: ts, py, go</code> is an optional set of file
+            extensions in which this habit was observed.
+            <code>First learned</code> and <code>Last updated</code> are
+            ISO-8601 UTC dates.
+          </p>
+
+          <h2 id="spec-companion">4. Companion files</h2>
+          <p>
+            Implementations MAY produce companion files alongside the habits
+            file. They are NOT part of the portable format. A tool that doesn't
+            recognise a companion file MUST leave it untouched.
+          </p>
+          <div class="provider-table">
+            <div class="row hd"><span>File</span><span>Purpose</span></div>
+            <div class="row"><span>.tombstones.json</span><span>Rules the user has manually deleted</span></div>
+            <div class="row"><span>.snapshot.json</span><span>Last-written state, used to detect manual deletes</span></div>
+            <div class="row"><span>.history.jsonl</span><span>Append-only log of past habits.md contents</span></div>
+            <div class="row"><span>.provenance.json</span><span>Map of rule → contributing signals</span></div>
+            <div class="row"><span>.pending.json</span><span>Staged updates awaiting user approval</span></div>
+          </div>
+
+          <h2 id="spec-tombstones">5. Tombstones</h2>
+          <p>A tombstone is a single normalised rule string. Format:</p>
+          <pre class="code"><code>[
+  "use strict mode",
+  "prefer async await over promise chains"
+]</code></pre>
+          <p>
+            <strong>Normalisation:</strong> trim whitespace, strip trailing
+            period, lowercase. When a writer receives a <code>create</code>
+            decision for a rule whose normalised form matches an entry in
+            tombstones, it MUST skip the create.
+          </p>
+
+          <h2 id="spec-compat">6. Compatibility &amp; versioning</h2>
+          <ul class="docs-list">
+            <li>Files MUST declare their format version in the leading HTML comment.</li>
+            <li>A reader encountering an unknown minor version MAY proceed but SHOULD warn.</li>
+            <li>A reader encountering an unknown major version MUST refuse to parse.</li>
+          </ul>
+          <p>
+            This spec is v0.2. Minor versions are additive and backward-compatible.
+            Breaking changes will bump the major version.
+          </p>
+
+          <h2 id="spec-grammar">7. Reference grammar (informal)</h2>
+          <pre class="code"><code>File           = VersionComment Title EditPolicy? CategoryBlock* LearningBlock?
+VersionComment = "&lt;!-- cc-habits format v0.2 --&gt;"
+Title          = "# Coding habits"
+CategoryBlock  = "## " CategoryName HabitEntry*
+LearningBlock  = "## Learning (not yet active)" BlockQuote LearningEntry*
+HabitEntry     = "- " RuleText ". Confidence: " Confidence Newline MetaLine*
+LearningEntry  = "- [" CategoryName "] " RuleText ". Confidence: " Confidence Newline MetaLine*
+MetaLine       = SignalLine | SessionsLine | LanguagesLine | FirstLearnedLine | LastUpdatedLine</code></pre>
+
+          <p class="docs-foot">
+            This specification is licensed
+            <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">CC-BY 4.0</a>.
+            You may build commercial or open-source tools that implement it without
+            attribution beyond a link to this document.
+            The reference implementation is separately licensed MIT.
+          </p>
+
+          <p style="margin-top: 3rem;">
+            <a class="btn btn--ghost" href="https://github.com/Shreyan1/cc-habits/blob/main/HABITS_FORMAT.md" target="_blank" rel="noreferrer">
+              edit on github &nbsp;<span class="arr">→</span>
+            </a>
+          </p>
+        </article>
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container">
+        <div class="footer__bottom" style="margin-top: 0; padding-top: 0; border-top: none">
+          <span>© 2026 cc-habits</span>
+          <span>&lt;!-- cc-habits format v0.2 --&gt;</span>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+    (function () {
+      // ============================================================
+      // Palette toggle
+      // ============================================================
+      const PAL_KEY = "cch_palette";
+      const body = document.body;
+      const toggle = document.getElementById("docs-theme-toggle");
+      function applyPalette(p) {
+        body.dataset.palette = p;
+        if (toggle) toggle.dataset.state = p === "crt" ? "dark" : "light";
+      }
+      let stored = "acid";
+      try { stored = localStorage.getItem(PAL_KEY) || "acid"; } catch (e) {}
+      applyPalette(stored);
+      if (toggle) {
+        toggle.addEventListener("click", () => {
+          const next = (body.dataset.palette === "crt") ? "acid" : "crt";
+          applyPalette(next);
+          try { localStorage.setItem(PAL_KEY, next); } catch (e) {}
+        });
+      }
+      window.addEventListener("storage", (e) => {
+        if (e.key === PAL_KEY && e.newValue) applyPalette(e.newValue);
+      });
+
+      // ============================================================
+      // Clipboard helper with execCommand fallback
+      // (some embeds / file:// origins reject the Async Clipboard API)
+      // ============================================================
+      async function writeClipboard(text) {
+        // Prefer the async API where it actually works
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return true;
+          }
+        } catch (e) { /* fall through */ }
+        // Legacy fallback - works in more sandboxes
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          ta.style.position = "fixed";
+          ta.style.top = "-1000px";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand("copy");
+          document.body.removeChild(ta);
+          return ok;
+        } catch (e) { return false; }
+      }
+
+      // ============================================================
+      // Copy buttons on every <pre.code>
+      // ============================================================
+      const blocks = document.querySelectorAll("pre.code");
+      blocks.forEach((pre) => {
+        const wrap = document.createElement("div");
+        wrap.className = "code-wrap";
+        pre.parentNode.insertBefore(wrap, pre);
+        wrap.appendChild(pre);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "code-copy";
+        btn.setAttribute("aria-label", "Copy code");
+        btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter"><rect x="8" y="8" width="12" height="12"/><path d="M4 16V4h12"/></svg><span>copy</span>';
+        wrap.appendChild(btn);
+        let resetTimer = 0;
+        btn.addEventListener("click", async () => {
+          const text = pre.innerText;
+          const ok = await writeClipboard(text);
+          clearTimeout(resetTimer);
+          btn.classList.toggle("is-copied", ok);
+          btn.classList.toggle("is-failed", !ok);
+          btn.querySelector("span").textContent = ok ? "copied!" : "select & copy";
+          resetTimer = setTimeout(() => {
+            btn.classList.remove("is-copied", "is-failed");
+            btn.querySelector("span").textContent = "copy";
+          }, 1800);
+        });
+      });
+
+      // ============================================================
+      // Sidebar scroll-spy
+      // Sets .is-active on the sidebar link whose section is most visible.
+      // ============================================================
+      const sideLinks = Array.from(document.querySelectorAll(".docs-side a[href^='#']"));
+      if (sideLinks.length && "IntersectionObserver" in window) {
+        // Resolve link -> matching heading element
+        const linkByTarget = new Map();
+        const targets = [];
+        sideLinks.forEach((a) => {
+          const id = a.getAttribute("href").slice(1);
+          const el = document.getElementById(id);
+          if (el) {
+            linkByTarget.set(id, a);
+            targets.push(el);
+          }
+        });
+
+        // Track which sections are currently intersecting
+        const visible = new Map();
+        function highlight() {
+          // Pick the entry closest to the top of the viewport (after nav)
+          let chosen = null;
+          let chosenTop = Infinity;
+          visible.forEach((rect, id) => {
+            if (rect.top < chosenTop && rect.top >= 60) {
+              chosenTop = rect.top;
+              chosen = id;
+            }
+          });
+          // If nothing is in the active range, fall back to the closest above
+          if (!chosen) {
+            let bestId = null;
+            let bestTop = -Infinity;
+            for (const el of targets) {
+              const r = el.getBoundingClientRect();
+              if (r.top <= 80 && r.top > bestTop) {
+                bestTop = r.top;
+                bestId = el.id;
+              }
+            }
+            chosen = bestId;
+          }
+          sideLinks.forEach((a) => {
+            const id = a.getAttribute("href").slice(1);
+            a.classList.toggle("is-active", id === chosen);
+          });
+        }
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const ent of entries) {
+              if (ent.isIntersecting) {
+                visible.set(ent.target.id, ent.boundingClientRect);
+              } else {
+                visible.delete(ent.target.id);
+              }
+            }
+            highlight();
+          },
+          { rootMargin: "-72px 0px -65% 0px", threshold: [0, 0.1, 0.5, 1] }
+        );
+        targets.forEach((el) => io.observe(el));
+        // Initial pass after layout settles
+        setTimeout(highlight, 200);
+        window.addEventListener("scroll", () => requestAnimationFrame(highlight), { passive: true });
+      }
+    })();
+    </script>
+  </body>
+</html>
