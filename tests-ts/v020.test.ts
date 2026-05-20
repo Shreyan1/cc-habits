@@ -31,6 +31,7 @@ let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-v020-'));
+  process.env['CC_HABITS_DIR'] = tmpDir;
   storagePaths.habitsDir = tmpDir;
   storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
   storagePaths.logFile = path.join(tmpDir, 'log.jsonl');
@@ -40,6 +41,7 @@ beforeEach(() => {
   storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
   storagePaths.provenanceFile = path.join(tmpDir, '.provenance.json');
+  storagePaths.configFile = path.join(tmpDir, 'config.yml');
   initHabitsMd();
   initLog();
   vi.mocked(extractor.extractRules).mockResolvedValue([]);
@@ -47,6 +49,7 @@ beforeEach(() => {
 
 afterEach(() => {
   Object.assign(storagePaths, origStorage);
+  delete process.env['CC_HABITS_DIR'];
   fs.rmSync(tmpDir, { recursive: true, force: true });
   vi.clearAllMocks();
 });

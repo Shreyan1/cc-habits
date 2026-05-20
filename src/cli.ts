@@ -76,7 +76,8 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   }
 
   // Offer bootstrap from past sessions if this is a fresh install with a provider configured.
-  const providerReady = hasAnthropicEnv || hasConfigFile || !!providerFlag;
+  // Re-check config file existence here — it may have just been written by showProviderMenu().
+  const providerReady = hasAnthropicEnv || fs.existsSync(CONFIG_FILE) || !!providerFlag;
   const habitsEmpty = parseHabits(readHabitsMd());
   const hasExistingHabits = Object.values(habitsEmpty).some(h => h.length > 0);
 
