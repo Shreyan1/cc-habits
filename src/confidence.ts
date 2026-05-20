@@ -19,8 +19,7 @@ export interface RuleUpdate {
   reasoning: string;
 }
 
-// ── Confidence math helpers ────────────────────────────────────────────────────
-
+// Confidence math helpers ───────────────────────────────────────────────────
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -29,8 +28,7 @@ function clamp(n: number): number {
   return Math.max(CONFIDENCE_FLOOR, Math.min(CONFIDENCE_CAP, round2(n)));
 }
 
-// ── Rule normalization & sanitization ──────────────────────────────────────────
-
+// Rule normalization & sanitization ─────────────────────────────────────────
 function normalize(text: string): string {
   return text.trim().replace(/\.$/, '').toLowerCase();
 }
@@ -99,8 +97,7 @@ function findHabit(cats: HabitsMap, matchedId: string, ruleText: string): Habit 
   return null;
 }
 
-// ── Confidence decay (B4) ──────────────────────────────────────────────────────
-
+// Confidence decay (B4) ─────────────────────────────────────────────────────
 function daysBetween(a: string, b: string): number {
   const ta = Date.parse(a);
   const tb = Date.parse(b);
@@ -128,8 +125,7 @@ export function applyDecay(cats: HabitsMap, todayIso?: string): number {
   return decayed;
 }
 
-// ── Main update entrypoint ─────────────────────────────────────────────────────
-
+// Main update entrypoint ────────────────────────────────────────────────────
 // A single habit change applied during one Stop pass. Collected for the
 // session summary so the user can see exactly what cc-habits did and why.
 export interface AppliedChange {
@@ -232,8 +228,7 @@ export function applyUpdates(
   return [newCount, updatedCount];
 }
 
-// ── Pending updates (A4) ───────────────────────────────────────────────────────
-
+// Pending updates (A4) ──────────────────────────────────────────────────────
 export function toPending(updates: RuleUpdate[]): PendingUpdate[] {
   const ts = new Date().toISOString();
   return updates

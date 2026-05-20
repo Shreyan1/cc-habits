@@ -156,8 +156,7 @@ export function writeHabitsMd(content: string): void {
   safeWrite(storagePaths.habitsFile, content);
 }
 
-// ── Tombstones (A2) ───────────────────────────────────────────────────────────
-
+// Tombstones (A2) ──────────────────────────────────────────────────────────
 function normalizeRule(s: string): string {
   return s.trim().replace(/\.$/, '').toLowerCase();
 }
@@ -190,8 +189,7 @@ export function isTombstoned(rule: string): boolean {
   return readTombstones().some(t => t === target);
 }
 
-// ── Snapshot (auto-detect manual deletes) ─────────────────────────────────────
-
+// Snapshot (auto-detect manual deletes) ────────────────────────────────────
 export function readSnapshot(): HabitsMap | null {
   if (!fs.existsSync(storagePaths.snapshotFile)) return null;
   try {
@@ -225,8 +223,7 @@ export function detectManualDeletes(current: HabitsMap): string[] {
   return deleted;
 }
 
-// ── Pending updates staging (A4) ──────────────────────────────────────────────
-
+// Pending updates staging (A4) ─────────────────────────────────────────────
 export interface PendingUpdate {
   category: string;
   rule: string;
@@ -258,8 +255,7 @@ export function clearPending(): void {
   }
 }
 
-// ── History (B1: diff) ────────────────────────────────────────────────────────
-
+// History (B1: diff) ───────────────────────────────────────────────────────
 export interface HistoryEntry {
   ts: string;
   session_id?: string;
@@ -288,8 +284,7 @@ export function readHistory(): HistoryEntry[] {
   return out;
 }
 
-// ── Provenance (B2: explain) ──────────────────────────────────────────────────
-
+// Provenance (B2: explain) ─────────────────────────────────────────────────
 export interface ProvenanceRef {
   ts: string;
   session_id: string;
@@ -335,8 +330,7 @@ export function lookupProvenance(rule: string): ProvenanceRef[] {
   return [];
 }
 
-// ── Habits parsing / serialising ──────────────────────────────────────────────
-
+// Habits parsing / serialising ─────────────────────────────────────────────
 export function parseHabits(md: string): HabitsMap {
   const cats: HabitsMap = {};
   let currentCat: string | null = null;
@@ -473,8 +467,7 @@ export function logError(msg: string): void {
   }
 }
 
-// ── Path sanitization (S4) ────────────────────────────────────────────────────
-
+// Path sanitization (S4) ───────────────────────────────────────────────────
 export function sanitizeFilePath(p: string): string {
   // Strip any traversal segments; collapse to a safe representation.
   // We keep the path for human-readability but drop dangerous fragments.

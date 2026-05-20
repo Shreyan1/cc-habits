@@ -5,8 +5,7 @@ import {
 
 const VERSION = '0.2.5';
 
-// ── Fuzzy command suggestion ──────────────────────────────────────────────────
-
+// Fuzzy command suggestion ─────────────────────────────────────────────────
 const KNOWN_COMMANDS = [
   'init', 'bootstrap', 'view', 'reset', 'pending', 'tombstone', 'tombstones',
   'diff', 'explain', 'lint', 'export', 'import', 'sync',

@@ -67,8 +67,7 @@ function writeSignals(sid = SESSION): void {
   }
 }
 
-// ── PostToolUse ───────────────────────────────────────────────────────────────
-
+// PostToolUse ──────────────────────────────────────────────────────────────
 describe('PostToolUse hook', () => {
   it('Edit writes a signal', () => {
     processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 'main.py', old_string: 'def foo(): pass', new_string: 'def foo() -> None: pass' } });
@@ -109,8 +108,7 @@ describe('PostToolUse hook', () => {
   });
 });
 
-// ── PHI redaction ─────────────────────────────────────────────────────────────
-
+// PHI redaction ────────────────────────────────────────────────────────────
 describe('PHI redaction', () => {
   it('redacts email addresses', () => {
     processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 'c.py', old_string: "EMAIL = 'admin@example.com'", new_string: 'EMAIL = get_email()' } });
@@ -138,8 +136,7 @@ describe('PHI redaction', () => {
   });
 });
 
-// ── Noise gating ──────────────────────────────────────────────────────────────
-
+// Noise gating ─────────────────────────────────────────────────────────────
 describe('noise gating', () => {
   it('short diff is noise', () => { expect(isNoise('+x')).toBe(true); });
   it('whitespace-only diff is noise', () => { expect(isNoise('  \n+   \n-  ')).toBe(true); });
@@ -149,8 +146,7 @@ describe('noise gating', () => {
   it('mixed comment + code is not noise', () => { expect(isNoise('- # comment\n+ def foo() -> None: pass')).toBe(false); });
 });
 
-// ── Stop hook gating ──────────────────────────────────────────────────────────
-
+// Stop hook gating ─────────────────────────────────────────────────────────
 describe('Stop hook gating', () => {
   it('skips with zero signals', async () => {
     expect(await processStop(SESSION)).toBeNull();
@@ -176,8 +172,7 @@ describe('Stop hook gating', () => {
   });
 });
 
-// ── Stop hook full pipeline ───────────────────────────────────────────────────
-
+// Stop hook full pipeline ──────────────────────────────────────────────────
 describe('Stop hook pipeline', () => {
   it('creates habits.md with correct structure', async () => {
     writeSignals();
@@ -280,8 +275,7 @@ describe('Stop hook pipeline', () => {
   });
 });
 
-// ── CLI: init ────────────────────────────────────────────────────────────────
-
+// CLI: init ───────────────────────────────────────────────────────────────
 describe('CLI init', () => {
   it('creates storage files', async () => {
     process.env['ANTHROPIC_API_KEY'] = 'test-key';
@@ -327,8 +321,7 @@ describe('CLI init', () => {
   });
 });
 
-// ── CLI: view ────────────────────────────────────────────────────────────────
-
+// CLI: view ───────────────────────────────────────────────────────────────
 describe('CLI view', () => {
   it('shows empty state', () => {
     const ret = cmdView();
@@ -350,8 +343,7 @@ describe('CLI view', () => {
   });
 });
 
-// ── CLI: reset ───────────────────────────────────────────────────────────────
-
+// CLI: reset ──────────────────────────────────────────────────────────────
 describe('CLI reset', () => {
   it('requires --yes flag', () => { expect(cmdReset(false)).toBe(1); });
   it('deletes habits and log files', () => {
@@ -363,8 +355,7 @@ describe('CLI reset', () => {
   it('is idempotent — no error if already deleted', () => { expect(cmdReset(true)).toBe(0); });
 });
 
-// ── Three uncovered scenarios ─────────────────────────────────────────────────
-
+// Three uncovered scenarios ────────────────────────────────────────────────
 describe('Scenario 1: nvm PATH — hook command uses absolute binary path', () => {
   it('registered command is resolvable and contains the binary name', async () => {
     process.env['ANTHROPIC_API_KEY'] = 'test-key';

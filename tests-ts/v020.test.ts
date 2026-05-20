@@ -54,8 +54,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// ── B1: diff ──────────────────────────────────────────────────────────────────
-
+// B1: diff ─────────────────────────────────────────────────────────────────
 describe('B1: cc-habits diff', () => {
   it('returns null with fewer than 2 history entries', () => {
     appendHistory({ ts: '2026-05-19T10:00:00Z', habits_md: '# h' });
@@ -132,8 +131,7 @@ describe('B1: cc-habits diff', () => {
   });
 });
 
-// ── B2: explain ───────────────────────────────────────────────────────────────
-
+// B2: explain ──────────────────────────────────────────────────────────────
 describe('B2: cc-habits explain', () => {
   it('returns null for a habit that does not exist', () => {
     expect(explainHabit('completely fictional rule')).toBeNull();
@@ -177,8 +175,7 @@ describe('B2: cc-habits explain', () => {
   });
 });
 
-// ── C2: configurable habitsDir ───────────────────────────────────────────────
-
+// C2: configurable habitsDir ──────────────────────────────────────────────
 describe('C2: CC_HABITS_DIR override', () => {
   it('storagePaths derive from CC_HABITS_DIR when set', async () => {
     process.env['CC_HABITS_DIR'] = '/tmp/custom-cc-habits';
@@ -193,8 +190,7 @@ describe('C2: CC_HABITS_DIR override', () => {
   });
 });
 
-// ── C3: provider abstraction ─────────────────────────────────────────────────
-
+// C3: provider abstraction ────────────────────────────────────────────────
 describe('C3: provider selection', () => {
   it('CC_HABITS_PROVIDER=ollama selects the Ollama provider', async () => {
     process.env['CC_HABITS_PROVIDER'] = 'ollama';
@@ -221,8 +217,7 @@ describe('C3: provider selection', () => {
   });
 });
 
-// ── C4: export / import ──────────────────────────────────────────────────────
-
+// C4: export / import ─────────────────────────────────────────────────────
 describe('C4: export and import', () => {
   it('export returns the current habits.md content', () => {
     writeHabitsMd(serialiseHabits({

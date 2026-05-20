@@ -40,8 +40,10 @@ You can also just open `~/.claude/habits/habits.md` in your editor and delete an
 
 ```bash
 npm install -g cc-habits
-cc-habits init
+cc-habits init        # cch init works too
 ```
+
+> `cch` is a short alias for `cc-habits`. All commands work with either (`cch init`, `cch view`, `cch pending`, etc.).
 
 During init, if cc-habits finds past Claude Code sessions for this project, it offers to **bootstrap** — learning habits from your existing work instantly:
 
@@ -60,7 +62,7 @@ You can also run this any time with `cc-habits bootstrap`.
 - Claude Code installed
 - An AI provider — see below
 
-> **One-off install (no global install):** `npx cc-habits@latest init` runs just the init step. You will still need `npm install -g cc-habits` to use `cc-habits view` and `cc-habits reset`.
+> **One-off install (no global install):** `npx cc-habits@latest init` runs just the init step. You will still need `npm install -g cc-habits` to use `cc-habits view`, `cch view`, and `cc-habits reset`.
 
 ### Choosing a provider
 
@@ -254,8 +256,11 @@ You provide your own key. cc-habits does not collect or proxy keys.
 
 ## Commands
 
+`cch` is a short alias for `cc-habits`; all commands below work with either.
+
 ```bash
 npm install -g cc-habits              # install globally (once)
+# cch is a short alias; all commands below work with either
 cc-habits init                        # install hooks, create habits.md, choose a provider
 cc-habits bootstrap                   # learn habits from past Claude Code sessions in this project
 cc-habits view                        # show current habits + recent signals

@@ -42,8 +42,7 @@ function confidenceBar(conf: number, width = 22): string {
   return c(color, bar);
 }
 
-// ── init ──────────────────────────────────────────────────────────────────────
-
+// init ─────────────────────────────────────────────────────────────────────
 export async function cmdInit(providerFlag?: string): Promise<number> {
   process.stdout.write(c(BOLD, 'cc-habits: initialising...\n'));
 
@@ -231,8 +230,7 @@ async function configureProvider(provider: string, tick: string, dash: string): 
   process.stderr.write(`cc-habits: unknown provider '${provider}'. Choose: anthropic, ollama, openai, groq\n`);
 }
 
-// ── view ──────────────────────────────────────────────────────────────────────
-
+// view ─────────────────────────────────────────────────────────────────────
 export function cmdView(): number {
   const habitsMd = readHabitsMd();
   const allSignals = readSignals();
@@ -313,8 +311,7 @@ function renderHabitLine(h: { rule: string; confidence: number; reinforcing: num
   );
 }
 
-// ── reset ─────────────────────────────────────────────────────────────────────
-
+// reset ────────────────────────────────────────────────────────────────────
 export function cmdReset(yes: boolean): number {
   if (!yes) {
     process.stderr.write('cc-habits reset: requires --yes flag to confirm deletion.\n');
@@ -336,8 +333,7 @@ export function cmdReset(yes: boolean): number {
   return 0;
 }
 
-// ── pending (A4) ──────────────────────────────────────────────────────────────
-
+// pending (A4) ─────────────────────────────────────────────────────────────
 export function cmdPending(action: 'show' | 'approve' | 'discard'): number {
   const pending = readPending();
   if (pending.length === 0) {
@@ -374,8 +370,7 @@ export function cmdPending(action: 'show' | 'approve' | 'discard'): number {
   return 0;
 }
 
-// ── tombstone (A2 explicit command) ───────────────────────────────────────────
-
+// tombstone (A2 explicit command) ──────────────────────────────────────────
 export function cmdTombstone(rule: string): number {
   if (!rule) {
     process.stderr.write('cc-habits tombstone: requires a rule string.\n  Usage: cc-habits tombstone "Use strict mode"\n');
@@ -399,8 +394,7 @@ export function cmdTombstones(): number {
   return 0;
 }
 
-// ── diff (B1) ─────────────────────────────────────────────────────────────────
-
+// diff (B1) ────────────────────────────────────────────────────────────────
 export function cmdDiff(since?: number): number {
   const d = computeDiff(since);
   if (!d) {
@@ -436,8 +430,7 @@ export function cmdDiff(since?: number): number {
   return 0;
 }
 
-// ── explain (B2) ──────────────────────────────────────────────────────────────
-
+// explain (B2) ─────────────────────────────────────────────────────────────
 export function cmdExplain(query: string): number {
   if (!query) {
     process.stderr.write('cc-habits explain: requires a habit rule (or substring).\n');
@@ -471,8 +464,7 @@ export function cmdExplain(query: string): number {
   return 0;
 }
 
-// ── lint (B3) ─────────────────────────────────────────────────────────────────
-
+// lint (B3) ────────────────────────────────────────────────────────────────
 export async function cmdLint(filePath: string, asJson: boolean): Promise<number> {
   if (!filePath) {
     process.stderr.write('cc-habits lint: requires a file path.\n  Usage: cc-habits lint <file>\n');
@@ -505,8 +497,7 @@ export async function cmdLint(filePath: string, asJson: boolean): Promise<number
   return 1;
 }
 
-// ── bootstrap ────────────────────────────────────────────────────────────────
-
+// bootstrap ───────────────────────────────────────────────────────────────
 export async function cmdBootstrap(): Promise<number> {
   const sessions = discoverSessions();
 
@@ -556,8 +547,7 @@ export async function cmdBootstrap(): Promise<number> {
   }
 }
 
-// ── export/import (C4) ────────────────────────────────────────────────────────
-
+// export/import (C4) ───────────────────────────────────────────────────────
 export function cmdExport(outputPath?: string): number {
   const md = exportHabits(outputPath);
   if (outputPath) {
@@ -583,8 +573,7 @@ export function cmdImport(inputPath: string): number {
   return 0;
 }
 
-// ── sync (Patch 1: portable AGENTS.md / Cursor / Cline emitter) ────────────────
-
+// sync (Patch 1: portable AGENTS.md / Cursor / Cline emitter) ───────────────
 const VALID_SYNC_TARGETS: SyncTarget[] = ['agents', 'cursor', 'cline'];
 
 export function cmdSync(rawTargets: string[], dir?: string): number {
@@ -624,8 +613,7 @@ export function cmdSync(rawTargets: string[], dir?: string): number {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
+// Helpers ──────────────────────────────────────────────────────────────────
 function promptChoice(question: string, min: number, max: number): Promise<number | null> {
   if (!process.stdin.isTTY) return Promise.resolve(null);
   return new Promise(resolve => {

@@ -76,8 +76,7 @@ export async function extractRules(
   return [];
 }
 
-// ── Generic LLM call for lint (B3) ────────────────────────────────────────────
-
+// Generic LLM call for lint (B3) ───────────────────────────────────────────
 const LINT_PROMPT = `You are a code reviewer. Given a developer's learned coding habits and a source file, identify which habits the file violates.
 
 INPUT FILE ({file_path}):

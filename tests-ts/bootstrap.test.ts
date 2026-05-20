@@ -83,8 +83,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// ── Signal extraction from transcripts ────────────────────────────────────────
-
+// Signal extraction from transcripts ───────────────────────────────────────
 describe('extractSignalsFromTranscript', () => {
   it('extracts Edit tool calls as signals', () => {
     const transcript = path.join(tmpDir, 'session.jsonl');
@@ -166,8 +165,7 @@ describe('extractSignalsFromTranscript', () => {
   });
 });
 
-// ── Session discovery ────────────────────────────────────────────────────────
-
+// Session discovery ───────────────────────────────────────────────────────
 describe('discoverSessions', () => {
   it('finds session JSONL files in the project directory', () => {
     const projectPath = '/tmp/test-project';
@@ -186,8 +184,7 @@ describe('discoverSessions', () => {
   });
 });
 
-// ── Full bootstrap pipeline ──────────────────────────────────────────────────
-
+// Full bootstrap pipeline ─────────────────────────────────────────────────
 describe('bootstrap pipeline', () => {
   it('runs extraction and populates habits.md', async () => {
     vi.mocked(extractor.extractRules).mockResolvedValueOnce([

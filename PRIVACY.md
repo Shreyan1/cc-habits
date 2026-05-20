@@ -44,7 +44,7 @@ If you are operating in a regulated environment:
 
 - Treat `~/.claude/habits/` as you would any folder containing source-code diffs.
 - Set `ANTHROPIC_API_KEY` via your secrets manager rather than storing it in `config.yml`.
-- Periodically run `cc-habits reset --yes` to clear local history (tombstones survive).
+- Periodically run `cc-habits reset --yes` (or `cch reset --yes`) to clear local history (tombstones survive).
 - For air-gapped contexts, do not run `cc-habits init`. Without an API key, the Stop hook fails closed.
 
 ## Recommended hygiene
@@ -57,7 +57,7 @@ If you are operating in a regulated environment:
 
 - It will not phone home. There is no cc-habits server.
 - It will not modify code in your repositories. It only writes to `~/.claude/`.
-- It will not register itself with Claude Code without `cc-habits init` running explicitly.
+- It will not register itself with Claude Code without `cc-habits init` (or `cch init`) running explicitly.
 - It will not fail a Claude Code session. Every hook is wrapped in `try/catch` and exits 0 on error.
 
 ## Reporting a privacy concern

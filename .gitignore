@@ -1,18 +1,18 @@
-# ─── Dependencies & build output ──────────────────────────────────────────────
+# Dependencies & build output
 node_modules/
 dist/
 *.js.map
 
-# ─── OS / editor noise ────────────────────────────────────────────────────────
+# OS / editor noise
 .DS_Store
 *.swp
 *.swo
 *~
 
-# ─── Logs & runtime artifacts ─────────────────────────────────────────────────
+# Logs & runtime artifacts
 *.log
 
-# ─── Secrets & local config (never commit) ────────────────────────────────────
+# Secrets & local config
 config.yml
 **/config.yml
 .env
@@ -20,10 +20,9 @@ config.yml
 *.pem
 *.key
 
-# ─── Local tool state ─────────────────────────────────────────────────────────
+# Local tool state
 .claude/
 
-# ─── Local-only working files ─────────────────────────────────────────────────
-# Personal notes and drafts kept out of the published package.
+# Local-only working files
 CLAUDE.md
 internal/

@@ -18,8 +18,7 @@ const MAX_DIFF_BYTES = 4096;
 // 4 MB is generous even for a large Write payload; anything bigger is anomalous.
 const MAX_STDIN_BYTES = 4 * 1024 * 1024; // 4 MB
 
-// ── PHI redaction ─────────────────────────────────────────────────────────────
-
+// PHI redaction ────────────────────────────────────────────────────────────
 const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
 const PAN_RE = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi;
 const CARD_CANDIDATE_RE = /\b(?:\d[\s\-]?){12,19}\b/g;
@@ -46,8 +45,7 @@ export function redact(text: string): string {
   return text;
 }
 
-// ── Noise gating ──────────────────────────────────────────────────────────────
-
+// Noise gating ─────────────────────────────────────────────────────────────
 export function isNoise(diff: string): boolean {
   if (diff.trim().length < MIN_DIFF_LEN) return true;
   if (!diff.replace(/[\s+\-]/g, '')) return true;
@@ -61,8 +59,7 @@ export function isNoise(diff: string): boolean {
   return false;
 }
 
-// ── Language detection (B6) ───────────────────────────────────────────────────
-
+// Language detection (B6) ──────────────────────────────────────────────────
 const EXT_TO_LANG: Record<string, string> = {
   '.ts': 'ts', '.tsx': 'tsx',
   '.js': 'js', '.jsx': 'jsx', '.mjs': 'js', '.cjs': 'js',
@@ -92,8 +89,7 @@ export function detectLanguage(filePath: string): string | undefined {
   return EXT_TO_LANG[ext];
 }
 
-// ── Diff builder ──────────────────────────────────────────────────────────────
-
+// Diff builder ─────────────────────────────────────────────────────────────
 export function buildDiff(toolName: string, filePath: string, toolInput: Record<string, unknown>): string {
   let diff = '';
   if (toolName === 'Write') {
@@ -122,8 +118,7 @@ export function buildDiff(toolName: string, filePath: string, toolInput: Record<
   return diff;
 }
 
-// ── Pure logic ────────────────────────────────────────────────────────────────
-
+// Pure logic ───────────────────────────────────────────────────────────────
 export function processPostToolUse(data: Record<string, unknown>): void {
   const toolName = String(data['tool_name'] ?? '');
   if (!WRITE_TOOLS.has(toolName)) return;
@@ -207,8 +202,7 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   return { newCount, updatedCount, decayed, tombstoned: deleted.length, changes };
 }
 
-// ── Session summary (transparency surface) ────────────────────────────────────
-//
+// Session summary (transparency surface) ───────────────────────────────────//
 // Printed to stderr when a Claude Code session ends. The goal is trust through
 // transparency: show the user exactly which habits were learned, reinforced, or
 // contradicted this session — not just opaque counts. Plain text only (no ANSI):
@@ -273,8 +267,7 @@ function recordProvenance(updates: RuleUpdate[], signals: Signal[], sessionId: s
   }
 }
 
-// ── Active-habit injection (Patch 2: UserPromptSubmit) ────────────────────────
-//
+// Active-habit injection (Patch 2: UserPromptSubmit) ───────────────────────//
 // Static @import of habits.md decays: context compaction summarises or drops it
 // (claude-code #19471, #9796). The UserPromptSubmit hook re-injects the top active
 // habits on every prompt so they survive compaction — "laws, not requests."
@@ -344,8 +337,7 @@ export function processUserPromptSubmit(_data: Record<string, unknown>): string 
   return buildInjectionContext(readHabitsMd());
 }
 
-// ── stdin/stdout wrappers ─────────────────────────────────────────────────────
-
+// stdin/stdout wrappers ────────────────────────────────────────────────────
 export function handlePostToolUse(): void {
   let raw = '';
   let oversized = false;
