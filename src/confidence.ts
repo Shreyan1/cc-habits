@@ -130,9 +130,21 @@ export function applyDecay(cats: HabitsMap, todayIso?: string): number {
 
 // ── Main update entrypoint ─────────────────────────────────────────────────────
 
+// A single habit change applied during one Stop pass. Collected for the
+// session summary so the user can see exactly what cc-habits did and why.
+export interface AppliedChange {
+  category: string;
+  rule: string;
+  decision: 'create' | 'reinforce' | 'contradict';
+  confidence: number;
+}
+
 export interface ApplyOptions {
   sessionId?: string;
   todayIso?: string;
+  // Optional collector: if provided, every applied change is pushed here.
+  // Non-breaking — callers that don't need detail simply omit it.
+  changes?: AppliedChange[];
 }
 
 export function applyUpdates(
@@ -142,6 +154,7 @@ export function applyUpdates(
 ): [number, number] {
   const today = options.todayIso ?? new Date().toISOString().slice(0, 10);
   const sessionId = options.sessionId ?? '';
+  const changes = options.changes;
   let newCount = 0;
   let updatedCount = 0;
 
@@ -176,6 +189,7 @@ export function applyUpdates(
           last_updated: today,
         });
         newCount++;
+        changes?.push({ category, rule: ruleText, decision: 'create', confidence: INITIAL });
       } else {
         existing.confidence = clamp(existing.confidence + REINFORCE_DELTA);
         existing.reinforcing = (existing.reinforcing ?? 0) + 1;
@@ -185,6 +199,7 @@ export function applyUpdates(
         }
         existing.last_updated = today;
         updatedCount++;
+        changes?.push({ category, rule: ruleText, decision: 'reinforce', confidence: existing.confidence });
       }
     } else if (decision === 'reinforce') {
       if (existing !== null) {
@@ -196,6 +211,7 @@ export function applyUpdates(
         }
         existing.last_updated = today;
         updatedCount++;
+        changes?.push({ category, rule: ruleText, decision: 'reinforce', confidence: existing.confidence });
       }
     } else if (decision === 'contradict') {
       if (existing !== null) {
@@ -205,6 +221,7 @@ export function applyUpdates(
         existing.contradicting = (existing.contradicting ?? 0) + 1;
         existing.last_updated = today;
         updatedCount++;
+        changes?.push({ category, rule: ruleText, decision: 'contradict', confidence: existing.confidence });
       }
     }
 

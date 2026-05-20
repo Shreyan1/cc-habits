@@ -6,6 +6,7 @@ import {
   appendHistory, appendProvenance,
 } from './storage';
 import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule } from './confidence';
+import type { AppliedChange } from './confidence';
 import { extractRules } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError } from './providers';
 
@@ -154,6 +155,7 @@ export interface StopResult {
   updatedCount: number;
   decayed: number;
   tombstoned: number;
+  changes: AppliedChange[];
 }
 
 export async function processStop(sessionId: string): Promise<StopResult | null> {
@@ -174,7 +176,8 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   const decayed = applyDecay(cats);
 
   const updates = await extractRules(gated, habitsMd);
-  const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId });
+  const changes: AppliedChange[] = [];
+  const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes });
 
   // B2: record provenance — which signals contributed to each create/reinforce.
   recordProvenance(updates, gated, sessionId);
@@ -201,7 +204,51 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised });
   clearPending();
 
-  return { newCount, updatedCount, decayed, tombstoned: deleted.length };
+  return { newCount, updatedCount, decayed, tombstoned: deleted.length, changes };
+}
+
+// ── Session summary (transparency surface) ────────────────────────────────────
+//
+// Printed to stderr when a Claude Code session ends. The goal is trust through
+// transparency: show the user exactly which habits were learned, reinforced, or
+// contradicted this session — not just opaque counts. Plain text only (no ANSI):
+// the hook's stderr is piped, not a TTY, so colour codes would render as noise.
+
+export function formatStopSummary(result: StopResult): string {
+  const { changes, decayed, tombstoned } = result;
+
+  const created = changes.filter(c => c.decision === 'create');
+  const reinforced = changes.filter(c => c.decision === 'reinforce');
+  const contradicted = changes.filter(c => c.decision === 'contradict');
+
+  const pct = (n: number): string => `${Math.round(n * 100)}%`;
+  const lines: string[] = ['cc-habits: session summary'];
+
+  if (created.length > 0) {
+    lines.push(`  + learned ${created.length} new`);
+    for (const c of created) lines.push(`      [${c.category}] ${c.rule}`);
+  }
+  if (reinforced.length > 0) {
+    lines.push(`  ^ reinforced ${reinforced.length}`);
+    for (const c of reinforced) lines.push(`      [${c.category}] ${c.rule} -> ${pct(c.confidence)}`);
+  }
+  if (contradicted.length > 0) {
+    lines.push(`  v contradicted ${contradicted.length}`);
+    for (const c of contradicted) lines.push(`      [${c.category}] ${c.rule} -> ${pct(c.confidence)}`);
+  }
+
+  const tail: string[] = [];
+  if (decayed > 0) tail.push(`${decayed} decayed from inactivity`);
+  if (tombstoned > 0) tail.push(`${tombstoned} tombstoned (you deleted them)`);
+  if (tail.length > 0) lines.push(`  ~ ${tail.join(', ')}`);
+
+  // Nothing changed but the Stop pipeline still ran (e.g. only skips this batch).
+  if (created.length === 0 && reinforced.length === 0 && contradicted.length === 0 && tail.length === 0) {
+    lines.push('  no habit changes this session');
+  }
+
+  lines.push('  habits.md updated · run `cc-habits view` for the full picture');
+  return lines.join('\n');
 }
 
 // Helper for B2 provenance recording. Lives outside processStop for clarity.
@@ -348,10 +395,7 @@ export async function handleStop(): Promise<void> {
     const sessionId = String(data['session_id'] ?? '');
     const result = await processStop(sessionId);
     if (result !== null) {
-      const parts = [`learned ${result.newCount} new habits, updated ${result.updatedCount}`];
-      if (result.decayed > 0) parts.push(`decayed ${result.decayed}`);
-      if (result.tombstoned > 0) parts.push(`tombstoned ${result.tombstoned}`);
-      process.stderr.write(`cc-habits: ${parts.join(', ')}.\n`);
+      process.stderr.write(formatStopSummary(result) + '\n');
     }
   } catch (e) {
     if (e instanceof ProviderRateLimitError || e instanceof ProviderTimeoutError) {
