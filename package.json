@@ -22,6 +22,7 @@
   "homepage": "https://github.com/Shreyan1/cc-habits#readme",
   "bin": {
     "cc-habits": "dist/index.js",
+    "cch": "dist/index.js",
     "cc-habits-hook": "dist/hook-entry.js"
   },
   "files": [

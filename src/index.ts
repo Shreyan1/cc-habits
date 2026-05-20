@@ -3,9 +3,48 @@ import {
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
 } from './cli';
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.5';
+
+// ── Fuzzy command suggestion ──────────────────────────────────────────────────
+
+const KNOWN_COMMANDS = [
+  'init', 'bootstrap', 'view', 'reset', 'pending', 'tombstone', 'tombstones',
+  'diff', 'explain', 'lint', 'export', 'import', 'sync',
+];
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
+    Array.from({ length: n + 1 }, (_, j) => i === 0 ? j : j === 0 ? i : 0),
+  );
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i]![j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1]![j - 1]!
+        : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
+    }
+  }
+  return dp[m]![n]!;
+}
+
+function suggest(cmd: string): string | undefined {
+  const lower = cmd.toLowerCase();
+  // Unambiguous prefix match wins immediately.
+  const prefixMatches = KNOWN_COMMANDS.filter(c => c.startsWith(lower));
+  if (prefixMatches.length === 1) return prefixMatches[0];
+  // Fall back to nearest Levenshtein neighbour (threshold: 2 edits).
+  let best: string | undefined;
+  let bestDist = Infinity;
+  for (const known of KNOWN_COMMANDS) {
+    const d = levenshtein(lower, known);
+    if (d < bestDist) { bestDist = d; best = known; }
+  }
+  return bestDist <= 2 ? best : undefined;
+}
 
 const HELP = `cc-habits ${VERSION} — Claude Code learns your coding habits, automatically.
+  Tip: 'cch' is a short alias for 'cc-habits'.
 
 Usage:
   cc-habits init                    Install hooks, create habits.md — interactive provider setup
@@ -91,7 +130,10 @@ async function main(): Promise<void> {
     );
     process.exit(cmdSync(targets, dir));
   } else {
-    process.stderr.write(`cc-habits: unknown command '${command}'\n\n`);
+    const hint = suggest(command);
+    process.stderr.write(`cc-habits: unknown command '${command}'`);
+    if (hint) process.stderr.write(`\n  Did you mean '${hint}'?  Try: cc-habits ${hint}`);
+    process.stderr.write('\n\n');
     process.stderr.write(HELP);
     process.exit(1);
   }
