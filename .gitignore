@@ -26,6 +26,4 @@ config.yml
 # ─── Local-only working files ─────────────────────────────────────────────────
 # Personal notes and drafts kept out of the published package.
 CLAUDE.md
-ROADMAP.md
-PRE-RELEASE.md
-habits-analysis.md
+internal/
