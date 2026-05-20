@@ -4,7 +4,7 @@ import { chmodSync } from 'fs';
 const shared = {
   bundle: true,
   platform: 'node',
-  target: 'node18',
+  target: 'node20',
   banner: { js: '#!/usr/bin/env node' },
   // Keep @anthropic-ai/sdk external to avoid bundling issues with its internal dynamic requires
   external: ['@anthropic-ai/sdk'],

@@ -56,7 +56,7 @@ During init, if cc-habits finds past Claude Code sessions for this project, it o
 You can also run this any time with `cc-habits bootstrap`.
 
 **Requirements:**
-- Node.js 18+ (already installed if you use Claude Code)
+- Node.js 20+ (already installed if you use Claude Code)
 - Claude Code installed
 - An AI provider — see below
 
