@@ -39,6 +39,9 @@ beforeEach(() => {
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
   storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
+  storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
+  storagePaths.provenanceFile = path.join(tmpDir, '.provenance.json');
+  storagePaths.configFile = path.join(tmpDir, 'config.yml');
   const claudeDir = path.join(tmpDir, 'dot_claude');
   fs.mkdirSync(claudeDir, { recursive: true });
   installPaths.claudeDir = claudeDir;
