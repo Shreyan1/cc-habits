@@ -152,6 +152,39 @@ describe('Global install: hooks in user-level settings.json', () => {
   });
 });
 
+describe('Signal cap: long sessions do not hit provider 413', () => {
+  it('passes at most 50 signals to extractRules when session has more', async () => {
+    // Write 60 substantive signals for the same session.
+    for (let i = 0; i < 60; i++) {
+      makeEdit(`file${i}.ts`, `const old${i} = 'x'.repeat(30)`, `const new${i} = 'y'.repeat(30)`, 'session-big');
+    }
+    const captured: unknown[][] = [];
+    vi.mocked(extractor.extractRules).mockImplementationOnce(async (signals) => {
+      captured.push(signals as unknown[]);
+      return [];
+    });
+    await processStop('session-big');
+    expect(captured).toHaveLength(1);
+    expect((captured[0] as unknown[]).length).toBeLessThanOrEqual(50);
+  });
+
+  it('uses the most recent signals when capping', async () => {
+    for (let i = 0; i < 55; i++) {
+      makeEdit(`file${i}.ts`, `const old${i} = 'x'.repeat(30)`, `const new${i} = 'y'.repeat(30)`, 'session-recent');
+    }
+    const captured: unknown[][] = [];
+    vi.mocked(extractor.extractRules).mockImplementationOnce(async (signals) => {
+      captured.push(signals as unknown[]);
+      return [];
+    });
+    await processStop('session-recent');
+    const files = (captured[0] as Array<{ file: string }>).map(s => s.file);
+    // The most recent 50 signals correspond to files 5-54.
+    expect(files).toContain('file54.ts');
+    expect(files).not.toContain('file4.ts');
+  });
+});
+
 describe('@import uses absolute path', () => {
   it('import line starts with / not ~', async () => {
     process.env['ANTHROPIC_API_KEY'] = 'test-key';

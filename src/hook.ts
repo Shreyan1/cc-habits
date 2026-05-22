@@ -15,6 +15,9 @@ const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit']);
 const MIN_SIGNALS = 3;
 const MIN_DIFF_LEN = 20;
 const MAX_DIFF_BYTES = 4096;
+// Cap signals sent to the extractor to avoid provider 413 / context-limit errors.
+// 50 signals is plenty of signal for a single session; anything beyond is noise.
+const MAX_SIGNALS_PER_EXTRACTION = 50;
 // Bound stdin reads: a legitimate Claude Code hook payload is always small.
 // 4 MB is generous even for a large Write payload; anything bigger is anomalous.
 const MAX_STDIN_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -235,7 +238,18 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   // B4: decay stale habits before applying new updates.
   const decayed = applyDecay(cats);
 
-  const updates = await extractRules(gated, habitsMd);
+  // Cap to the most recent MAX_SIGNALS_PER_EXTRACTION signals to avoid provider
+  // 413 / context-limit errors on long sessions. Warn so the user knows it happened.
+  const capped = gated.length > MAX_SIGNALS_PER_EXTRACTION
+    ? gated.slice(-MAX_SIGNALS_PER_EXTRACTION)
+    : gated;
+  if (gated.length > MAX_SIGNALS_PER_EXTRACTION) {
+    process.stderr.write(
+      `cc-habits: ${gated.length} signals this session, using the most recent ${MAX_SIGNALS_PER_EXTRACTION}\n`,
+    );
+  }
+
+  const updates = await extractRules(capped, habitsMd);
   const changes: AppliedChange[] = [];
   const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes });
 
