@@ -1042,26 +1042,26 @@ function PanelBody({ text }) {
 }
 
 const LEFT_STEPS = [
-  { text: "> src/api.ts", cls: "ldd-dim", t: 300 },
+  { text: "> src/hook.ts", cls: "ldd-dim", t: 300 },
   { text: "", cls: "", t: 650 },
-  { text: "- async function fetchUser(id) {", cls: "ldd-minus", t: 850 },
-  { text: "+ async function fetchUser(id: string): Promise<User> {", cls: "ldd-plus", t: 1150 },
+  { text: "- async function runHook(ev) {", cls: "ldd-minus", t: 850 },
+  { text: "+ async function runHook(ev: HookEvent): Promise<void> {", cls: "ldd-plus", t: 1150 },
   { text: "", cls: "", t: 1450 },
   { text: "PostToolUse  ✓  signal captured", cls: "ldd-ok", t: 1650 },
   { text: "", cls: "", t: 2100 },
-  { text: "> src/utils.ts", cls: "ldd-dim", t: 2300 },
+  { text: "> src/storage.ts", cls: "ldd-dim", t: 2300 },
   { text: "", cls: "", t: 2650 },
-  { text: "- const data = fetch(url).then(r => r.json())", cls: "ldd-minus", t: 2850 },
+  { text: "- const data = fs.readFileSync(path)", cls: "ldd-minus", t: 2850 },
   { text: "+ try {", cls: "ldd-plus", t: 3100 },
-  { text: '+   const data = await fetch(url).then(r => r.json())', cls: "ldd-plus", t: 3250 },
-  { text: "+ } catch(e) { throw new Error(`fetch: ${e.message}`) }", cls: "ldd-plus", t: 3400 },
+  { text: "+   const data = await fs.promises.readFile(path)", cls: "ldd-plus", t: 3250 },
+  { text: "+ } catch(e) { throw new Error(String(e)) }", cls: "ldd-plus", t: 3400 },
   { text: "", cls: "", t: 3700 },
   { text: "PostToolUse  ✓  signal captured", cls: "ldd-ok", t: 3900 },
   { text: "", cls: "", t: 4350 },
-  { text: "> src/auth.ts", cls: "ldd-dim", t: 4550 },
+  { text: "> src/cli.ts", cls: "ldd-dim", t: 4550 },
   { text: "", cls: "", t: 4900 },
-  { text: "- function validate(token) {", cls: "ldd-minus", t: 5100 },
-  { text: "+ function validate(token: string): boolean {", cls: "ldd-plus", t: 5400 },
+  { text: "- import { readFile, writeFile, rm } from 'fs'", cls: "ldd-minus", t: 5100 },
+  { text: "+ import { readFile, writeFile } from 'fs/promises'", cls: "ldd-plus", t: 5400 },
   { text: "", cls: "", t: 5700 },
   { text: "PostToolUse  ✓  signal captured", cls: "ldd-ok", t: 5900 },
   { text: "", cls: "", t: 6400 },
@@ -1071,19 +1071,25 @@ const LEFT_STEPS = [
 ];
 
 const RIGHT_STEPS = [
-  { text: "~/.claude/habits/habits.md", cls: "ldd-dim", t: 8200 },
-  { text: "", cls: "", t: 8600 },
-  { text: "## TypeScript", cls: "ldd-section", t: 8800 },
-  { text: "- Add explicit types to function parameters", cls: "", t: 9050 },
-  { text: "  and return types.", cls: "", t: 9150 },
-  { text: "  ↑ 2 reinforcing  ↓ 0 contradicting", cls: "ldd-ok", t: 9350 },
-  { text: "  confidence: 0.60  (new ✶)", cls: "ldd-new", t: 9550 },
-  { text: "", cls: "", t: 9800 },
-  { text: "## Error Handling", cls: "ldd-section", t: 10000 },
-  { text: "- Wrap async I/O in try/catch,", cls: "", t: 10200 },
-  { text: "  throw descriptive errors.", cls: "", t: 10300 },
-  { text: "  ↑ 1 reinforcing  ↓ 0 contradicting", cls: "ldd-ok", t: 10500 },
-  { text: "  confidence: 0.50  (new ✶)", cls: "ldd-new", t: 10700 },
+  { text: "$ cch view", cls: "ldd-dim", t: 8200 },
+  { text: "", cls: "", t: 8500 },
+  { text: "  cc-habits · your coding habits", cls: "ldd-accent", t: 8700 },
+  { text: "", cls: "", t: 9000 },
+  { text: "  ── File Management ─────────────────", cls: "ldd-section", t: 9100 },
+  { text: "  Temp dirs cleaned up after use", cls: "", t: 9300 },
+  { text: "  [█████████████████████░] 95%  ↑3  · 10 sessions", cls: "ldd-ok", t: 9500 },
+  { text: "", cls: "", t: 9750 },
+  { text: "  ── Testing ─────────────────────────", cls: "ldd-section", t: 9900 },
+  { text: "  Setup/teardown explicit in tests", cls: "", t: 10100 },
+  { text: "  [████████████████████░░] 90%  ↑9  · 9 sessions", cls: "ldd-ok", t: 10300 },
+  { text: "", cls: "", t: 10550 },
+  { text: "  ── Error Handling ─────────────────", cls: "ldd-section", t: 10700 },
+  { text: "  Env vars cleared after use", cls: "", t: 10900 },
+  { text: "  [██████████████████░░░░] 80%  ↑7  · 7 sessions", cls: "ldd-ok", t: 11100 },
+  { text: "", cls: "", t: 11350 },
+  { text: "  ── Imports ─────────────────────────", cls: "ldd-section", t: 11500 },
+  { text: "  Review imports for unnecessary ones", cls: "", t: 11700 },
+  { text: "  [█████████████████░░░░░] 75%  ↑6  · 6 sessions", cls: "ldd-ok", t: 11900 },
 ];
 
 function LiveDemo() {
@@ -1106,7 +1112,7 @@ function LiveDemo() {
     if (!("IntersectionObserver" in window)) { setStarted(true); return; }
     const io = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) { setStarted(true); io.disconnect(); }
-    }, { threshold: 0.25 });
+    }, { threshold: 0.05 });
     io.observe(el);
     return () => io.disconnect();
   }, [started]);
@@ -1127,29 +1133,49 @@ function LiveDemo() {
   }, [started]);
 
   const leftCursorVisible = started && !leftDone;
+  const allDone = leftDone && rightLines.length === RIGHT_STEPS.length;
+
+  const replay = () => {
+    setStarted(false);
+    setLeftLines([]);
+    setRightLines([]);
+    setLeftDone(false);
+    setTimeout(() => setStarted(true), 80);
+  };
 
   return (
     <div ref={containerRef} className="live-demo">
       <div className="live-demo__panels">
         <TerminalPanel header="Claude Code session">
           <div className="live-demo__body">
+            {!started && (
+              <span className="ldd-dim">(scroll to play)</span>
+            )}
             {leftLines.map((l, i) => (
-              <div key={i} className={`ldd-line ${l.cls}`}>{l.text || " "}</div>
+              <div key={i} className={`ldd-line ${l.cls}`}>{l.text || " "}</div>
             ))}
-            {leftCursorVisible && <span className="ldd-cursor" aria-hidden="true">&#x258C;</span>}
+            {leftCursorVisible && <span className="ldd-cursor" aria-hidden="true">▌</span>}
           </div>
         </TerminalPanel>
-        <TerminalPanel header="~/.claude/habits/habits.md">
+        <TerminalPanel header="cch view">
           <div className="live-demo__body">
-            {rightLines.length === 0 && started && (
-              <span className="ldd-dim">(empty — session still running...)</span>
+            {!started && (
+              <span className="ldd-dim">(waiting for session...)</span>
+            )}
+            {started && rightLines.length === 0 && (
+              <span className="ldd-dim">(session still running...)</span>
             )}
             {rightLines.map((l, i) => (
-              <div key={i} className={`ldd-line ${l.cls}`}>{l.text || " "}</div>
+              <div key={i} className={`ldd-line ${l.cls}`}>{l.text || " "}</div>
             ))}
           </div>
         </TerminalPanel>
       </div>
+      {allDone && (
+        <button onClick={replay} className="live-demo__replay" aria-label="Replay demo">
+          replay ↺
+        </button>
+      )}
     </div>
   );
 }
