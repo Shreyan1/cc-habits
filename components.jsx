@@ -186,11 +186,20 @@ function DayNightToggle() {
    ============================================================ */
 function NavBar() {
   const [scrolled, setScrolled] = useState(false);
+  const [stars, setStars] = useState(null);
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 80);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    fetch("https://api.github.com/repos/Shreyan1/cc-habits")
+      .then((r) => r.json())
+      .then((d) => { if (typeof d.stargazers_count === "number") setStars(d.stargazers_count); })
+      .catch(() => {});
   }, []);
 
   return (
@@ -207,7 +216,7 @@ function NavBar() {
             href="https://github.com/Shreyan1/cc-habits"
             target="_blank"
             rel="noreferrer">
-            GitHub
+            GitHub{stars !== null ? ` ★ ${stars}` : ""}
           </a>
           <a
             className="nav__link"
@@ -243,6 +252,21 @@ function TerminalPanel({ header, children, className = "", style }) {
    ============================================================ */
 function ConfidenceBar({ value = 0, state = "active", showLabel = true }) {
   const pct = Math.round(value * 100);
+  const fillRef = useRef(null);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    const el = fillRef.current;
+    if (!el) return;
+    if (!("IntersectionObserver" in window)) { setRevealed(true); return; }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setRevealed(true); return; }
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setRevealed(true); io.disconnect(); }
+    }, { threshold: 0.2 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   const fillClass =
     state === "learning"
       ? "cbar__fill--learning"
@@ -251,10 +275,10 @@ function ConfidenceBar({ value = 0, state = "active", showLabel = true }) {
       : "";
   return (
     <div className="habit__bar-row">
-      <div className="cbar" aria-hidden="true">
+      <div ref={fillRef} className="cbar" aria-hidden="true">
         <div
           className={`cbar__fill ${fillClass}`}
-          style={{ "--cbar-fill": `${Math.max(0, Math.min(1, value)) * 100}%` }}
+          style={{ "--cbar-fill": revealed ? `${Math.max(0, Math.min(1, value)) * 100}%` : "0%" }}
         />
       </div>
       {showLabel ? <span className="cbar__label">{pct}%</span> : null}

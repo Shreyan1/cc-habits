@@ -1079,6 +1079,65 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   }
 }
 
+/* =========================================================
+   Live demo - two-panel session replay
+   ========================================================= */
+.live-demo {
+  margin-bottom: 0;
+}
+.live-demo__panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .live-demo__panels { grid-template-columns: 1fr; }
+}
+.live-demo__body {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  min-height: 8rem;
+}
+.ldd-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1.35em;
+  color: var(--ink);
+}
+.section--dark .ldd-line,
+.hiw .ldd-line { color: var(--ink); }
+
+.ldd-minus  { color: var(--signal-neg); }
+.ldd-plus   { color: var(--ink); font-weight: 500; }
+.ldd-ok     { color: var(--signal-pos); }
+.ldd-dim    { color: var(--ink-dim); }
+.ldd-accent { color: var(--accent); }
+.ldd-section { color: var(--accent); font-weight: 600; }
+.ldd-new    { color: var(--learning); }
+
+@keyframes ldd-blink { 50% { opacity: 0; } }
+.ldd-cursor {
+  display: inline-block;
+  animation: ldd-blink 900ms steps(1) infinite;
+  color: var(--ink);
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+/* =========================================================
+   Copy CTA pulse on success
+   ========================================================= */
+@keyframes copy-pulse {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+.btn--flash-accent {
+  animation: copy-pulse 280ms var(--ease-out) forwards;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
