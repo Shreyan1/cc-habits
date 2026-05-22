@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
       rel="stylesheet" />
 
-    <link rel="stylesheet" href="styles.css?v=5" />
+    <link rel="stylesheet" href="styles.css?v=6" />
   </head>
   <body>
     <div id="app"></div>
@@ -682,11 +682,20 @@ function DayNightToggle() {
 
 function NavBar() {
   const [scrolled, setScrolled] = useState(false);
+  const [stars, setStars] = useState(null);
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 80);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    fetch("https://api.github.com/repos/Shreyan1/cc-habits")
+      .then((r) => r.json())
+      .then((d) => { if (typeof d.stargazers_count === "number") setStars(d.stargazers_count); })
+      .catch(() => {});
   }, []);
 
   return (
@@ -703,7 +712,7 @@ function NavBar() {
             href="https://github.com/Shreyan1/cc-habits"
             target="_blank"
             rel="noreferrer">
-            GitHub
+            GitHub{stars !== null ? ` ★ ${stars}` : ""}
           </a>
           <a
             className="nav__link"
@@ -733,6 +742,21 @@ function TerminalPanel({ header, children, className = "", style }) {
 
 function ConfidenceBar({ value = 0, state = "active", showLabel = true }) {
   const pct = Math.round(value * 100);
+  const fillRef = useRef(null);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    const el = fillRef.current;
+    if (!el) return;
+    if (!("IntersectionObserver" in window)) { setRevealed(true); return; }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setRevealed(true); return; }
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setRevealed(true); io.disconnect(); }
+    }, { threshold: 0.2 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   const fillClass =
     state === "learning"
       ? "cbar__fill--learning"
@@ -741,10 +765,10 @@ function ConfidenceBar({ value = 0, state = "active", showLabel = true }) {
       : "";
   return (
     <div className="habit__bar-row">
-      <div className="cbar" aria-hidden="true">
+      <div ref={fillRef} className="cbar" aria-hidden="true">
         <div
           className={`cbar__fill ${fillClass}`}
-          style={{ "--cbar-fill": `${Math.max(0, Math.min(1, value)) * 100}%` }}
+          style={{ "--cbar-fill": revealed ? `${Math.max(0, Math.min(1, value)) * 100}%` : "0%" }}
         />
       </div>
       {showLabel ? <span className="cbar__label">{pct}%</span> : null}
@@ -950,7 +974,7 @@ Object.assign(window, { Hero });
 // how-it-works.jsx
 // ============================================================
 
-const { useEffect: useEffectHIW, useRef: useRefHIW } = React;
+const { useEffect: useEffectHIW, useRef: useRefHIW, useState: useStateHIW } = React;
 
 const P1_TEXT =
 `session 6f9a · users/auth.py
@@ -1017,6 +1041,119 @@ function PanelBody({ text }) {
   );
 }
 
+const LEFT_STEPS = [
+  { text: "> src/api.ts", cls: "ldd-dim", t: 300 },
+  { text: "", cls: "", t: 650 },
+  { text: "- async function fetchUser(id) {", cls: "ldd-minus", t: 850 },
+  { text: "+ async function fetchUser(id: string): Promise<User> {", cls: "ldd-plus", t: 1150 },
+  { text: "", cls: "", t: 1450 },
+  { text: "PostToolUse  ✓  signal captured", cls: "ldd-ok", t: 1650 },
+  { text: "", cls: "", t: 2100 },
+  { text: "> src/utils.ts", cls: "ldd-dim", t: 2300 },
+  { text: "", cls: "", t: 2650 },
+  { text: "- const data = fetch(url).then(r => r.json())", cls: "ldd-minus", t: 2850 },
+  { text: "+ try {", cls: "ldd-plus", t: 3100 },
+  { text: '+   const data = await fetch(url).then(r => r.json())', cls: "ldd-plus", t: 3250 },
+  { text: "+ } catch(e) { throw new Error(`fetch: ${e.message}`) }", cls: "ldd-plus", t: 3400 },
+  { text: "", cls: "", t: 3700 },
+  { text: "PostToolUse  ✓  signal captured", cls: "ldd-ok", t: 3900 },
+  { text: "", cls: "", t: 4350 },
+  { text: "> src/auth.ts", cls: "ldd-dim", t: 4550 },
+  { text: "", cls: "", t: 4900 },
+  { text: "- function validate(token) {", cls: "ldd-minus", t: 5100 },
+  { text: "+ function validate(token: string): boolean {", cls: "ldd-plus", t: 5400 },
+  { text: "", cls: "", t: 5700 },
+  { text: "PostToolUse  ✓  signal captured", cls: "ldd-ok", t: 5900 },
+  { text: "", cls: "", t: 6400 },
+  { text: "[session ended]", cls: "ldd-dim", t: 6600 },
+  { text: "cc-habits: analyzing 3 signals...", cls: "ldd-accent", t: 7200 },
+  { text: "cc-habits: learned 2 habits, updated 1.", cls: "ldd-accent", t: 8400 },
+];
+
+const RIGHT_STEPS = [
+  { text: "~/.claude/habits/habits.md", cls: "ldd-dim", t: 8200 },
+  { text: "", cls: "", t: 8600 },
+  { text: "## TypeScript", cls: "ldd-section", t: 8800 },
+  { text: "- Add explicit types to function parameters", cls: "", t: 9050 },
+  { text: "  and return types.", cls: "", t: 9150 },
+  { text: "  ↑ 2 reinforcing  ↓ 0 contradicting", cls: "ldd-ok", t: 9350 },
+  { text: "  confidence: 0.60  (new ✶)", cls: "ldd-new", t: 9550 },
+  { text: "", cls: "", t: 9800 },
+  { text: "## Error Handling", cls: "ldd-section", t: 10000 },
+  { text: "- Wrap async I/O in try/catch,", cls: "", t: 10200 },
+  { text: "  throw descriptive errors.", cls: "", t: 10300 },
+  { text: "  ↑ 1 reinforcing  ↓ 0 contradicting", cls: "ldd-ok", t: 10500 },
+  { text: "  confidence: 0.50  (new ✶)", cls: "ldd-new", t: 10700 },
+];
+
+function LiveDemo() {
+  const containerRef = useRefHIW(null);
+  const [started, setStarted] = useStateHIW(false);
+  const [leftLines, setLeftLines] = useStateHIW([]);
+  const [rightLines, setRightLines] = useStateHIW([]);
+  const [leftDone, setLeftDone] = useStateHIW(false);
+
+  useEffectHIW(() => {
+    const el = containerRef.current;
+    if (!el || started) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      setLeftLines(LEFT_STEPS);
+      setRightLines(RIGHT_STEPS);
+      setLeftDone(true);
+      return;
+    }
+    if (!("IntersectionObserver" in window)) { setStarted(true); return; }
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setStarted(true); io.disconnect(); }
+    }, { threshold: 0.25 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [started]);
+
+  useEffectHIW(() => {
+    if (!started) return;
+    const timers = LEFT_STEPS.map((step) =>
+      setTimeout(() => setLeftLines((prev) => [...prev, step]), step.t)
+    );
+    const rightTimers = RIGHT_STEPS.map((step) =>
+      setTimeout(() => setRightLines((prev) => [...prev, step]), step.t)
+    );
+    const doneTimer = setTimeout(
+      () => setLeftDone(true),
+      LEFT_STEPS[LEFT_STEPS.length - 1].t + 200
+    );
+    return () => { [...timers, ...rightTimers, doneTimer].forEach(clearTimeout); };
+  }, [started]);
+
+  const leftCursorVisible = started && !leftDone;
+
+  return (
+    <div ref={containerRef} className="live-demo">
+      <div className="live-demo__panels">
+        <TerminalPanel header="Claude Code session">
+          <div className="live-demo__body">
+            {leftLines.map((l, i) => (
+              <div key={i} className={`ldd-line ${l.cls}`}>{l.text || " "}</div>
+            ))}
+            {leftCursorVisible && <span className="ldd-cursor" aria-hidden="true">&#x258C;</span>}
+          </div>
+        </TerminalPanel>
+        <TerminalPanel header="~/.claude/habits/habits.md">
+          <div className="live-demo__body">
+            {rightLines.length === 0 && started && (
+              <span className="ldd-dim">(empty — session still running...)</span>
+            )}
+            {rightLines.map((l, i) => (
+              <div key={i} className={`ldd-line ${l.cls}`}>{l.text || " "}</div>
+            ))}
+          </div>
+        </TerminalPanel>
+      </div>
+    </div>
+  );
+}
+
 function HowItWorks() {
   const t = window.useTweakValues();
   const copy = window.COPY;
@@ -1060,6 +1197,12 @@ function HowItWorks() {
             {copy.hiwSub}
           </p>
         </div>
+
+        <LiveDemo />
+
+        <p className="t-caption ink-dim" style={{ marginBottom: "2.5rem", marginTop: "3rem" }}>
+          under the hood
+        </p>
 
         <div className="hiw__panels">
           <div className="hiw__panel">
