@@ -3,7 +3,7 @@ import {
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
 } from './cli';
 
-const VERSION = '0.2.8';
+const VERSION = '0.2.9';
 
 // Fuzzy command suggestion ─────────────────────────────────────────────────
 const KNOWN_COMMANDS = [

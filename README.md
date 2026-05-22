@@ -101,7 +101,7 @@ PostToolUse (Write|Edit|MultiEdit)
   → exits in <50ms, never blocks a session
 
 Stop (session end)
-  → reads session signals from log.jsonl
+  → reads session signals from log.jsonl (capped at 50 most recent per session)
   → makes one Haiku call to extract patterns
   → reinforcements / contradictions applied immediately
   → new habits: written to Learning section + queued in pending for review
@@ -288,7 +288,7 @@ npm install -g cc-habits              # install globally (once)
 cc-habits init                        # install hooks, create habits.md, choose a provider
 cc-habits bootstrap                   # learn habits from past Claude Code sessions in this project
 cc-habits view                        # show current habits + recent signals
-cc-habits log [--limit N]             # show capture log — audit trail of what was sent
+cc-habits log [--limit N]             # show capture log, audit trail of what was sent
 cc-habits diff [--since N]            # changes since the last write (or N writes ago)
 cc-habits explain "<rule>"            # show the signals that produced a habit
 cc-habits lint <file> [--json]        # check a source file against your habits
