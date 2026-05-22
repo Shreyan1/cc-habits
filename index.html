@@ -1400,6 +1400,11 @@ const GUARDRAILS = [
     n: "04",
     title: "Preview before apply.",
     body: "cch pending shows queued updates; --approve or --discard is yours to call."
+  },
+  {
+    n: "05",
+    title: "Full visibility.",
+    body: "A session-start banner tells you exactly how many habits are active. cch log shows every signal ever captured — the actual diffs sent to your provider. Nothing runs you can't audit."
   }
 ];
 
@@ -1558,6 +1563,10 @@ const FAQ_GROUPS = [
         a: <span>Yes. Hooks live in <code>~/.claude/settings.json</code> and habits in <code>~/.claude/habits/</code>, both user-level. Everything is global by default, with no per-project setup.</span>
       },
       {
+        q: "How is this different from slash commands or tool configurations?",
+        a: <span>Commands are explicit: you define them, invoke them, maintain them. cc-habits is passive: it watches what you actually change in Claude's output, extracts the pattern, and teaches Claude without any action on your part. You never write a rule. You just code.</span>
+      },
+      {
         q: "I already auto-generate a CLAUDE.md. Does this replace it?",
         a: <span>No. It fills the gap. <strong><em>cch init</em></strong> adds a single <code>@import</code> line to your existing <code>~/.claude/CLAUDE.md</code> and overwrites nothing. Your generated file stays; cc-habits keeps it current with what you actually do.</span>
       },
@@ -1579,12 +1588,16 @@ const FAQ_GROUPS = [
     group: "privacy & data",
     items: [
       {
+        q: "How do I see exactly what cc-habits captured and sent?",
+        a: <span><strong><em>cch log</em></strong> shows every signal ever captured — timestamp, file, and the exact diff. The install flow shows a plain-language summary of what gets captured and where before you configure any cloud provider. Ollama users: nothing leaves your machine at all. There is no black box.</span>
+      },
+      {
         q: "What actually leaves my machine?",
         a: "Exactly one call per session: the Stop hook sends a redacted batch of signals to your chosen provider, using your own key. Emails, Indian PAN numbers, and Luhn-valid credit-card numbers are stripped before anything leaves."
       },
       {
-        q: "Does cc-habits phone home?",
-        a: "Never. There's no cc-habits server, no telemetry, no analytics, no error-reporting endpoint. The only outbound call is the extractor call to the provider you pick."
+        q: "Does cc-habits phone home or collect usage data?",
+        a: <span>Never. There is no cc-habits server, no telemetry, no analytics endpoint. The only outbound call is the extractor call to the provider <em>you</em> configure — using <em>your</em> key, hitting their API directly, governed by your terms with them. You can verify this: <strong><em>cch log</em></strong> shows the full record of every captured signal.</span>
       },
       {
         q: "Am I the data controller? (GDPR / DPDP / CCPA)",
@@ -1682,37 +1695,39 @@ const COPY = {
   heroCaption: "cc-habits  ·  v0.2.6  ·  open source",
   heroTagline: "It learns your style from the edits you already make, and feeds it back into every session, automatically.",
   heroSub:
-    "A 100% local CLI that writes your style to a plain habits.md Claude reads every session. Every hook runs in under 50ms and never blocks your terminal. No lock-in.",
+    "A 100% local CLI that writes your style to a plain habits.md Claude reads every session. No commands to define. No rules to maintain. Every signal it captures is readable with cch log. Every hook runs in under 50ms. No lock-in.",
   problemCaption: "00  ·  why this exists",
   problemPull: "You've been training Claude all along. It just hasn't been listening.",
   problemBody: [
     "Every developer has a distinct fingerprint: how you wrap errors, name variables, structure a module. Taste the model can't infer from a prompt.",
     "These days you don't hand-write a CLAUDE.md. You have Claude generate one from a quick discussion. But that's a snapshot of what you said you wanted on one afternoon. It never sees the corrections you make for weeks after, and you never reopen it to update it.",
-    "Meanwhile, every edit you make on top of Claude's output is high-fidelity signal, and it all evaporates. cc-habits captures what your CLAUDE.md can't and writes it to a habits.md Claude reads on every session. Automatically."
+    "You can write commands to teach Claude your patterns. But that's still you writing rules — a maintenance burden that rarely captures the nuance in what you actually change. cc-habits doesn't ask you to articulate your style. It observes it.",
+    "Every edit you make on top of Claude's output is high-fidelity signal. cc-habits captures it, strips PII, and writes it to a habits.md Claude reads on every session. Automatically. And you can read every signal it ever sent with a single command."
   ],
   problemContrastLeft: "what claude wrote",
   problemContrastRight: "what you changed it to",
   hiwCaption: "01  ·  how cc-habits works",
   hiwTitle: "Three hooks. One markdown file. Zero config.",
-  hiwSub: "cc-habits plugs three hooks into Claude Code's lifecycle. They run silently, execute in under 50ms, and never block your terminal.",
+  hiwSub: "cc-habits plugs three hooks into Claude Code's lifecycle. They run silently, execute in under 50ms, and never block your terminal. Nothing to invoke. Nothing to remember.",
   hiwFooter: "The Capture and Submit hooks run locally in milliseconds. The session-end Stop hook makes a single small-model call. You choose the provider.",
   learnsCaption: "02  ·  what it learns",
   learnsTitle: "Your style, in plain markdown.",
   learnsBody: "habits.md is human-readable markdown. Read it, edit it, delete a rule, or commit it to git. The format is documented as an open spec, so you own your data.",
-  guardCaption: "03  ·  accuracy",
-  guardTitle: "Four guardrails so it won't poison your context.",
+  guardCaption: "03  ·  accuracy & trust",
+  guardTitle: "Five guardrails. Because auto-learned style should earn its place — and stay visible.",
   portableCaption: "04  ·  portable",
   portableTitle: "Your habits aren't locked to Claude Code.",
   portableBody: [
     <span><strong><em>cch sync</em></strong> automatically translates your active habits into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and <code>.clinerules</code>.</span>,
-    "Train your habits in Claude Code; use them across Cursor, Cline, and Codex without re-learning."
+    "Train once in Claude Code. Your style travels to Cursor, Cline, Codex, and anything else that reads AGENTS.md — without redefining anything per tool.",
+    <span style={{ fontSize: "0.875rem", color: "var(--ink-muted)" }}>Note: synced files contain inferences derived from your code. Review before committing to a shared repo.</span>
   ],
   installCaption: "05  ·  install",
   installTitle: "Two commands. You're done.",
-  installBody: <span><strong><em>cc-habits init</em></strong> walks you through picking a provider: Anthropic for the cheapest run, Ollama for a free local run, or OpenAI/Groq keys. It even offers to bootstrap habits from your past Claude Code sessions instantly.</span>,
+  installBody: <span><strong><em>cc-habits init</em></strong> shows you a plain-language summary of what it captures and where it goes before asking you to configure any cloud provider. Pick Ollama and nothing ever leaves your machine. Pick Anthropic, OpenAI, or Groq and your signals go directly to that provider via your own key — cc-habits never sees them. It even offers to bootstrap habits from your past Claude Code sessions instantly.</span>,
   faqCaption: "06  ·  faq",
   faqTitle: "Common questions.",
-  ctaTitle: "Make Claude Code write like you.",
+  ctaTitle: "Stop teaching Claude what you want. Let it learn.",
 };
 
 const RAIN_GLYPHS = "01<>[]/_-=+*.,;:#";
