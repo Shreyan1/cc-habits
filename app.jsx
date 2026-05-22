@@ -35,9 +35,9 @@ const COPY = {
   problemCaption: "00  ·  why this exists",
   problemPull: "You've been training Claude all along. It just hasn't been listening.",
   problemBody: [
-    "Every developer has a distinct fingerprint: how you wrap errors, name variables, structure a module. Taste the model can't infer from a prompt.",
-    "These days you don't hand-write a CLAUDE.md. You have Claude generate one from a quick discussion. But that's a snapshot of what you said you wanted on one afternoon. It never sees the corrections you make for weeks after, and you never reopen it to update it.",
-    "Meanwhile, every edit you make on top of Claude's output is high-fidelity signal, and it all evaporates. cc-habits captures what your CLAUDE.md can't and writes it to a habits.md Claude reads on every session. Automatically."
+    "Every developer has a fingerprint: the names you reach for, how you handle errors, the abstractions you prefer. None of it is in any prompt you've written.",
+    "You generated a CLAUDE.md and moved on. That file captured what you said you wanted on the day you made it, not what you've shown Claude a hundred times since. It's stale. You never update it.",
+    "cc-habits doesn't ask you to describe your style. It watches your edits. Every time you fix what Claude wrote, that's a signal. It collects them, finds the patterns, and writes it to a file Claude reads on every session, automatically."
   ],
   problemContrastLeft: "what claude wrote",
   problemContrastRight: "what you changed it to",
