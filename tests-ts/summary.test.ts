@@ -82,13 +82,26 @@ describe('applyUpdates changes collector', () => {
 });
 
 describe('formatStopSummary', () => {
-  it('lists newly learned habits with their category and rule', () => {
+  it('lists newly proposed habits with their category and rule', () => {
     const out = formatStopSummary(emptyResult({
       newCount: 1,
       changes: [{ category: 'Conditionals', rule: 'Prefer ternary operators', decision: 'create', confidence: 0.5 }],
     }));
-    expect(out).toContain('learned 1 new');
+    expect(out).toContain('1 new habit');
     expect(out).toContain('[Conditionals] Prefer ternary operators');
+  });
+
+  it('shows pending review guidance when pendingCount is non-zero', () => {
+    const out = formatStopSummary(emptyResult({
+      newCount: 2,
+      pendingCount: 2,
+      changes: [
+        { category: 'TS', rule: 'Use strict mode', decision: 'create', confidence: 0.5 },
+        { category: 'TS', rule: 'Use explicit types', decision: 'create', confidence: 0.5 },
+      ],
+    }));
+    expect(out).toContain('cch pending');
+    expect(out).toContain('2 new habit');
   });
 
   it('shows reinforced habits with their resulting confidence percentage', () => {

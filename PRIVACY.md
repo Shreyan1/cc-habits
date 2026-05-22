@@ -51,7 +51,7 @@ If you are operating in a regulated environment:
 
 - **Do not sync `~/.claude/habits/`** via Dropbox, iCloud, Syncthing, or similar. Diffs of your code travelling between machines materially expands the data-loss surface. Add it to your sync tool's ignore list.
 - **Move your API key to a secrets manager.** Storing it in `config.yml` is convenient but co-resident processes can read it. Setting `ANTHROPIC_API_KEY` via your shell profile + a secrets agent is stronger.
-- **Audit `log.jsonl` if you handle sensitive data.** It contains 30+ days of code diffs by default. Consider periodic rotation.
+- **Audit `log.jsonl` if you handle sensitive data.** It contains your recent code diffs. Automatic rotation keeps the file below 2 MB (≤ 5,000 most-recent signals); older signals are trimmed. Run `cc-habits log` to inspect or `cc-habits reset --yes` to erase everything.
 
 ## What cc-habits will never do
 

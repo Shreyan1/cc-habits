@@ -16,18 +16,21 @@ Claude Code is great. But out of the box it doesn't know your style. Every devel
 
 ## What if it learns the wrong thing?
 
-cc-habits is opinionated about *not* poisoning your Claude Code context. Four guardrails:
+cc-habits is opinionated about *not* poisoning your Claude Code context. Five guardrails:
 
 1. **New habits don't activate until they've appeared in two distinct sessions.** A bad afternoon of deadline edits cannot graduate into your Claude context. Single-session habits live in a `## Learning (not yet active)` section, visible for review but explicitly marked for Claude to ignore.
-2. **Manual deletes are remembered.** If you delete a rule from `habits.md`, it gets added to `.tombstones.json` and is never re-learned. Your judgment overrides the system.
-3. **Confidence decays over time.** A habit you stopped following loses 0.05/week of confidence after a week of inactivity. Stale rules get pruned automatically.
-4. **You can preview before applying.** Run `cc-habits pending` to see what's queued, then `--approve` or `--discard`.
+2. **New habits are queued for your review.** At the end of each session, proposed new habits are added to a pending queue. The session recap tells you: "2 new habits proposed — run `cch pending` to review." You can `--discard` any you don't want before they graduate.
+3. **Manual deletes are remembered.** If you delete a rule from `habits.md`, it gets added to `.tombstones.json` and is never re-learned. Your judgment overrides the system.
+4. **Confidence decays over time.** A habit you stopped following loses 0.05/week of confidence after a week of inactivity. Stale rules get pruned automatically.
+5. **You can opt out of capture entirely.** Add a `.cc-habits-ignore` file to any repository and cc-habits will not capture signals or run extraction there. Useful for work code or private projects.
 
 If a habit looks wrong, the recipes are:
 
 ```bash
 cc-habits view                       # see everything, including learning section
-cc-habits pending                    # see what's about to be written
+cc-habits log                        # see what was captured and sent (audit trail)
+cc-habits pending                    # review proposed new habits
+cc-habits pending --discard          # reject all pending proposals
 cc-habits tombstone "<rule text>"    # block a rule permanently
 cc-habits reset --yes                # nuclear option: wipe everything (tombstones survive)
 ```
@@ -94,13 +97,15 @@ Three Claude Code hooks are installed into your global `~/.claude/settings.json`
 ```
 PostToolUse (Write|Edit|MultiEdit)
   → captures the diff, appends to ~/.claude/habits/log.jsonl
+  → on your session's first edit: prints "cc-habits: N habits active this session"
   → exits in <50ms, never blocks a session
 
 Stop (session end)
   → reads session signals from log.jsonl
   → makes one Haiku call to extract patterns
-  → updates ~/.claude/habits/habits.md
-  → prints: "cc-habits: learned 2 new habits, updated 3."
+  → reinforcements / contradictions applied immediately
+  → new habits: written to Learning section + queued in pending for review
+  → prints session recap: proposed habits, reinforced, guidance to run `cch pending`
 
 UserPromptSubmit (every prompt)
   → injects your strongest active habits into context
@@ -131,6 +136,8 @@ cc-habits sync cursor       # just Cursor
 ```
 
 It merges a marked block into existing files, so your hand-written `AGENTS.md` content is preserved. Only **active** habits are emitted: the `## Learning` section never leaks out. The same habits you learned in Claude Code now travel to Codex, Cursor, Cline, Amp, and anything else that reads `AGENTS.md`.
+
+> **Note:** Synced files contain inferences derived from your code. Review them before sharing, especially in team or open-source repos. Best-effort redaction applies to signals, but rule text may reflect patterns from proprietary code.
 
 ---
 
@@ -220,9 +227,11 @@ Intentionally simple. Symbolic Bayesian-ish updates with session gating, contrad
 
 ---
 
-## Privacy
+## Privacy and data
 
-Three patterns are redacted before any signal reaches the Anthropic API:
+### What gets captured
+
+Each `Write` / `Edit` / `MultiEdit` during a Claude Code session produces a diff signal. Before the signal is stored locally or sent to the AI provider, three patterns are redacted:
 
 | Pattern | Replacement |
 |---------|-------------|
@@ -230,9 +239,24 @@ Three patterns are redacted before any signal reaches the Anthropic API:
 | Indian PAN numbers | `<REDACTED:pan>` |
 | Credit card numbers (Luhn-validated) | `<REDACTED:card>` |
 
-The extractor prompt explicitly says: *"Never output content marked `<REDACTED:...>`."*
+**This is best-effort, not exhaustive.** Redaction targets common PII types. It does not catch all secrets, internal hostnames, or proprietary identifiers. Review your captures with `cc-habits log` before sending to a cloud provider.
 
-Your API key is stored in `~/.claude/habits/config.yml` on your machine. cc-habits never sees your key except to pass it to the Anthropic SDK.
+### Opting out
+
+| Scope | How |
+|---|---|
+| A single repository | Add `.cc-habits-ignore` to the repo root |
+| System-wide, temporarily | Set `CC_HABITS_DISABLE=1` in your shell |
+| Audit what was captured | `cc-habits log [--limit N]` |
+| Erase all captures | `cc-habits reset --yes` |
+
+### Consent at init
+
+`cc-habits init` shows a plain-language data-flow summary before asking you to configure a cloud provider. You can choose Ollama (fully local, nothing leaves your machine) or skip provider setup entirely.
+
+### API key storage
+
+Your key is stored in `~/.claude/habits/config.yml` (mode `0600`, not readable by other users). cc-habits passes it directly to the provider SDK — it is never logged, cached, or transmitted anywhere else.
 
 ---
 
@@ -264,13 +288,15 @@ npm install -g cc-habits              # install globally (once)
 cc-habits init                        # install hooks, create habits.md, choose a provider
 cc-habits bootstrap                   # learn habits from past Claude Code sessions in this project
 cc-habits view                        # show current habits + recent signals
+cc-habits log [--limit N]             # show capture log — audit trail of what was sent
 cc-habits diff [--since N]            # changes since the last write (or N writes ago)
 cc-habits explain "<rule>"            # show the signals that produced a habit
 cc-habits lint <file> [--json]        # check a source file against your habits
 cc-habits export [path]               # print habits.md (or write to path)
 cc-habits import <file>               # merge a portable habits file
 cc-habits sync [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline (default: agents)
-cc-habits pending [--approve|--discard]  # review queued updates before they apply
+cc-habits pending                     # review proposed new habits
+cc-habits pending --discard           # reject all pending proposals
 cc-habits tombstone "<rule>"          # block a rule from ever being re-learned
 cc-habits tombstones                  # list tombstoned rules
 cc-habits reset --yes                 # delete habits.md, log.jsonl, pending, snapshot
@@ -284,6 +310,9 @@ cc-habits --version                   # print installed version
 | `CC_HABITS_DIR` | `~/.claude/habits` | Override the storage location entirely. |
 | `CC_HABITS_PROVIDER` | `anthropic` | Switch extractor backend: `anthropic`, `openai`, `groq`, `ollama`. |
 | `CC_HABITS_INJECT` | `1` (on) | Set to `0`/`false`/`off` to disable prompt-time habit injection. |
+| `CC_HABITS_MARKER` | `1` (on) | Set to `0`/`false`/`off` to silence the session-start "N habits active" banner. |
+| `CC_HABITS_AUTO` | `0` (off) | Set to `1` to skip the pending review queue and auto-apply new habits silently. |
+| `CC_HABITS_DISABLE` | `0` (off) | Set to `1` to disable all capture and extraction for this shell session. |
 | `ANTHROPIC_API_KEY` | (from config.yml) | Bypass `config.yml` storage. |
 | `OPENAI_API_KEY` / `GROQ_API_KEY` | (from config.yml) | Required when using those providers. |
 
@@ -291,10 +320,17 @@ cc-habits --version                   # print installed version
 
 ## Safety guarantees
 
-1. **Never fails a Claude Code session.** Every hook is wrapped in `try/except`. On error: logs to `~/.claude/habits/error.log`, exits 0. The `|| true` in the hook command is an extra layer.
-2. **No data leaves your machine** except the Anthropic API call. No telemetry, no analytics, no server.
-3. **habits.md is human-readable.** You can read, edit, or delete it at any time. `cc-habits reset --yes` gives you a clean slate.
-4. **Append-only log.** Signals in `log.jsonl` are never modified or deleted except by `cc-habits reset`.
+1. **Never fails a Claude Code session.** Every hook is wrapped in `try/catch`. On error: logs to `~/.claude/habits/error.log`, exits 0. The `|| true` in the hook command is an extra layer.
+2. **No data leaves your machine** except the AI provider call you configured. No telemetry, no analytics, no Anthropic-operated server beyond the API itself.
+3. **Explicit consent for cloud providers.** `cc-habits init` shows a plain-language data-flow summary before asking you to configure any cloud provider. Ollama skips this — nothing leaves your machine.
+4. **Injection-hardened rules.** Because a learned habit is injected into every future session, untrusted code is a prompt-injection channel. Rules and category labels are sanitized at every boundary — write to habits.md, injection into Claude context, `cch import`, and `cch sync`. The sanitizer defends against: role-marker injection (`SYSTEM:`, ChatML, Llama tokens), **zero-width-character splitting** (`SYS​TEM:`), **Unicode homoglyphs** (NFKC folds fullwidth `ＳＹＳＴＥＭ` to ASCII before matching), **container escape** (any `<tag>` token — including `</coding-habits>` — is stripped so a rule cannot break out of the injection wrapper), URLs, and control characters. Length is bounded *before* regex evaluation to prevent ReDoS. Synced files (AGENTS.md, Cursor, Cline) get the same treatment and are safe to commit.
+5. **Imported habits are sanitized.** `cch import` passes all incoming rule text through the same sanitizer, so a malicious shared habits file cannot embed instructions into your context.
+6. **habits.md is human-readable.** You can read, edit, or delete it at any time. `cc-habits reset --yes` gives you a clean slate.
+7. **Bounded log with automatic rotation.** `log.jsonl` is append-only and trimmed automatically when it exceeds 2 MB — keeping the 5,000 most-recent signals. `.history.jsonl` keeps the last 100 session snapshots; `error.log` keeps the last 1,000 lines. Your disk is never silently filled. Inspect at any time with `cc-habits log`; erase with `cc-habits reset`.
+8. **Per-repo opt-out.** Add `.cc-habits-ignore` to any repository to stop capture entirely in that directory tree.
+9. **Terminal-safe output.** `cc-habits log` / `view` / `explain` / `pending` strip ANSI and control sequences from captured content before display, so a malicious diff cannot spoof or manipulate your terminal.
+10. **Validated provider responses.** The extractor never trusts the LLM's JSON blindly — each rule object is shape-validated and coerced to known fields, so a buggy or MITM'd provider endpoint cannot inject arbitrary structure.
+11. **Symlink- and traversal-safe writes.** Every file write refuses to follow symlinks and sanitizes paths against `../` traversal and control characters. Storage files are written `0600` (owner-only).
 
 ---
 

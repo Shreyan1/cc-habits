@@ -108,6 +108,27 @@ describe('storage', () => {
     expect(md).toContain('First learned:');
   });
 
+  it('trims log.jsonl when it exceeds 2 MB, keeping the most recent lines', () => {
+    // Write enough data to exceed the 2 MB rotation threshold.
+    // Each signal is ~300 bytes; 8000 signals ≈ 2.4 MB which is > LOG_ROTATE_BYTES.
+    const base: Omit<ReturnType<typeof readSignals>[0], 'ts'> = {
+      session_id: 'rot', type: 'edit', file: 'app.ts',
+      diff: '+' + 'x'.repeat(250),
+    };
+    for (let i = 0; i < 8_000; i++) {
+      appendSignal({ ...base, ts: `2026-05-22T00:00:${String(i % 60).padStart(2, '0')}Z` });
+    }
+    const stat = fs.statSync(storagePaths.logFile);
+    // After rotation the file must be well below the 2 MB trigger.
+    expect(stat.size).toBeLessThan(2 * 1024 * 1024);
+    // Rotation must have discarded entries: far fewer than the 8000 written.
+    const lines = fs.readFileSync(storagePaths.logFile, 'utf-8')
+      .split('\n').filter(l => l.trim());
+    expect(lines.length).toBeLessThan(8_000);
+    // The trimmed file must still be valid JSONL.
+    expect(() => JSON.parse(lines[0])).not.toThrow();
+  });
+
   it('single-session habits land in Learning section, not active', () => {
     const cats = {
       Python: [

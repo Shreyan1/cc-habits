@@ -1,13 +1,13 @@
 import {
-  cmdInit, cmdView, cmdReset, cmdPending, cmdTombstone, cmdTombstones,
+  cmdInit, cmdView, cmdLog, cmdReset, cmdPending, cmdTombstone, cmdTombstones,
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
 } from './cli';
 
-const VERSION = '0.2.5';
+const VERSION = '0.2.6';
 
 // Fuzzy command suggestion ─────────────────────────────────────────────────
 const KNOWN_COMMANDS = [
-  'init', 'bootstrap', 'view', 'reset', 'pending', 'tombstone', 'tombstones',
+  'init', 'bootstrap', 'view', 'log', 'reset', 'pending', 'tombstone', 'tombstones',
   'diff', 'explain', 'lint', 'export', 'import', 'sync',
 ];
 
@@ -50,6 +50,7 @@ Usage:
   cc-habits init --provider ollama  Skip API key prompt, configure Ollama (free, local)
   cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
   cc-habits view                    Show current habits + recent signals
+  cc-habits log [--limit N]         Show the capture log (audit trail of what was sent)
   cc-habits pending                 Show pending updates queued for the next session write
   cc-habits pending --approve       Apply pending updates to habits.md
   cc-habits pending --discard       Drop pending updates without applying
@@ -94,6 +95,10 @@ async function main(): Promise<void> {
     process.exit(await cmdBootstrap());
   } else if (command === 'view') {
     process.exit(cmdView());
+  } else if (command === 'log') {
+    const limitIdx = args.indexOf('--limit');
+    const limit = limitIdx >= 0 && args[limitIdx + 1] ? parseInt(args[limitIdx + 1], 10) : undefined;
+    process.exit(cmdLog(Number.isFinite(limit as number) ? limit : undefined));
   } else if (command === 'reset') {
     process.exit(cmdReset(args.includes('--yes')));
   } else if (command === 'pending') {

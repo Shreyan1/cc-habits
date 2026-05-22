@@ -68,19 +68,58 @@ const INJECTION_KEYWORDS = new RegExp(
 );
 const URL_RE = /\bhttps?:\/\/\S+/gi;
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
+// Zero-width / invisible characters an attacker inserts mid-keyword to defeat the
+// denylist while the text still renders as the keyword to an LLM (e.g. SYS​TEM:).
+const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
+// Unicode whitespace and line/paragraph separators that are not caught by \x00-\x1f
+// but can still inject structure or break the injection wrapper (U+2028, U+2029, …).
+const UNICODE_SEPARATORS = /[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g;
+// Any XML/HTML-style tag token. Stops container-escape attacks where a rule embeds
+// </coding-habits> (or any tag) to break out of the UserPromptSubmit injection wrapper.
+const TAG_TOKEN = /<\/?\s*[a-zA-Z][\w-]*\s*\/?>/g;
 // Maximum length for a single rule: bounds context window consumption and limits
 // the blast radius of any injection that slips through the pattern filters.
 const MAX_RULE_LENGTH = 500;
+const MAX_CATEGORY_LENGTH = 40;
 
+// Defence-in-depth sanitizer for any untrusted text destined for habits.md or the
+// Claude injection context. Order matters: bound length and normalize Unicode BEFORE
+// running the denylist so homoglyph/zero-width bypasses collapse to canonical ASCII
+// and the regexes never run on unbounded input (ReDoS).
 export function sanitizeRule(rule: string): string {
-  let s = rule.trim();
+  let s = (rule ?? '').trim();
+  // Bound length first — denylist regexes must never see unbounded input.
+  if (s.length > MAX_RULE_LENGTH * 2) s = s.slice(0, MAX_RULE_LENGTH * 2);
+  s = s.replace(ZERO_WIDTH, '');
+  // NFKC folds fullwidth/compatibility homoglyphs (ＳＹＳＴＥＭ → SYSTEM) to ASCII.
+  s = s.normalize('NFKC');
   s = s.replace(CONTROL_CHARS, '');
+  s = s.replace(UNICODE_SEPARATORS, ' ');
   s = s.replace(INJECTION_KEYWORDS, '[redacted]');
+  s = s.replace(TAG_TOKEN, '[redacted]');
   s = s.replace(URL_RE, '[url]');
-  // Collapse repeated whitespace.
   s = s.replace(/\s+/g, ' ').trim();
-  // Hard cap: if after sanitization the rule is still abnormally long, truncate.
   if (s.length > MAX_RULE_LENGTH) s = s.slice(0, MAX_RULE_LENGTH).trimEnd();
+  return s;
+}
+
+// Categories become markdown section headers (## Category) in habits.md AND labels
+// in the injection block. Unsanitized, an LLM- or injection-controlled category could
+// embed newlines / markdown / tags to inject structure. Categories are short labels,
+// so we strip aggressively.
+export function sanitizeCategory(category: string): string {
+  let s = (category ?? '').trim();
+  if (s.length > MAX_CATEGORY_LENGTH * 2) s = s.slice(0, MAX_CATEGORY_LENGTH * 2);
+  s = s.replace(ZERO_WIDTH, '').normalize('NFKC');
+  s = s.replace(CONTROL_CHARS, '');
+  s = s.replace(UNICODE_SEPARATORS, ' ');
+  s = s.replace(TAG_TOKEN, '');
+  // Drop markdown-structural and delimiter chars that could inject headers or
+  // break the "Category:" label format in the injection block.
+  s = s.replace(/[#`*_<>[\]:]/g, '');
+  s = s.replace(/\s+/g, ' ').trim();
+  if (!s) return 'Uncategorized';
+  if (s.length > MAX_CATEGORY_LENGTH) s = s.slice(0, MAX_CATEGORY_LENGTH).trimEnd();
   return s;
 }
 
@@ -162,7 +201,7 @@ export function applyUpdates(
     const decision = (update.decision ?? 'skip').toLowerCase();
     if (decision === 'skip') continue;
 
-    const category = (update.category ?? 'Uncategorized').trim();
+    const category = sanitizeCategory(update.category ?? 'Uncategorized');
     const rawRule = (update.rule ?? '').trim().replace(/\.$/, '');
     const ruleText = sanitizeRule(rawRule);
     if (!ruleText) continue;
@@ -234,7 +273,7 @@ export function toPending(updates: RuleUpdate[]): PendingUpdate[] {
   return updates
     .filter(u => (u.decision ?? '').toLowerCase() !== 'skip')
     .map(u => ({
-      category: (u.category ?? 'Uncategorized').trim(),
+      category: sanitizeCategory(u.category ?? 'Uncategorized'),
       rule: sanitizeRule((u.rule ?? '').trim().replace(/\.$/, '')),
       decision: (u.decision ?? '').toLowerCase(),
       matched_habit_id: u.matched_habit_id,

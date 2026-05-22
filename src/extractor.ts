@@ -69,11 +69,31 @@ export async function extractRules(
 
   try {
     const updates = JSON.parse(cleaned) as unknown;
-    if (Array.isArray(updates)) return updates as RuleUpdate[];
+    if (Array.isArray(updates)) return updates.filter(isValidUpdate).map(coerceUpdate);
   } catch {
     // malformed — treat as no updates
   }
   return [];
+}
+
+// The provider response is untrusted (a self-hosted/MITM'd or simply buggy endpoint
+// could return arbitrary JSON). Validate shape and coerce to exactly the known
+// fields — never spread provider-controlled objects into downstream logic.
+function isValidUpdate(u: unknown): boolean {
+  if (typeof u !== 'object' || u === null) return false;
+  const o = u as Record<string, unknown>;
+  return typeof o['decision'] === 'string' && typeof o['rule'] === 'string';
+}
+
+function coerceUpdate(u: unknown): RuleUpdate {
+  const o = u as Record<string, unknown>;
+  return {
+    category: typeof o['category'] === 'string' ? o['category'] : 'Uncategorized',
+    rule: String(o['rule']),
+    decision: String(o['decision']),
+    matched_habit_id: typeof o['matched_habit_id'] === 'string' ? o['matched_habit_id'] : '',
+    reasoning: typeof o['reasoning'] === 'string' ? o['reasoning'] : '',
+  };
 }
 
 // Generic LLM call for lint (B3) ───────────────────────────────────────────

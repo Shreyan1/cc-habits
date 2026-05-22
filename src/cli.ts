@@ -35,6 +35,16 @@ function c(code: string, text: string): string {
   return NO_COLOR ? text : `${code}${text}${RESET}`;
 }
 
+// Strip terminal control characters (ESC, BEL, CSI sequences, C0/C1 controls) from
+// untrusted content before display. A captured diff or LLM-produced rule could embed
+// ANSI escape codes that spoof output, hide text, or manipulate the user's terminal
+// when they run `cc-habits log` / `view` / `explain` / `pending`.
+// eslint-disable-next-line no-control-regex
+const TERM_CONTROL = /[\x00-\x09\x0b-\x1f\x7f-\x9f]/g;
+function term(s: string): string {
+  return (s ?? '').replace(TERM_CONTROL, '');
+}
+
 function confidenceBar(conf: number, width = 22): string {
   const filled = Math.round(conf * width);
   const bar = '█'.repeat(filled) + '░'.repeat(width - filled);
@@ -117,7 +127,23 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   return 0;
 }
 
+// Plain-language data-flow disclosure shown before any provider is configured.
+// Responsible AI: the user must understand what is captured and where it goes
+// before cc-habits sends anything to a third party.
+function showDataFlowNotice(): void {
+  process.stdout.write('\n');
+  process.stdout.write(c(BOLD, '  How cc-habits uses your code\n'));
+  process.stdout.write(c(DIM, '  ──────────────────────────────\n'));
+  process.stdout.write('  • Captures the diff of files you edit during a Claude Code session.\n');
+  process.stdout.write('  • Redacts email / PAN / card numbers (best-effort, pattern-based — not exhaustive).\n');
+  process.stdout.write('  • Sends batched diffs to the AI provider you choose below, once per session, to learn patterns.\n');
+  process.stdout.write('  • A local-only provider (Ollama) sends nothing off your machine.\n');
+  process.stdout.write(c(DIM, '  Opt out anytime: add a .cc-habits-ignore file in a repo, set CC_HABITS_DISABLE=1,\n'));
+  process.stdout.write(c(DIM, '  inspect captures with `cc-habits log`, or erase them with `cc-habits reset --yes`.\n'));
+}
+
 async function showProviderMenu(tick: string, dash: string): Promise<void> {
+  showDataFlowNotice();
   process.stdout.write('\n');
   process.stdout.write(
     c(YELLOW, '  Note: ') +
@@ -149,6 +175,17 @@ async function showProviderMenu(tick: string, dash: string): Promise<void> {
 async function configureProvider(provider: string, tick: string, dash: string): Promise<void> {
   const dir = path.dirname(CONFIG_FILE);
   fs.mkdirSync(dir, { recursive: true });
+
+  // Cloud providers send redacted diffs off-machine — require explicit consent
+  // in an interactive session. Non-interactive (--provider in a script) is itself
+  // an explicit opt-in, so we don't block it.
+  if (provider !== 'ollama' && process.stdin.isTTY) {
+    const ok = await promptYesNo(`  Send redacted diffs to ${provider} to learn habits? [y/N] `);
+    if (!ok) {
+      process.stdout.write(c(DIM, '  Cancelled — no cloud provider configured. Try Ollama for fully local.\n'));
+      return;
+    }
+  }
 
   if (provider === 'ollama') {
     // Try a quick reachability check so we can warn if Ollama isn't running.
@@ -278,11 +315,11 @@ export function cmdView(): number {
     process.stdout.write(c(BOLD, '  ── Recent signals ') + c(DIM, '─'.repeat(30)) + '\n');
     process.stdout.write('\n');
     for (const sig of allSignals.slice(-5)) {
-      const ts = (sig.ts ?? '').slice(0, 10);
-      const f = sig.file ?? '';
+      const ts = term((sig.ts ?? '').slice(0, 10));
+      const f = term(sig.file ?? '');
       const diffLines = (sig.diff ?? '').split('\n').filter(ln => ln.startsWith('+') || ln.startsWith('-'));
-      const removed = diffLines.find(ln => ln.startsWith('-'))?.slice(1).trim().slice(0, 45) ?? '';
-      const added   = diffLines.find(ln => ln.startsWith('+'))?.slice(1).trim().slice(0, 45) ?? '';
+      const removed = term(diffLines.find(ln => ln.startsWith('-'))?.slice(1).trim().slice(0, 45) ?? '');
+      const added   = term(diffLines.find(ln => ln.startsWith('+'))?.slice(1).trim().slice(0, 45) ?? '');
       process.stdout.write(`  ${c(DIM, ts)}  ${c(CYAN, f)}\n`);
       if (removed) process.stdout.write(`    ${c(RED, '- ' + removed)}\n`);
       if (added)   process.stdout.write(`    ${c(GREEN, '+ ' + added)}\n`);
@@ -302,13 +339,50 @@ function renderHabitLine(h: { rule: string; confidence: number; reinforcing: num
   const up = h.reinforcing ?? 0;
   const dn = h.contradicting ?? 0;
   const tag = isLearning ? c(YELLOW, ' (learning)') : '';
-  process.stdout.write(`\n  ${h.rule}${tag}\n`);
+  process.stdout.write(`\n  ${term(h.rule)}${tag}\n`);
   process.stdout.write(
     `  [${bar}] ${c(BOLD, pct)}  ` +
     c(GREEN, `↑${up}`) + '  ' +
     (dn ? c(RED, `↓${dn}`) : c(DIM, `↓${dn}`)) +
     c(DIM, `  · ${h.sessions_seen ?? 1} session${h.sessions_seen === 1 ? '' : 's'}  · since ${h.first_learned ?? '?'}`) + '\n',
   );
+}
+
+// log (audit trail / Responsible AI) ────────────────────────────────────────
+// The accountability surface: shows exactly what cc-habits captured and would
+// send to the extractor. Content is already redacted at capture time. This lets
+// a user verify what left (or would leave) their machine.
+export function cmdLog(limit = 20): number {
+  const signals = readSignals();
+  process.stdout.write('\n');
+  process.stdout.write(c(BOLD + CYAN, '  cc-habits') + c(BOLD, ' · capture log\n'));
+  process.stdout.write(c(DIM, `  ${storagePaths.logFile}\n`));
+  process.stdout.write(
+    c(DIM, '  Diffs are redacted (email / PAN / card) at capture. Run `cc-habits reset --yes` to erase.\n'),
+  );
+  process.stdout.write('\n');
+
+  if (signals.length === 0) {
+    process.stdout.write(c(DIM, '  No signals captured yet.\n\n'));
+    return 0;
+  }
+
+  const recent = signals.slice(-limit);
+  process.stdout.write(
+    c(DIM, `  showing ${recent.length} of ${signals.length} captured signal${signals.length === 1 ? '' : 's'}\n\n`),
+  );
+  for (const sig of recent) {
+    const ts = term((sig.ts ?? '').slice(0, 19).replace('T', ' '));
+    const lang = sig.language ? c(DIM, ` (${term(sig.language)})`) : '';
+    process.stdout.write(`  ${c(DIM, ts)}  ${c(CYAN, term(sig.file ?? ''))}${lang}\n`);
+    const diffLines = (sig.diff ?? '').split('\n').filter(ln => ln.startsWith('+') || ln.startsWith('-'));
+    for (const ln of diffLines.slice(0, 4)) {
+      if (ln.startsWith('+')) process.stdout.write(`    ${c(GREEN, term(ln.slice(0, 80)))}\n`);
+      else process.stdout.write(`    ${c(RED, term(ln.slice(0, 80)))}\n`);
+    }
+    process.stdout.write('\n');
+  }
+  return 0;
 }
 
 // reset ────────────────────────────────────────────────────────────────────
@@ -338,7 +412,8 @@ export function cmdPending(action: 'show' | 'approve' | 'discard'): number {
   const pending = readPending();
   if (pending.length === 0) {
     process.stdout.write(c(DIM, '  No pending updates.\n'));
-    process.stdout.write(c(DIM, '  Run cc-habits with --review mode (set CC_HABITS_REVIEW=1) for the next session to stage updates.\n'));
+    process.stdout.write(c(DIM, '  New habits are automatically queued here after each session.\n'));
+    process.stdout.write(c(DIM, '  Set CC_HABITS_AUTO=1 to skip review and auto-apply all habits.\n'));
     return 0;
   }
 
@@ -346,8 +421,8 @@ export function cmdPending(action: 'show' | 'approve' | 'discard'): number {
     process.stdout.write(c(BOLD, `\n  ${pending.length} pending update${pending.length === 1 ? '' : 's'}\n\n`));
     for (const p of pending) {
       const decisionColor = p.decision === 'create' ? GREEN : p.decision === 'contradict' ? RED : YELLOW;
-      process.stdout.write(`  ${c(decisionColor, p.decision.toUpperCase())}  ${c(CYAN, `[${p.category}]`)}  ${p.rule}\n`);
-      if (p.reasoning) process.stdout.write(c(DIM, `    └─ ${p.reasoning}\n`));
+      process.stdout.write(`  ${c(decisionColor, term(p.decision.toUpperCase()))}  ${c(CYAN, `[${term(p.category)}]`)}  ${term(p.rule)}\n`);
+      if (p.reasoning) process.stdout.write(c(DIM, `    └─ ${term(p.reasoning)}\n`));
     }
     process.stdout.write('\n');
     process.stdout.write(c(DIM, '  Run `cc-habits pending --approve` to apply, or `cc-habits pending --discard` to drop.\n\n'));
@@ -442,8 +517,8 @@ export function cmdExplain(query: string): number {
     return 0;
   }
   process.stdout.write('\n');
-  process.stdout.write(c(BOLD, `  ${exp.rule}\n`));
-  process.stdout.write(c(DIM, `  Category: ${exp.category}  ·  Confidence: ${(exp.confidence * 100).toFixed(0)}%  ·  Sessions: ${exp.sessions_seen}\n`));
+  process.stdout.write(c(BOLD, `  ${term(exp.rule)}\n`));
+  process.stdout.write(c(DIM, `  Category: ${term(exp.category)}  ·  Confidence: ${(exp.confidence * 100).toFixed(0)}%  ·  Sessions: ${exp.sessions_seen}\n`));
   process.stdout.write(c(DIM, `  ↑${exp.reinforcing}  ↓${exp.contradicting}\n`));
   process.stdout.write('\n');
   if (exp.refs.length === 0) {
@@ -452,12 +527,12 @@ export function cmdExplain(query: string): number {
   }
   process.stdout.write(c(BOLD, '  Contributing signals:\n\n'));
   for (const ref of exp.refs) {
-    process.stdout.write(`  ${c(CYAN, ref.file)}  ${c(DIM, ref.ts.slice(0, 19))}  ${c(YELLOW, ref.decision)}\n`);
+    process.stdout.write(`  ${c(CYAN, term(ref.file))}  ${c(DIM, term(ref.ts.slice(0, 19)))}  ${c(YELLOW, term(ref.decision))}\n`);
     const lines = ref.snippet.split('\n').slice(0, 4);
     for (const ln of lines) {
-      if (ln.startsWith('+')) process.stdout.write(`    ${c(GREEN, ln.slice(0, 80))}\n`);
-      else if (ln.startsWith('-')) process.stdout.write(`    ${c(RED, ln.slice(0, 80))}\n`);
-      else process.stdout.write(`    ${c(DIM, ln.slice(0, 80))}\n`);
+      if (ln.startsWith('+')) process.stdout.write(`    ${c(GREEN, term(ln.slice(0, 80)))}\n`);
+      else if (ln.startsWith('-')) process.stdout.write(`    ${c(RED, term(ln.slice(0, 80)))}\n`);
+      else process.stdout.write(`    ${c(DIM, term(ln.slice(0, 80)))}\n`);
     }
     process.stdout.write('\n');
   }

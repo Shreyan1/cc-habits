@@ -2,9 +2,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-// Maximum size of append-only log files before reads warn and skip. Prevents
-// memory exhaustion if a runaway session generates huge payloads.
+// Read guard: if a log file somehow exceeds this we skip the read entirely.
 const MAX_LOG_READ_BYTES = 50 * 1024 * 1024; // 50 MB
+
+// Rotation: trim append-only files before they reach the read guard.
+// Checked after every append so the file never silently fills the disk.
+const LOG_ROTATE_BYTES = 2 * 1024 * 1024; // 2 MB — trim trigger
+const LOG_ROTATE_LINES = 5_000;            // signals kept after trim
+const HISTORY_ROTATE_LINES = 100;          // history snapshots kept after trim
 
 export const FORMAT_VERSION = 'v0.2';
 
@@ -103,6 +108,25 @@ function safeAppend(filePath: string, content: string): void {
   fs.appendFileSync(filePath, content, { encoding: 'utf-8', mode: FILE_MODE });
 }
 
+// Trim an append-only JSONL file to its most-recent `maxLines` entries when the
+// file exceeds LOG_ROTATE_BYTES. Called after every append so the file never
+// silently grows past the 50 MB read guard. Best-effort: errors are swallowed
+// so a rotation failure never blocks the caller.
+function trimIfNeeded(filePath: string, maxLines: number): void {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const stat = fs.statSync(filePath);
+    if (stat.size <= LOG_ROTATE_BYTES) return;
+    const lines = fs.readFileSync(filePath, 'utf-8')
+      .split('\n')
+      .filter(l => l.trim());
+    if (lines.length <= maxLines) return;
+    safeWrite(filePath, lines.slice(-maxLines).join('\n') + '\n');
+  } catch {
+    // trim is best-effort; never crash the caller
+  }
+}
+
 export function initHabitsMd(): void {
   ensureDirs();
   if (!fs.existsSync(storagePaths.habitsFile)) {
@@ -120,6 +144,7 @@ export function initLog(): void {
 export function appendSignal(signal: Signal): void {
   ensureDirs();
   safeAppend(storagePaths.logFile, JSON.stringify(signal) + '\n');
+  trimIfNeeded(storagePaths.logFile, LOG_ROTATE_LINES);
 }
 
 export function readSignals(sessionId?: string): Signal[] {
@@ -265,6 +290,7 @@ export interface HistoryEntry {
 export function appendHistory(entry: HistoryEntry): void {
   ensureDirs();
   safeAppend(storagePaths.historyFile, JSON.stringify(entry) + '\n');
+  trimIfNeeded(storagePaths.historyFile, HISTORY_ROTATE_LINES);
 }
 
 export function readHistory(): HistoryEntry[] {
@@ -462,6 +488,7 @@ export function logError(msg: string): void {
     ensureDirs();
     const entry = `[${new Date().toISOString()}] ${msg}\n`;
     safeAppend(storagePaths.errorLog, entry);
+    trimIfNeeded(storagePaths.errorLog, 1_000);
   } catch {
     // never crash
   }

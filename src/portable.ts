@@ -3,6 +3,7 @@ import {
   readHabitsMd, parseHabits, serialiseHabits, writeHabitsMd, writeSnapshot,
   HabitsMap, Habit,
 } from './storage';
+import { sanitizeRule } from './confidence';
 
 // Export the current habits.md to a portable single-file form. The format is
 // the same as habits.md; the wrapper exists for future format evolution.
@@ -46,29 +47,35 @@ export function importHabits(incomingMd: string): ImportResult {
 
   for (const [cat, habits] of Object.entries(incoming)) {
     for (const inc of habits) {
-      const key = normalize(inc.rule);
+      // SEC: sanitize imported rule text before writing to habits.md. An imported
+      // file could contain prompt-injection tokens that would be amplified by the
+      // UserPromptSubmit hook into every Claude session.
+      const safeRule = sanitizeRule(inc.rule ?? '');
+      if (!safeRule) continue;
+      const incSafe = { ...inc, rule: safeRule };
+      const key = normalize(safeRule);
       const existing = localByRule.get(key);
       if (!existing) {
         if (!local[cat]) local[cat] = [];
-        local[cat].push({ ...inc });
+        local[cat].push(incSafe);
         added++;
       } else {
         // Merge: take stronger signals.
-        existing.habit.confidence = Math.max(existing.habit.confidence, inc.confidence);
-        existing.habit.reinforcing = (existing.habit.reinforcing ?? 0) + (inc.reinforcing ?? 0);
-        existing.habit.contradicting = (existing.habit.contradicting ?? 0) + (inc.contradicting ?? 0);
+        existing.habit.confidence = Math.max(existing.habit.confidence, incSafe.confidence);
+        existing.habit.reinforcing = (existing.habit.reinforcing ?? 0) + (incSafe.reinforcing ?? 0);
+        existing.habit.contradicting = (existing.habit.contradicting ?? 0) + (incSafe.contradicting ?? 0);
         existing.habit.sessions_seen = Math.max(
           existing.habit.sessions_seen ?? 1,
-          inc.sessions_seen ?? 1,
+          incSafe.sessions_seen ?? 1,
         );
-        if (inc.first_learned && (!existing.habit.first_learned || inc.first_learned < existing.habit.first_learned)) {
-          existing.habit.first_learned = inc.first_learned;
+        if (incSafe.first_learned && (!existing.habit.first_learned || incSafe.first_learned < existing.habit.first_learned)) {
+          existing.habit.first_learned = incSafe.first_learned;
         }
-        if (inc.last_updated && (!existing.habit.last_updated || inc.last_updated > existing.habit.last_updated)) {
-          existing.habit.last_updated = inc.last_updated;
+        if (incSafe.last_updated && (!existing.habit.last_updated || incSafe.last_updated > existing.habit.last_updated)) {
+          existing.habit.last_updated = incSafe.last_updated;
         }
-        if (inc.languages && inc.languages.length > 0) {
-          const set = new Set([...(existing.habit.languages ?? []), ...inc.languages]);
+        if (incSafe.languages && incSafe.languages.length > 0) {
+          const set = new Set([...(existing.habit.languages ?? []), ...incSafe.languages]);
           existing.habit.languages = Array.from(set).sort();
         }
         merged++;

@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import {
   storagePaths, appendSignal, readSignals, readHabitsMd, parseHabits, writeHabitsMd,
@@ -5,7 +6,7 @@ import {
   addTombstone, writePending, readPending, clearPending,
   appendHistory, appendProvenance,
 } from './storage';
-import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule } from './confidence';
+import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule, sanitizeCategory } from './confidence';
 import type { AppliedChange } from './confidence';
 import { extractRules } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError } from './providers';
@@ -118,8 +119,56 @@ export function buildDiff(toolName: string, filePath: string, toolInput: Record<
   return diff;
 }
 
+// Per-repo opt-out (Responsible AI) ─────────────────────────────────────────
+// A developer working on code they can't send to a third-party API (employer
+// code, regulated data) needs a way to stop capture for that tree. Two switches:
+//   • a `.cc-habits-ignore` file in the working directory, or
+//   • the CC_HABITS_DISABLE env var (truthy).
+// When either is set, the PostToolUse and Stop hooks become no-ops: nothing is
+// captured, nothing is sent, no marker is printed.
+export function captureDisabled(): boolean {
+  const v = (process.env['CC_HABITS_DISABLE'] ?? '').toLowerCase();
+  if (v && v !== '0' && v !== 'false' && v !== 'off') return true;
+  try {
+    if (fs.existsSync(path.join(process.cwd(), '.cc-habits-ignore'))) return true;
+  } catch { /* cwd may be unreadable in odd environments — treat as not-disabled */ }
+  return false;
+}
+
+// Session-start banner (transparency) ──────────────────────────────────────
+// On the *first substantive edit* of a session, emit a single truthful line:
+// "cc-habits: N habits active — ..." This fires exactly once (edit #1) and
+// makes a claim we can fully back: habits ARE in context guiding this session.
+//
+// Why not a per-edit "applied" marker? Keyword overlap fires on almost every
+// TypeScript edit regardless of which habit influenced it, training users to
+// ignore it within a day (cry-wolf). The session-level signal is honest and
+// carries real information density.
+export function buildSessionBanner(md: string, editCount: number): string | null {
+  if (editCount !== 1) return null;
+  const habits = selectInjectionHabits(md);
+  if (habits.length === 0) return null;
+  const n = habits.length;
+  return `cc-habits: ${n} habit${n === 1 ? '' : 's'} active this session — \`cch view\` to see them`;
+}
+
+// Set CC_HABITS_MARKER=0 (or false/off) to silence the session banner.
+function markerEnabled(): boolean {
+  const v = (process.env['CC_HABITS_MARKER'] ?? '').toLowerCase();
+  return v !== '0' && v !== 'false' && v !== 'off';
+}
+
+// Set CC_HABITS_AUTO=1 to skip the pending-review queue and auto-apply new
+// habits immediately (reverts to the original silent-learning behaviour).
+function autoApplyEnabled(): boolean {
+  const v = (process.env['CC_HABITS_AUTO'] ?? '').toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
+}
+
 // Pure logic ───────────────────────────────────────────────────────────────
 export function processPostToolUse(data: Record<string, unknown>): void {
+  if (captureDisabled()) return;
+
   const toolName = String(data['tool_name'] ?? '');
   if (!WRITE_TOOLS.has(toolName)) return;
 
@@ -143,6 +192,16 @@ export function processPostToolUse(data: Record<string, unknown>): void {
     diff,
     ...(language ? { language } : {}),
   });
+
+  // Session-start banner: on the first edit of this session, tell the user how
+  // many habits are active. One truthful line beats a per-edit cry-wolf signal.
+  if (markerEnabled()) {
+    try {
+      const count = readSignals(sessionId).length;
+      const banner = buildSessionBanner(readHabitsMd(), count);
+      if (banner) process.stderr.write(banner + '\n');
+    } catch { /* banner is cosmetic; swallow */ }
+  }
 }
 
 export interface StopResult {
@@ -151,9 +210,15 @@ export interface StopResult {
   decayed: number;
   tombstoned: number;
   changes: AppliedChange[];
+  // New habits written to the Learning section AND queued for review. Zero when
+  // CC_HABITS_AUTO=1 (auto-applied immediately). Optional for backwards compat
+  // with callers that construct StopResult directly (e.g. test helpers).
+  pendingCount?: number;
 }
 
 export async function processStop(sessionId: string): Promise<StopResult | null> {
+  if (captureDisabled()) return null;
+
   const signals = readSignals(sessionId);
   if (signals.length < MIN_SIGNALS) return null;
 
@@ -173,6 +238,24 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   const updates = await extractRules(gated, habitsMd);
   const changes: AppliedChange[] = [];
   const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes });
+
+  // Queue new-habit creates for user review (pending notification path).
+  // The habits ARE written to habits.md in the Learning quarantine section by
+  // applyUpdates above — the pending queue is an additional notification surface
+  // so users can tombstone proposed habits before they graduate. Skip queueing
+  // when CC_HABITS_AUTO=1 (fully-silent auto-apply mode).
+  // Clear stale pending from any previous session first, then write this session's
+  // new items — this ensures `cch pending` always reflects the latest session only.
+  const creates = updates.filter(u => (u.decision ?? '').toLowerCase() === 'create');
+  const pendingCount = creates.length;
+  if (!autoApplyEnabled() && creates.length > 0) {
+    try {
+      clearPending();
+      const toAdd = toPending(creates);
+      const deduped = toAdd.filter(p => p.rule);
+      if (deduped.length > 0) writePending(deduped);
+    } catch { /* pending write is best-effort; never block the session */ }
+  }
 
   // B2: record provenance — which signals contributed to each create/reinforce.
   recordProvenance(updates, gated, sessionId);
@@ -197,9 +280,8 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   writeSnapshot(cats);
   // B1: snapshot the habits.md state for `cc-habits diff`.
   appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised });
-  clearPending();
 
-  return { newCount, updatedCount, decayed, tombstoned: deleted.length, changes };
+  return { newCount, updatedCount, decayed, tombstoned: deleted.length, changes, pendingCount };
 }
 
 // Session summary (transparency surface) ───────────────────────────────────//
@@ -218,9 +300,17 @@ export function formatStopSummary(result: StopResult): string {
   const pct = (n: number): string => `${Math.round(n * 100)}%`;
   const lines: string[] = ['cc-habits: session summary'];
 
+  const pendingCount = result.pendingCount ?? 0;
+
+  // New habits go to the Learning quarantine AND the pending review queue.
+  // We show the creates from changes (written to Learning) and separately call
+  // out the pending count so users know to run `cch pending` to review them.
   if (created.length > 0) {
-    lines.push(`  + learned ${created.length} new`);
+    lines.push(`  + ${created.length} new habit${created.length === 1 ? '' : 's'} proposed (Learning quarantine)`);
     for (const c of created) lines.push(`      [${c.category}] ${c.rule}`);
+  }
+  if (pendingCount > 0) {
+    lines.push(`    → run \`cch pending\` to review · \`cch pending --discard\` to reject`);
   }
   if (reinforced.length > 0) {
     lines.push(`  ^ reinforced ${reinforced.length}`);
@@ -236,7 +326,6 @@ export function formatStopSummary(result: StopResult): string {
   if (tombstoned > 0) tail.push(`${tombstoned} tombstoned (you deleted them)`);
   if (tail.length > 0) lines.push(`  ~ ${tail.join(', ')}`);
 
-  // Nothing changed but the Stop pipeline still ran (e.g. only skips this batch).
   if (created.length === 0 && reinforced.length === 0 && contradicted.length === 0 && tail.length === 0) {
     lines.push('  no habit changes this session');
   }
@@ -310,8 +399,11 @@ export function buildInjectionContext(md: string): string | null {
   for (const h of habits) {
     const rule = sanitizeRule(h.rule.trim().replace(/\.$/, ''));
     if (!rule) continue; // sanitizer may reduce the rule to empty
-    if (!byCat.has(h.category)) byCat.set(h.category, []);
-    byCat.get(h.category)!.push(`- ${rule}.`);
+    // Sanitize the category too: habits.md may be hand-edited to plant a category
+    // that escapes the injection wrapper or injects markdown structure.
+    const category = sanitizeCategory(h.category);
+    if (!byCat.has(category)) byCat.set(category, []);
+    byCat.get(category)!.push(`- ${rule}.`);
   }
 
   const lines: string[] = [
