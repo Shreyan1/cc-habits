@@ -1138,6 +1138,23 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   animation: copy-pulse 280ms var(--ease-out) forwards;
 }
 
+.live-demo__replay {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-top: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 150ms var(--ease-out);
+}
+.live-demo__replay:hover { color: var(--accent); }
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
