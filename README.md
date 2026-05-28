@@ -1,24 +1,44 @@
 # cc-habits
 
-**Claude Code learns your coding habits, automatically.**
+**Your coding agents learn your habits, automatically. In every tool you use.**
 
-> *Your habits, in Claude Code. Your AI agent, personalized.*
+> *Learn once. Personalized everywhere.*
 
 ---
 
-Claude Code is great. But out of the box it doesn't know your style. Every developer has years of accumulated micro-decisions (naming conventions, error handling patterns, preferred abstractions) that the model cannot see. These days you generate a `CLAUDE.md` from a quick discussion and move on. But that's a snapshot of what you said you wanted on one afternoon. It never sees the corrections you make for weeks after, and you never reopen it to update it.
+Your AI coding agent is great. But out of the box it doesn't know *your* style. Every developer has years of accumulated micro-decisions (naming conventions, error-handling patterns, preferred abstractions) that the model cannot see. These days you generate a `CLAUDE.md`, an `AGENTS.md`, or a `.cursorrules` from a quick discussion and move on. But that's a snapshot of what you said you wanted on one afternoon. It never sees the corrections you make for weeks after, and you never reopen it to update it. Worse: switch from Claude Code to Cursor to Codex and you start again from zero in each one.
 
-`cc-habits` fills the gap. It watches your edits, infers patterns, and quietly updates a `habits.md` file that Claude Code reads on every session, using the same `@import` mechanism you already know. A re-injection hook re-asserts your habits on every prompt so they survive context compaction.
+`cc-habits` fills the gap. It watches the edits you make in whatever tool you're using, infers patterns, and quietly maintains a single `habits.md` that your agents read on every session, using the same `@import` and rules-file mechanisms you already know. A re-injection hook re-asserts your habits on every prompt so they survive context compaction. One memory layer, shared across Claude Code, Gemini CLI, Codex CLI, Cursor, Cline, Windsurf, Copilot, and anything else that reads a rules file.
 
-**No new concepts. No vendor lock-in. Just a TypeScript package that makes the Claude Code you already paid for, genuinely yours.**
+**No new concepts. No vendor lock-in. Just a TypeScript package that makes the agents you already paid for genuinely yours, no matter which one you open today.**
+
+---
+
+## Works with your whole toolchain
+
+cc-habits learns where it can hook in, and carries what it learned everywhere else:
+
+| Tool | How it learns | How it applies your habits |
+|---|---|---|
+| **Claude Code** | PostToolUse / Stop / UserPromptSubmit hooks | `@import` + per-prompt injection |
+| **Gemini CLI** | hooks in `~/.gemini/settings.json` | `GEMINI.md` + per-prompt injection |
+| **Codex CLI** | hooks in `.codex/config.toml` | `AGENTS.md` |
+| **Cursor** | VS Code extension or Git commits | `cch sync cursor` → `.cursor/rules/` |
+| **Cline** | Git commits | `cch sync cline` → `.clinerules` |
+| **Windsurf** | Git commits | `cch sync windsurf` → `.windsurfrules` |
+| **GitHub Copilot** | Git commits | `cch sync copilot` |
+| **Any git repo** | `cch git-capture` (mines your commits) | via `cch sync` |
+| **Any other agent** | `cch capture` (pipe in a diff) | via `cch sync` |
+
+Learn your habits once in the tool you happen to be using today; `cch sync` writes them into the rules files every other agent already reads. Your style follows you, it doesn't stay behind.
 
 ---
 
 ## What if it learns the wrong thing?
 
-cc-habits is opinionated about *not* poisoning your Claude Code context. Five guardrails:
+cc-habits is opinionated about *not* poisoning your agent's context. Five guardrails:
 
-1. **New habits don't activate until they've appeared in two distinct sessions.** A bad afternoon of deadline edits cannot graduate into your Claude context. Single-session habits live in a `## Learning (not yet active)` section, visible for review but explicitly marked for Claude to ignore.
+1. **New habits don't activate until they've appeared in two distinct sessions.** A bad afternoon of deadline edits cannot graduate into your agent's context. Single-session habits live in a `## Learning (not yet active)` section, visible for review but explicitly marked to be ignored.
 2. **New habits are queued for your review.** At the end of each session, proposed new habits are added to a pending queue. The session recap tells you: "2 new habits proposed — run `cch pending` to review." You can `--discard` any you don't want before they graduate.
 3. **Manual deletes are remembered.** If you delete a rule from `habits.md`, it gets added to `.tombstones.json` and is never re-learned. Your judgment overrides the system.
 4. **Confidence decays over time.** A habit you stopped following loses 0.05/week of confidence after a week of inactivity. Stale rules get pruned automatically.
@@ -35,7 +55,7 @@ cc-habits tombstone "<rule text>"    # block a rule permanently
 cc-habits reset --yes                # nuclear option: wipe everything (tombstones survive)
 ```
 
-You can also just open `~/.claude/habits/habits.md` in your editor and delete any rule. The next session will tombstone it automatically.
+You can also just open `~/.cc-habits/habits.md` in your editor and delete any rule. The next session will tombstone it automatically.
 
 ---
 
@@ -48,21 +68,31 @@ cc-habits init        # cch init works too
 
 > `cch` is a short alias for `cc-habits`. All commands work with either (`cch init`, `cch view`, `cch pending`, etc.).
 
-During init, if cc-habits finds past Claude Code sessions for this project, it offers to **bootstrap**, learning habits from your existing work instantly:
+`cc-habits init` detects which coding tools you already have installed and offers to wire each one up. For tools with hooks (Claude Code, Gemini CLI, Codex CLI) it registers capture hooks; for everything else it offers a Git post-commit hook so your habits still get learned from your commits. If it finds past sessions for this project, it offers to **bootstrap**, learning habits from your existing work instantly:
 
 ```
-  Found 4 Claude Code sessions for this project.
+  Detected installed tools:
+    • Claude Code
+    • Gemini CLI
+
+  Register hooks in Claude Code? [Y/n] y
+    ✓ PostToolUse hook registered
+    ✓ Stop hook registered
+    ✓ UserPromptSubmit hook registered
+    ✓ habits.md import added to ~/.claude/CLAUDE.md
+
+  Found 4 sessions for this project.
   Bootstrap habits from past sessions? [y/N] y
 
   Extracting patterns...
   ✓ Learned 7 habits across 4 categories from 42 edits
 ```
 
-You can also run this any time with `cc-habits bootstrap`.
+You can also run bootstrap any time with `cc-habits bootstrap`.
 
 **Requirements:**
-- Node.js 20+ (already installed if you use Claude Code)
-- Claude Code installed
+- Node.js 20+
+- At least one supported coding tool (Claude Code, Gemini CLI, Codex CLI, Cursor, Cline, Windsurf, …) **or** any Git workflow
 - An AI provider (see below)
 
 > **One-off install (no global install):** `npx cc-habits@latest init` runs just the init step. You will still need `npm install -g cc-habits` to use `cc-habits view`, `cch view`, and `cc-habits reset`.
@@ -78,7 +108,7 @@ You can also run this any time with `cc-habits bootstrap`.
 | **OpenAI API** | your key | [platform.openai.com](https://platform.openai.com) |
 | **Groq API** | free tier | [console.groq.com](https://console.groq.com) |
 
-> **No API key?** A Claude Code subscription and an Anthropic API key are separate purchases. If you only have a Claude Code plan, Ollama is the recommended free alternative: it runs locally, no API key needed.
+> **No API key?** A coding-tool subscription (Claude Code, etc.) and an AI provider key are separate purchases. If you only have a tool subscription, Ollama is the recommended free alternative: it runs locally, no API key needed.
 >
 > ```bash
 > # Quickest path with no API key:
@@ -97,17 +127,17 @@ You can also run this any time with `cc-habits bootstrap`.
 
 ## How it works
 
-Three Claude Code hooks are installed into your global `~/.claude/settings.json`:
+For any tool that supports hooks (Claude Code, Gemini CLI, Codex CLI), `cc-habits init` installs three hooks into that tool's settings. They speak slightly different payloads, so an `--adapter` flag (set automatically at install) normalizes each one into the same shape before the engine sees it:
 
 ```
 PostToolUse (Write|Edit|MultiEdit)
-  → captures the diff, appends to ~/.claude/habits/log.jsonl
+  → captures the diff, appends to ~/.cc-habits/log.jsonl
   → on your session's first edit: prints "cc-habits: N habits active this session"
   → exits in <50ms, never blocks a session
 
 Stop (session end)
   → reads session signals from log.jsonl (capped at 50 most recent per session)
-  → makes one Haiku call to extract habit patterns
+  → makes one small-model call to extract habit patterns
   → reinforcements / contradictions applied immediately
   → new habits: written to Learning section + queued in pending for review
   → if CC_HABITS_MEMORIES=1: second pass extracts mistake patterns → memories.md
@@ -120,29 +150,46 @@ UserPromptSubmit (every prompt)
   → set CC_HABITS_INJECT=0 to disable
 ```
 
-`habits.md` is also auto-imported into every Claude Code session via:
+`habits.md` is also auto-imported into each hooked tool's session via its native mechanism:
 
 ```
-@import /Users/you/.claude/habits/habits.md    ← added to ~/.claude/CLAUDE.md
+@import /Users/you/.cc-habits/habits.md    ← added to ~/.claude/CLAUDE.md, ~/.gemini/GEMINI.md, …
 ```
 
-The `@import` gives Claude the full picture at session start; the **UserPromptSubmit** hook re-asserts the top habits on every turn, so they don't get summarized away when the context compacts mid-session.
+The `@import` gives the agent the full picture at session start; the **UserPromptSubmit** hook re-asserts the top habits on every turn, so they don't get summarized away when the context compacts mid-session.
+
+For tools without a hook mechanism (Cursor, Cline, Windsurf, Copilot), there's nothing to install — you run `cch sync` and your habits land in their rules files. And for *any* workflow at all, `cch git-capture` mines your commit history for patterns; `cc-habits init` can install a Git post-commit hook (locally or as a global template for all future repos) so this happens automatically every time you commit.
 
 No configuration. No project setup. Works globally across every repository you open.
 
 ---
 
-## Use your habits in any agent
+## Carry your habits between tools
 
-Your habits aren't locked to Claude Code. `cc-habits sync` writes them into the portable files other coding agents already read:
+Your habits aren't locked to one tool. `cch sync` writes your active habits into the portable rules files other agents already read:
 
 ```bash
-cc-habits sync              # writes ./AGENTS.md (the cross-tool standard)
-cc-habits sync all          # also writes .cursor/rules/cc-habits.mdc and .clinerules
-cc-habits sync cursor       # just Cursor
+cch sync                    # writes ./AGENTS.md (the cross-tool standard)
+cch sync all                # writes every supported target at once
+cch sync cursor             # just Cursor (.cursor/rules/cc-habits.mdc)
+cch sync gemini windsurf    # pick exactly the targets you want
 ```
 
-It merges a marked block into existing files, so your hand-written `AGENTS.md` content is preserved. Only **active** habits are emitted: the `## Learning` section never leaks out. The same habits you learned in Claude Code now travel to Codex, Cursor, Cline, Amp, and anything else that reads `AGENTS.md`.
+Supported targets: `agents`, `cursor`, `copilot`, `gemini`, `cline`, `aider`, `continue`, `jetbrains`, `windsurf`.
+
+| Target | File written |
+|---|---|
+| `agents` | `AGENTS.md` |
+| `cursor` | `.cursor/rules/cc-habits.mdc` |
+| `copilot` | `.github/copilot-instructions.md` |
+| `gemini` | `GEMINI.md` |
+| `cline` | `.clinerules` |
+| `aider` | `AIDER.md` |
+| `continue` | `.continuerules` |
+| `jetbrains` | `.aiassistant/rules/cc-habits.md` |
+| `windsurf` | `.windsurfrules` |
+
+It merges a marked block into existing files, so your hand-written content is preserved. Only **active** habits are emitted: the `## Learning` section never leaks out. The same habits you learned in Claude Code now travel to Codex, Cursor, Cline, Windsurf, and anything else that reads these files.
 
 > **Note:** Synced files contain inferences derived from your code. Review them before sharing, especially in team or open-source repos. Best-effort redaction applies to signals, but rule text may reflect patterns from proprietary code.
 
@@ -158,7 +205,7 @@ cc-habits memories --delete "<text>"      # tombstone a wrong memory permanently
 ```
 
 ```
-~/.claude/habits/memories.md
+~/.cc-habits/memories.md
 ```
 
 ```markdown
@@ -170,11 +217,11 @@ cc-habits memories --delete "<text>"      # tombstone a wrong memory permanently
   - Confidence: 0.80   Seen: 3   Sessions: 2
 ```
 
-The format spec is in [`MEMORIES_FORMAT.md`](MEMORIES_FORMAT.md). Habits and memories live separately, inject separately, and are deleted separately. A bad memory never poisons your habits context.
+Habits and memories live separately, inject separately, and are deleted separately. A bad memory never poisons your habits context.
 
 ### VS Code, Cursor, and Antigravity IDE
 
-cc-habits ships a VS Code extension that shows your habits, memories, and pending review directly in the IDE sidebar — no terminal needed.
+cc-habits ships a VS Code extension that shows your habits, memories, and pending review directly in the IDE sidebar — no terminal needed. It also captures your edits live, so habits keep learning even in tools without shell hooks.
 
 ```bash
 cd vscode-extension
@@ -190,15 +237,15 @@ The panel gives you:
 - **Memories view** — active and candidate memories. Inline delete/tombstone.
 - **Pending Review** — approve or discard proposed habits with one click.
 - **Sync button** — pushes active habits to `AGENTS.md` / Cursor rules / Cline rules instantly.
-- **Auto-refresh** — the panel updates live whenever a Claude Code session ends and writes new habits.
+- **Auto-refresh** — the panel updates live whenever a session ends and writes new habits.
 
-Works in any VS Code fork: VS Code, Cursor, and Antigravity IDE (Google's agent-first IDE launched November 2025).
+Works in any VS Code fork: VS Code, Cursor, and Antigravity IDE (Google's agent-first IDE launched November 2025). The extension lives in `vscode-extension/` in this repo and is built from source; it is not yet on the VS Code Marketplace.
 
 ### What's next
 
-The next direction is still local-first and still small:
+The direction is still local-first and still small:
 
-- **More collectors:** Codex hooks, generic CLI agent capture.
+- **More collectors:** deeper Codex hooks, richer per-IDE capture.
 - **More emitters:** additional agent rule formats as they stabilise.
 
 The goal is not to become another coding agent. The goal is a small, inspectable local memory layer that carries what your agents learn about you across every tool you use.
@@ -207,7 +254,7 @@ The goal is not to become another coding agent. The goal is a small, inspectable
 
 ## What it learns
 
-After a few sessions of Claude Code, your `habits.md` might look like this:
+After a few coding sessions, your `habits.md` might look like this:
 
 ```markdown
 # Coding habits
@@ -234,7 +281,7 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
   - Last updated: 2026-05-19
 ```
 
-Claude Code reads this file at the start of every session. When it generates code, it already knows your preferences.
+Your agent reads this file at the start of every session. When it generates code, it already knows your preferences.
 
 ---
 
@@ -295,7 +342,7 @@ Intentionally simple. Symbolic Bayesian-ish updates with session gating, contrad
 
 ### What gets captured
 
-Each `Write` / `Edit` / `MultiEdit` during a Claude Code session produces a diff signal. Before the signal is stored locally or sent to the AI provider, three patterns are redacted:
+Each `Write` / `Edit` / `MultiEdit` during a coding session produces a diff signal (Git commits produce one per changed file). Before the signal is stored locally or sent to the AI provider, three patterns are redacted:
 
 | Pattern | Replacement |
 |---------|-------------|
@@ -320,7 +367,7 @@ Each `Write` / `Edit` / `MultiEdit` during a Claude Code session produces a diff
 
 ### API key storage
 
-Your key is stored in `~/.claude/habits/config.yml` (mode `0600`, not readable by other users). cc-habits passes it directly to the provider SDK — it is never logged, cached, or transmitted anywhere else.
+Your key is stored in `~/.cc-habits/config.yml` (mode `0600`, not readable by other users). cc-habits passes it directly to the provider SDK — it is never logged, cached, or transmitted anywhere else.
 
 ---
 
@@ -349,8 +396,8 @@ You provide your own key. cc-habits does not collect or proxy keys.
 ```bash
 npm install -g cc-habits              # install globally (once)
 # cch is a short alias; all commands below work with either
-cc-habits init                        # install hooks, create habits.md, choose a provider
-cc-habits bootstrap                   # learn habits from past Claude Code sessions in this project
+cc-habits init                        # detect tools, install hooks, create habits.md, choose a provider
+cc-habits bootstrap                   # learn habits from past sessions in this project
 cc-habits view                        # show current habits + recent signals
 cc-habits memories                    # show coding memories (enable with CC_HABITS_MEMORIES=1)
 cc-habits memories --delete "<text>"  # tombstone a memory so it is never re-learned
@@ -361,7 +408,11 @@ cc-habits explain "<rule>"            # show the signals that produced a habit
 cc-habits lint <file> [--json]        # check a source file against your habits
 cc-habits export [path]               # print habits.md (or write to path)
 cc-habits import <file>               # merge a portable habits file
-cc-habits sync [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline (default: agents)
+cc-habits sync [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline / … (default: agents)
+cc-habits capture --file <p> --diff <d>  # append an edit signal from any tool (CLI capture adapter)
+cc-habits git-capture [--range r]     # learn from Git commits (HEAD~1..HEAD by default)
+cc-habits learn [--session id]        # compile habits and memories from collected signals
+cc-habits migrate [--force]           # migrate storage from ~/.claude/habits/ to ~/.cc-habits/
 cc-habits pending                     # review proposed new habits
 cc-habits pending --discard           # reject all pending proposals
 cc-habits tombstone "<rule>"          # block a rule from ever being re-learned
@@ -374,7 +425,7 @@ cc-habits --version                   # print installed version
 
 | Var | Default | Purpose |
 |---|---|---|
-| `CC_HABITS_DIR` | `~/.claude/habits` | Override the storage location entirely. |
+| `CC_HABITS_DIR` | `~/.cc-habits` | Override the storage location entirely. |
 | `CC_HABITS_PROVIDER` | `anthropic` | Switch extractor backend: `anthropic`, `openai`, `groq`, `ollama`. |
 | `CC_HABITS_INJECT` | `1` (on) | Set to `0`/`false`/`off` to disable prompt-time habit injection. |
 | `CC_HABITS_MARKER` | `1` (on) | Set to `0`/`false`/`off` to silence the session-start "N habits active" banner. |
@@ -388,10 +439,10 @@ cc-habits --version                   # print installed version
 
 ## Safety guarantees
 
-1. **Never fails a Claude Code session.** Every hook is wrapped in `try/catch`. On error: logs to `~/.claude/habits/error.log`, exits 0. The `|| true` in the hook command is an extra layer.
-2. **No data leaves your machine** except the AI provider call you configured. No telemetry, no analytics, no Anthropic-operated server beyond the API itself.
+1. **Never fails a coding session.** Every hook is wrapped in `try/catch`. On error: logs to `~/.cc-habits/error.log`, exits 0. The `|| true` in the hook command is an extra layer.
+2. **No data leaves your machine** except the AI provider call you configured. No telemetry, no analytics, no operated server beyond the API itself.
 3. **Explicit consent for cloud providers.** `cc-habits init` shows a plain-language data-flow summary before asking you to configure any cloud provider. Ollama skips this — nothing leaves your machine.
-4. **Injection-hardened rules.** Because a learned habit is injected into every future session, untrusted code is a prompt-injection channel. Rules and category labels are sanitized at every boundary — write to habits.md, injection into Claude context, `cch import`, and `cch sync`. The sanitizer defends against: role-marker injection (`SYSTEM:`, ChatML, Llama tokens), **zero-width-character splitting** (`SYS​TEM:`), **Unicode homoglyphs** (NFKC folds fullwidth `ＳＹＳＴＥＭ` to ASCII before matching), **container escape** (any `<tag>` token — including `</coding-habits>` — is stripped so a rule cannot break out of the injection wrapper), URLs, and control characters. Length is bounded *before* regex evaluation to prevent ReDoS. Synced files (AGENTS.md, Cursor, Cline) get the same treatment and are safe to commit.
+4. **Injection-hardened rules.** Because a learned habit is injected into every future session, untrusted code is a prompt-injection channel. Rules and category labels are sanitized at every boundary — write to habits.md, injection into agent context, `cch import`, and `cch sync`. The sanitizer defends against: role-marker injection (`SYSTEM:`, ChatML, Llama tokens), **zero-width-character splitting** (`SYS​TEM:`), **Unicode homoglyphs** (NFKC folds fullwidth `ＳＹＳＴＥＭ` to ASCII before matching), **container escape** (any `<tag>` token — including `</coding-habits>` — is stripped so a rule cannot break out of the injection wrapper), URLs, and control characters. Length is bounded *before* regex evaluation to prevent ReDoS. Synced files (AGENTS.md, Cursor, Cline) get the same treatment and are safe to commit.
 5. **Imported habits are sanitized.** `cch import` passes all incoming rule text through the same sanitizer, so a malicious shared habits file cannot embed instructions into your context.
 6. **habits.md is human-readable.** You can read, edit, or delete it at any time. `cc-habits reset --yes` gives you a clean slate.
 7. **Bounded log with automatic rotation.** `log.jsonl` is append-only and trimmed automatically when it exceeds 2 MB — keeping the 5,000 most-recent signals. `.history.jsonl` keeps the last 100 session snapshots; `error.log` keeps the last 1,000 lines. Your disk is never silently filled. Inspect at any time with `cc-habits log`; erase with `cc-habits reset`.
@@ -404,39 +455,39 @@ cc-habits --version                   # print installed version
 
 ## FAQ
 
-**Does this work on all my projects?**
-Yes. Hooks are registered in `~/.claude/settings.json` (user-level, not project-level). Habits are stored in `~/.claude/habits/`. Everything is global by default.
+**Does this work across all my coding tools?**
+Yes — that's the point. Habits are stored once in `~/.cc-habits/` and shared across every tool. Tools with hooks (Claude Code, Gemini CLI, Codex CLI) learn automatically; everything else learns from your Git commits or via `cch sync`. Hooks are registered at the user level, so they apply to every project you open.
 
-**I already auto-generate a CLAUDE.md. Does this replace it?**
-No. It fills the gap. `cch init` adds a single `@import` line to your existing `~/.claude/CLAUDE.md` and overwrites nothing. Your generated file stays; cc-habits keeps it current with what you actually do.
+**I already auto-generate a CLAUDE.md / AGENTS.md. Does this replace it?**
+No. It fills the gap. `cch init` adds a single `@import` line to your existing rules file and overwrites nothing. Your generated file stays; cc-habits keeps it current with what you actually do.
 
-**Will it slow down or break my Claude Code sessions?**
+**Will it slow down or break my sessions?**
 No. The capture and inject hooks run locally in under 50ms. Every hook is wrapped in try/catch and exits 0 on error, so cc-habits can never fail or block a session.
 
 **What if the extractor makes a mistake?**
-Habits accumulate confidence gradually. A single bad extraction won't stick: it needs reinforcing signals to grow above 0.50. You can also directly edit `habits.md` to remove any rule you don't agree with.
+Habits accumulate confidence gradually. A single bad extraction won't stick: it needs reinforcing signals across two sessions to grow above 0.50 and activate. You can also directly edit `habits.md` to remove any rule you don't agree with.
 
-**Do I need an Anthropic API key on top of my Claude Code plan?**
-They are separate purchases. If you only have a Claude Code plan, run with Ollama: free and fully local, no key required. Anthropic Haiku (~$0.09/mo), OpenAI, and Groq are also supported.
+**Do I need an AI provider key on top of my coding-tool plan?**
+They are separate purchases. If you only have a tool subscription, run with Ollama: free and fully local, no key required. Anthropic Haiku (~$0.09/mo), OpenAI, and Groq are also supported.
 
 **Does cc-habits phone home?**
 Never. There is no cc-habits server, no telemetry, no analytics, no error-reporting endpoint. The only outbound call is the extractor call to the provider you pick.
 
 **Does this work offline?**
-Signal capture (PostToolUse hook) works offline. Extraction (Stop hook) requires the API; if you are offline it logs the error and exits 0, no signals lost.
+Signal capture works offline. Extraction requires the API; if you are offline it logs the error and exits 0, no signals lost.
 
-**Is the habits.md format stable?**
-The v0.1 format (markdown, confidence scores, signal counts, dates) is documented. Future versions will migrate it forward. The format is intentionally human-readable so manual edits survive.
+**I used an older version that stored habits in `~/.claude/habits/`. What happens?**
+cc-habits auto-migrates your old store to `~/.cc-habits/` on first run, and rewrites the `@import` path. You can also run `cc-habits migrate` manually.
 
 **What happens when two projects have conflicting styles?**
-In v0.1, all signals go into one global pool. Contradicting signals lower a habit's confidence; if it drops below 0.30 it is pruned. Explicit per-project profiles are on the v0.2 roadmap.
+All signals go into one global pool. Contradicting signals lower a habit's confidence; if it drops below 0.30 it is pruned. Explicit per-project profiles are on the roadmap.
 
 ---
 
 ## Architecture
 
 ```
-~/.claude/habits/
+~/.cc-habits/
 ├── habits.md              ← learned habits (auto-updated, auto-imported)
 ├── memories.md            ← agent mistake memory (CC_HABITS_MEMORIES=1)
 ├── log.jsonl              ← signal log (append-only)
@@ -444,25 +495,28 @@ In v0.1, all signals go into one global pool. Contradicting signals lower a habi
 ├── .pending.json          ← habits queued for review
 ├── .tombstones.json       ← permanently blocked habit rules
 ├── .memory-tombstones.json ← permanently blocked memories
-└── error.log              ← errors from hooks (never crashes Claude Code)
+└── error.log              ← errors from hooks (never crashes a session)
 
-~/.claude/settings.json  ← PostToolUse + Stop + UserPromptSubmit hooks registered here
-~/.claude/CLAUDE.md      ← @import line added here
+Per-tool wiring (each tool's own config dir):
+~/.claude/settings.json    ← PostToolUse + Stop + UserPromptSubmit hooks (Claude Code)
+~/.claude/CLAUDE.md        ← @import line added here
+~/.gemini/settings.json    ← hooks for Gemini CLI
+.codex/config.toml         ← hooks for Codex CLI
 ```
 
 VS Code / Cursor / Antigravity IDE extension: `vscode-extension/` in this repo.
 
-Source: `src/` (TypeScript, fully typed, MIT licensed)
+Source: `src/` (TypeScript, fully typed, MIT licensed). Tool payloads are normalized through `src/adapters/` so one engine serves every tool.
 
 ---
 
 ## Contributing
 
 cc-habits is MIT-licensed. Before opening a PR:
-- Check if the change fits the scope in [AGENTS.md](AGENTS.md)
-- Add a test covering the new behaviour
-- `npm run build` must pass (zero TypeScript errors)
-- `npm test` must pass (all tests green)
+- Keep the scope small: a local, inspectable memory layer, not another agent.
+- Add a test covering the new behaviour.
+- `npm run build` must pass (zero TypeScript errors).
+- `npm test` must pass (all tests green).
 
 ---
 
@@ -472,4 +526,4 @@ MIT. See [LICENSE](LICENSE).
 
 ---
 
-*Built by [Shreyan Basu Ray](https://github.com/Shreyan1). Claude Code, more personalized.*
+*Built by [Shreyan Basu Ray](https://github.com/Shreyan1). Your agents, more personalized.*
