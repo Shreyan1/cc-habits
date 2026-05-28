@@ -701,10 +701,10 @@ export function hookMain(): void {
   const adapterIdx = process.argv.indexOf('--adapter');
   if (adapterIdx !== -1 && process.argv[adapterIdx + 1]) {
     const candidate = process.argv[adapterIdx + 1];
-    if (candidate === 'claude-code' || candidate === 'gemini' || candidate === 'codex') {
+    if (candidate === 'claude-code' || candidate === 'gemini' || candidate === 'codex' || candidate === 'cline') {
       adapter = candidate;
     } else {
-      process.stderr.write(`cc-habits: invalid adapter: ${candidate}. Supported adapters: claude-code, gemini, codex. Falling back to claude-code.\n`);
+      process.stderr.write(`cc-habits: invalid adapter: ${candidate}. Supported adapters: claude-code, gemini, codex, cline. Falling back to claude-code.\n`);
       adapter = 'claude-code';
     }
   }

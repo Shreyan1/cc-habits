@@ -24,7 +24,7 @@ cc-habits learns where it can hook in, and carries what it learned everywhere el
 | **Gemini CLI** | hooks in `~/.gemini/settings.json` | `GEMINI.md` + per-prompt injection |
 | **Codex CLI** | hooks in `.codex/config.toml` | `AGENTS.md` |
 | **Cursor** | VS Code extension or Git commits | `cch sync cursor` → `.cursor/rules/` |
-| **Cline** | Git commits | `cch sync cline` → `.clinerules` |
+| **Cline / RooCode** | PostToolUse / Stop hooks | `cch sync cline` → `.clinerules` |
 | **Windsurf** | Git commits | `cch sync windsurf` → `.windsurfrules` |
 | **GitHub Copilot** | Git commits | `cch sync copilot` |
 | **Any git repo** | `cch git-capture` (mines your commits) | via `cch sync` |
@@ -158,7 +158,7 @@ UserPromptSubmit (every prompt)
 
 The `@import` gives the agent the full picture at session start; the **UserPromptSubmit** hook re-asserts the top habits on every turn, so they don't get summarized away when the context compacts mid-session.
 
-For tools without a hook mechanism (Cursor, Cline, Windsurf, Copilot), there's nothing to install — you run `cch sync` and your habits land in their rules files. And for *any* workflow at all, `cch git-capture` mines your commit history for patterns; `cc-habits init` can install a Git post-commit hook (locally or as a global template for all future repos) so this happens automatically every time you commit.
+For tools without a hook mechanism (Cursor, Windsurf, Copilot), there's nothing to install — you run `cch sync` and your habits land in their rules files. And for *any* workflow at all, `cch git-capture` mines your commit history for patterns; `cc-habits init` can install a Git post-commit hook (locally or as a global template for all future repos) so this happens automatically every time you commit.
 
 No configuration. No project setup. Works globally across every repository you open.
 

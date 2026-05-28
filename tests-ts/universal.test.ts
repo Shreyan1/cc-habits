@@ -71,6 +71,54 @@ describe('v0.3.0 universal: normalizeInput', () => {
     expect(res.source).toBe('codex');
   });
 
+  it('normalizes Cline write_to_file format correctly', () => {
+    const raw = {
+      hookName: 'PostToolUse',
+      clineVersion: '3.36.0',
+      taskId: 'task-cline-1',
+      tool: 'write_to_file',
+      parameters: {
+        path: 'src/app.ts',
+        content: 'export const x = 1'
+      },
+      success: true
+    };
+    const res = normalizeInput(raw, 'cline');
+    expect(res.toolName).toBe('Write');
+    expect(res.filePath).toBe('src/app.ts');
+    expect(res.newContent).toBe('export const x = 1');
+    expect(res.diff).toBeUndefined();
+    expect(res.sessionId).toBe('task-cline-1');
+    expect(res.source).toBe('cline');
+  });
+
+  it('normalizes Cline replace_in_file format correctly', () => {
+    const raw = {
+      hookName: 'PostToolUse',
+      taskId: 'task-cline-2',
+      tool: 'replace_in_file',
+      parameters: {
+        path: 'src/lib.ts',
+        diff: '<<<<<<< SEARCH\nconst a = 1\n=======\nconst a = 2\n>>>>>>> REPLACE'
+      },
+      success: true
+    };
+    const res = normalizeInput(raw, 'cline');
+    expect(res.toolName).toBe('Edit');
+    expect(res.filePath).toBe('src/lib.ts');
+    expect(res.diff).toContain('const a = 2');
+    expect(res.sessionId).toBe('task-cline-2');
+    expect(res.source).toBe('cline');
+  });
+
+  it('defaults Cline tool name and tolerates empty payload', () => {
+    const res = normalizeInput({}, 'cline');
+    expect(res.toolName).toBe('Edit');
+    expect(res.filePath).toBe('');
+    expect(res.sessionId).toBe('');
+    expect(res.source).toBe('cline');
+  });
+
   it('rejects unsupported adapter names', () => {
     expect(() => normalizeInput({}, 'invalid-adapter')).toThrow(/Unsupported or invalid adapter/);
   });

@@ -20,7 +20,7 @@ export interface Signal {
   file: string;
   diff: string;
   language?: string;
-  source?: 'claude-code' | 'git' | 'vscode' | 'cli' | 'gemini' | 'codex';
+  source?: 'claude-code' | 'git' | 'vscode' | 'cli' | 'gemini' | 'codex' | 'cline';
 }
 
 export interface Habit {
