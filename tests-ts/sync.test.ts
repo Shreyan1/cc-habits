@@ -14,12 +14,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { storagePaths } from '../src/storage';
 import {
   renderPortableBody, renderBlockOrNull, mergeBlock, syncTargets,
-  BEGIN_MARKER, END_MARKER,
+  readSyncTargets, BEGIN_MARKER, END_MARKER,
 } from '../src/sync';
-import { parseHabits } from '../src/storage';
+import { parseHabits, storagePaths } from '../src/storage';
 
 const origStorage = { ...storagePaths };
 let tmpDir: string;
@@ -187,3 +186,29 @@ describe('syncTargets', () => {
     expect(() => syncTargets(['agents'], { baseDir: proj })).toThrow(/symlink/);
   });
 });
+
+describe('readSyncTargets', () => {
+  beforeEach(() => {
+    storagePaths.configFile = path.join(tmpDir, 'config.yml');
+  });
+
+  it('returns empty array when config file does not exist', () => {
+    expect(readSyncTargets()).toEqual([]);
+  });
+
+  it('parses sync_targets from simple format', () => {
+    fs.writeFileSync(storagePaths.configFile, 'provider: ollama\nsync_targets: cursor, cline\n');
+    expect(readSyncTargets()).toEqual(['cursor', 'cline']);
+  });
+
+  it('parses sync_targets from bracketed format', () => {
+    fs.writeFileSync(storagePaths.configFile, 'provider: openai\nsync_targets: [agents, cursor]\n');
+    expect(readSyncTargets()).toEqual(['agents', 'cursor']);
+  });
+
+  it('filters out invalid sync targets', () => {
+    fs.writeFileSync(storagePaths.configFile, 'sync_targets: cursor, invalid, cline\n');
+    expect(readSyncTargets()).toEqual(['cursor', 'cline']);
+  });
+});
+

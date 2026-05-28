@@ -88,6 +88,11 @@ You can also run this any time with `cc-habits bootstrap`.
 > cc-habits init --provider ollama
 > ```
 
+> [!IMPORTANT]
+> **Model Capabilities & Extraction Quality:**
+> Habit extraction, consolidation, and memory candidate classification require advanced multi-constraint and negative-constraint reasoning. We highly recommend using a top-tier frontier model such as **Anthropic API (Claude Haiku or Sonnet)** or **OpenAI API (GPT-4o / GPT-4o-mini)**.
+> Less capable models (including smaller local LLMs or older open models) may drift on negative constraints, leading to duplicate/split rules (e.g. creating separate rules for parameter types and return types instead of consolidating them) or incorrectly extracting typical programming bug fixes (like null checks or resource releases) as general habits instead of concrete memories.
+
 ---
 
 ## How it works
@@ -102,13 +107,15 @@ PostToolUse (Write|Edit|MultiEdit)
 
 Stop (session end)
   → reads session signals from log.jsonl (capped at 50 most recent per session)
-  → makes one Haiku call to extract patterns
+  → makes one Haiku call to extract habit patterns
   → reinforcements / contradictions applied immediately
   → new habits: written to Learning section + queued in pending for review
+  → if CC_HABITS_MEMORIES=1: second pass extracts mistake patterns → memories.md
   → prints session recap: proposed habits, reinforced, guidance to run `cch pending`
 
 UserPromptSubmit (every prompt)
   → injects your strongest active habits into context
+  → if CC_HABITS_MEMORIES=1: also injects relevant memories (trigger-matched, max 3)
   → survives context compaction; "laws, not requests"
   → set CC_HABITS_INJECT=0 to disable
 ```
@@ -138,6 +145,63 @@ cc-habits sync cursor       # just Cursor
 It merges a marked block into existing files, so your hand-written `AGENTS.md` content is preserved. Only **active** habits are emitted: the `## Learning` section never leaks out. The same habits you learned in Claude Code now travel to Codex, Cursor, Cline, Amp, and anything else that reads `AGENTS.md`.
 
 > **Note:** Synced files contain inferences derived from your code. Review them before sharing, especially in team or open-source repos. Best-effort redaction applies to signals, but rule text may reflect patterns from proprietary code.
+
+### Mistake memory
+
+Set `CC_HABITS_MEMORIES=1` and cc-habits also learns what your agent gets **wrong**.
+
+At the end of each session, a second extraction pass looks for mistake patterns — cases where you rewrote or reverted what the agent produced. Candidates are written to `memories.md` alongside your habits. Unlike habits (which are injected broadly), memories are retrieved selectively: only the memories whose trigger terms match your current prompt are injected, capped at 3.
+
+```bash
+cc-habits memories                        # view active memories + candidates
+cc-habits memories --delete "<text>"      # tombstone a wrong memory permanently
+```
+
+```
+~/.claude/habits/memories.md
+```
+
+```markdown
+## Repeated mistakes
+
+- When editing settings.json, do not overwrite existing hook arrays.
+  - Trigger: settings.json, hooks, install
+  - Correction: Merge new hooks with existing hooks
+  - Confidence: 0.80   Seen: 3   Sessions: 2
+```
+
+The format spec is in [`MEMORIES_FORMAT.md`](MEMORIES_FORMAT.md). Habits and memories live separately, inject separately, and are deleted separately. A bad memory never poisons your habits context.
+
+### VS Code, Cursor, and Antigravity IDE
+
+cc-habits ships a VS Code extension that shows your habits, memories, and pending review directly in the IDE sidebar — no terminal needed.
+
+```bash
+cd vscode-extension
+npm install
+npm run build
+# Open the vscode-extension/ folder in VS Code / Cursor / Antigravity IDE and press F5
+# Or package and install: npx vsce package → install the .vsix
+```
+
+The panel gives you:
+
+- **Habits view** — all categories, confidence scores, learning/active status. Inline trash to tombstone any rule without leaving the IDE.
+- **Memories view** — active and candidate memories. Inline delete/tombstone.
+- **Pending Review** — approve or discard proposed habits with one click.
+- **Sync button** — pushes active habits to `AGENTS.md` / Cursor rules / Cline rules instantly.
+- **Auto-refresh** — the panel updates live whenever a Claude Code session ends and writes new habits.
+
+Works in any VS Code fork: VS Code, Cursor, and Antigravity IDE (Google's agent-first IDE launched November 2025).
+
+### What's next
+
+The next direction is still local-first and still small:
+
+- **More collectors:** Codex hooks, generic CLI agent capture.
+- **More emitters:** additional agent rule formats as they stabilise.
+
+The goal is not to become another coding agent. The goal is a small, inspectable local memory layer that carries what your agents learn about you across every tool you use.
 
 ---
 
@@ -288,6 +352,9 @@ npm install -g cc-habits              # install globally (once)
 cc-habits init                        # install hooks, create habits.md, choose a provider
 cc-habits bootstrap                   # learn habits from past Claude Code sessions in this project
 cc-habits view                        # show current habits + recent signals
+cc-habits memories                    # show coding memories (enable with CC_HABITS_MEMORIES=1)
+cc-habits memories --delete "<text>"  # tombstone a memory so it is never re-learned
+cc-habits memories --tombstones       # list tombstoned memories
 cc-habits log [--limit N]             # show capture log, audit trail of what was sent
 cc-habits diff [--since N]            # changes since the last write (or N writes ago)
 cc-habits explain "<rule>"            # show the signals that produced a habit
@@ -299,7 +366,7 @@ cc-habits pending                     # review proposed new habits
 cc-habits pending --discard           # reject all pending proposals
 cc-habits tombstone "<rule>"          # block a rule from ever being re-learned
 cc-habits tombstones                  # list tombstoned rules
-cc-habits reset --yes                 # delete habits.md, log.jsonl, pending, snapshot
+cc-habits reset --yes                 # delete habits.md, memories.md, log.jsonl, pending, snapshot
 cc-habits --version                   # print installed version
 ```
 
@@ -312,6 +379,7 @@ cc-habits --version                   # print installed version
 | `CC_HABITS_INJECT` | `1` (on) | Set to `0`/`false`/`off` to disable prompt-time habit injection. |
 | `CC_HABITS_MARKER` | `1` (on) | Set to `0`/`false`/`off` to silence the session-start "N habits active" banner. |
 | `CC_HABITS_AUTO` | `0` (off) | Set to `1` to skip the pending review queue and auto-apply new habits silently. |
+| `CC_HABITS_MEMORIES` | `0` (off) | Set to `1` to enable memory extraction. New candidates are written to `memories.md` at session end. |
 | `CC_HABITS_DISABLE` | `0` (off) | Set to `1` to disable all capture and extraction for this shell session. |
 | `ANTHROPIC_API_KEY` | (from config.yml) | Bypass `config.yml` storage. |
 | `OPENAI_API_KEY` / `GROQ_API_KEY` | (from config.yml) | Required when using those providers. |
@@ -369,14 +437,20 @@ In v0.1, all signals go into one global pool. Contradicting signals lower a habi
 
 ```
 ~/.claude/habits/
-├── habits.md      ← learned habits (auto-updated, auto-imported)
-├── log.jsonl      ← signal log (append-only)
-├── config.yml     ← API key (written by cc-habits init)
-└── error.log      ← errors from hooks (never crashes Claude Code)
+├── habits.md              ← learned habits (auto-updated, auto-imported)
+├── memories.md            ← agent mistake memory (CC_HABITS_MEMORIES=1)
+├── log.jsonl              ← signal log (append-only)
+├── config.yml             ← API key (written by cc-habits init)
+├── .pending.json          ← habits queued for review
+├── .tombstones.json       ← permanently blocked habit rules
+├── .memory-tombstones.json ← permanently blocked memories
+└── error.log              ← errors from hooks (never crashes Claude Code)
 
-~/.claude/settings.json  ← PostToolUse + Stop hooks registered here
+~/.claude/settings.json  ← PostToolUse + Stop + UserPromptSubmit hooks registered here
 ~/.claude/CLAUDE.md      ← @import line added here
 ```
+
+VS Code / Cursor / Antigravity IDE extension: `vscode-extension/` in this repo.
 
 Source: `src/` (TypeScript, fully typed, MIT licensed)
 
@@ -385,7 +459,7 @@ Source: `src/` (TypeScript, fully typed, MIT licensed)
 ## Contributing
 
 cc-habits is MIT-licensed. Before opening a PR:
-- Check if the change belongs in the current release or v0.2+ (see [ROADMAP.md](ROADMAP.md))
+- Check if the change fits the scope in [AGENTS.md](AGENTS.md)
 - Add a test covering the new behaviour
 - `npm run build` must pass (zero TypeScript errors)
 - `npm test` must pass (all tests green)

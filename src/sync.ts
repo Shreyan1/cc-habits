@@ -1,19 +1,20 @@
 import fs from 'fs';
 import path from 'path';
-import { readHabitsMd, parseHabits, HabitsMap, Habit } from './storage';
+import { readHabitsMd, parseHabits, HabitsMap, Habit, storagePaths } from './storage';
 import { sanitizeRule } from './confidence';
 
-// cc-habits sync — emit learned habits into tool-agnostic preference files so any
-// coding agent (Claude Code, Codex, Cursor, Cline, Amp, …) picks them up, not just
-// Claude Code via @import. Addresses the most-requested gap in the space: a single
-// portable rules file rather than tool-specific CLAUDE.md.
+// cc-habits sync — emit Claude-learned habits into portable preference files that
+// other coding agents (Cursor, Cline, Codex, Amp, …) can read. Learning happens
+// via Claude Code hooks; sync is the one-way bridge that carries those habits out
+// to every other tool in the developer's workflow.
 
 export const BEGIN_MARKER = '<!-- BEGIN cc-habits (auto-generated; edit habits via `cc-habits`) -->';
 export const END_MARKER = '<!-- END cc-habits -->';
 
-export type SyncTarget = 'agents' | 'cursor' | 'cline';
+export type SyncTarget = 'agents' | 'cursor' | 'copilot' | 'gemini' | 'cline' | 'aider' | 'continue' | 'jetbrains' | 'windsurf';
 
 const DEFAULT_MIN_CONFIDENCE = 0.3;
+
 
 // Only active, sufficiently-confident habits leave the cc-habits store. Learning-section
 // (single-session) habits are never exported — they are not yet trusted.
@@ -106,16 +107,19 @@ function targetPath(target: SyncTarget, baseDir: string): string {
   switch (target) {
     case 'agents': return path.join(baseDir, 'AGENTS.md');
     case 'cursor': return path.join(baseDir, '.cursor', 'rules', 'cc-habits.mdc');
+    case 'copilot': return path.join(baseDir, '.github', 'copilot-instructions.md');
+    case 'gemini': return path.join(baseDir, 'GEMINI.md');
     case 'cline': {
-      // .clinerules can be a real directory or a single file. Use lstatSync (not
-      // statSync) so that a symlink pointing at a directory is treated as a file —
-      // we want the flat .clinerules path, not a file inside a symlinked directory.
       const dir = path.join(baseDir, '.clinerules');
       if (fs.existsSync(dir) && fs.lstatSync(dir).isDirectory()) {
         return path.join(dir, 'cc-habits.md');
       }
       return dir;
     }
+    case 'aider': return path.join(baseDir, 'AIDER.md');
+    case 'continue': return path.join(baseDir, '.continuerules');
+    case 'jetbrains': return path.join(baseDir, '.aiassistant', 'rules', 'cc-habits.md');
+    case 'windsurf': return path.join(baseDir, '.windsurfrules');
   }
 }
 
@@ -162,3 +166,22 @@ export function syncTargets(
   }
   return { written, skipped: false };
 }
+
+export function readSyncTargets(): SyncTarget[] {
+  if (!fs.existsSync(storagePaths.configFile)) return [];
+  try {
+    const text = fs.readFileSync(storagePaths.configFile, 'utf-8');
+    const m = text.match(/sync_targets\s*:\s*\[?([^\]\n#]+)\]?/);
+    if (m) {
+      const allowed = new Set(['agents', 'cursor', 'copilot', 'gemini', 'cline', 'aider', 'continue', 'jetbrains', 'windsurf']);
+      return m[1]
+        .split(',')
+        .map(x => x.trim().replace(/['"]/g, '') as SyncTarget)
+        .filter(t => allowed.has(t));
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+

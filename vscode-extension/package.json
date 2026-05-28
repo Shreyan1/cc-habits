@@ -1,0 +1,177 @@
+{
+  "name": "cc-habits",
+  "displayName": "cc-habits",
+  "description": "View and manage your coding habits and memories from Claude Code sessions",
+  "version": "0.1.0",
+  "publisher": "Shreyan1",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shreyan1/cc-habits"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "habits",
+    "claude",
+    "ai",
+    "coding",
+    "memory"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cc-habits",
+          "title": "cc-habits",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "cc-habits": [
+        {
+          "id": "cchabits.habits",
+          "name": "Habits",
+          "icon": "$(notebook)"
+        },
+        {
+          "id": "cchabits.memories",
+          "name": "Memories",
+          "icon": "$(history)"
+        },
+        {
+          "id": "cchabits.pending",
+          "name": "Pending Review",
+          "icon": "$(clock)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "cchabits.refresh",
+        "title": "Refresh",
+        "category": "cc-habits",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "cchabits.openHabits",
+        "title": "Open habits.md",
+        "category": "cc-habits",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "cchabits.openMemories",
+        "title": "Open memories.md",
+        "category": "cc-habits",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "cchabits.tombstone",
+        "title": "Tombstone Rule",
+        "category": "cc-habits",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "cchabits.deleteMemory",
+        "title": "Delete Memory",
+        "category": "cc-habits",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "cchabits.approvePending",
+        "title": "Approve All",
+        "category": "cc-habits",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "cchabits.discardPending",
+        "title": "Discard All",
+        "category": "cc-habits",
+        "icon": "$(close-all)"
+      },
+      {
+        "command": "cchabits.sync",
+        "title": "Sync to AGENTS.md / Cursor / Cline",
+        "category": "cc-habits",
+        "icon": "$(sync)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "cchabits.refresh",
+          "when": "view == cchabits.habits || view == cchabits.memories || view == cchabits.pending",
+          "group": "navigation"
+        },
+        {
+          "command": "cchabits.openHabits",
+          "when": "view == cchabits.habits",
+          "group": "navigation"
+        },
+        {
+          "command": "cchabits.openMemories",
+          "when": "view == cchabits.memories",
+          "group": "navigation"
+        },
+        {
+          "command": "cchabits.approvePending",
+          "when": "view == cchabits.pending",
+          "group": "navigation"
+        },
+        {
+          "command": "cchabits.discardPending",
+          "when": "view == cchabits.pending",
+          "group": "navigation"
+        },
+        {
+          "command": "cchabits.sync",
+          "when": "view == cchabits.habits",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "cchabits.tombstone",
+          "when": "viewItem == habit",
+          "group": "inline"
+        },
+        {
+          "command": "cchabits.deleteMemory",
+          "when": "viewItem == memory",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "cc-habits",
+      "properties": {
+        "cchabits.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Custom absolute path to the `cc-habits` or `cch` executable (e.g. `~/.nvm/versions/node/v20.0.0/bin/cc-habits`). Leave empty to resolve automatically from PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build": "tsc -p ./",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.7"
+  }
+}

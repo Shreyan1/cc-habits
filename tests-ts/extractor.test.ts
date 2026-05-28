@@ -8,7 +8,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
   })),
 }));
 
-import { extractRules } from '../src/extractor';
+import { extractRules, extractMemoryCandidates } from '../src/extractor';
 
 describe('extractRules', () => {
   beforeEach(() => {
@@ -55,5 +55,57 @@ describe('extractRules', () => {
     const result = await extractRules([], '');
     expect(result).toHaveLength(1);
     expect(result[0].rule).toBe('Use f-strings');
+  });
+});
+
+describe('extractMemoryCandidates', () => {
+  beforeEach(() => {
+    process.env['CC_HABITS_PROVIDER'] = 'anthropic';
+    process.env['ANTHROPIC_API_KEY'] = 'test-key';
+  });
+
+  afterEach(() => {
+    delete process.env['CC_HABITS_PROVIDER'];
+    delete process.env['ANTHROPIC_API_KEY'];
+  });
+
+  it('returns valid memory candidates from provider response', async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [{ type: 'text', text: JSON.stringify([{
+        section: 'Repeated mistakes',
+        text: 'When editing settings.json, do not overwrite existing hook arrays',
+        trigger: ['settings.json', 'hooks'],
+        correction: 'Merge new hooks with existing hooks',
+        reasoning: 'Array was overwritten twice in this session',
+      }]) }],
+    });
+    const result = await extractMemoryCandidates(
+      [{ ts: 't', session_id: 's', type: 'edit', file: 'settings.json', diff: '-hooks:[]\n+hooks:[newHook]' }],
+      '<!-- cc-habits memories format v0.1 -->\n# Coding memories\n',
+    );
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(1);
+    expect(result[0].text).toContain('overwrite existing hook arrays');
+    expect(result[0].trigger).toEqual(['settings.json', 'hooks']);
+    expect(result[0].section).toBe('Repeated mistakes');
+  });
+
+  it('returns empty list on bad JSON response', async () => {
+    mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'not json' }] });
+    const result = await extractMemoryCandidates([], '');
+    expect(result).toEqual([]);
+  });
+
+  it('falls back to Repeated mistakes for unknown section', async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [{ type: 'text', text: JSON.stringify([{
+        section: 'Unknown section name',
+        text: 'Some mistake',
+        trigger: [],
+        correction: 'Do it right',
+      }]) }],
+    });
+    const result = await extractMemoryCandidates([], '');
+    expect(result[0].section).toBe('Repeated mistakes');
   });
 });

@@ -15,9 +15,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { storagePaths } from '../src/storage';
+import { storagePaths, serialiseMemories } from '../src/storage';
 import {
   selectInjectionHabits, buildInjectionContext, processUserPromptSubmit,
+  scoreMemoryRelevance, selectInjectionMemories, buildMemoryInjectionContext,
 } from '../src/hook';
 import { registerHooks, installPaths } from '../src/install';
 
@@ -51,9 +52,13 @@ const SEEDED = `<!-- cc-habits format v0.2 -->
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-inject-'));
+  storagePaths.habitsDir = tmpDir;
   storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
+  storagePaths.memoriesFile = path.join(tmpDir, 'memories.md');
+  storagePaths.memoryTombstonesFile = path.join(tmpDir, '.memory-tombstones.json');
   fs.writeFileSync(storagePaths.habitsFile, SEEDED);
   delete process.env['CC_HABITS_INJECT'];
+  delete process.env['CC_HABITS_MEMORIES'];
 });
 
 afterEach(() => {
@@ -61,6 +66,7 @@ afterEach(() => {
   Object.assign(installPaths, origInstall);
   fs.rmSync(tmpDir, { recursive: true, force: true });
   delete process.env['CC_HABITS_INJECT'];
+  delete process.env['CC_HABITS_MEMORIES'];
 });
 
 describe('selectInjectionHabits', () => {
@@ -112,6 +118,143 @@ describe('processUserPromptSubmit', () => {
       process.env['CC_HABITS_INJECT'] = v;
       expect(processUserPromptSubmit({ prompt: 'x' })).toBeNull();
     }
+  });
+});
+
+const SEEDED_MEMORIES = serialiseMemories({
+  'Repeated mistakes': [
+    {
+      text: 'When editing settings.json, do not overwrite existing hook arrays',
+      trigger: ['settings.json', 'hooks', 'install'],
+      correction: 'Merge new hooks with existing hooks',
+      confidence: 0.80,
+      seen: 3,
+      sessions_seen: 2,
+    },
+    {
+      text: 'When updating parser fields, also update format spec and tests',
+      trigger: ['parser', 'format', 'storage'],
+      correction: 'Keep parser, spec, and tests in lockstep',
+      confidence: 0.70,
+      seen: 2,
+      sessions_seen: 2,
+    },
+  ],
+});
+
+describe('scoreMemoryRelevance', () => {
+  const memory = {
+    text: 'test',
+    trigger: ['settings.json', 'hooks'],
+    confidence: 0.80,
+    seen: 2,
+    sessions_seen: 2,
+  };
+
+  it('returns 0 when no trigger terms match the prompt', () => {
+    expect(scoreMemoryRelevance(memory, 'refactor the parser module')).toBe(0);
+  });
+
+  it('returns positive score when trigger terms appear in prompt', () => {
+    expect(scoreMemoryRelevance(memory, 'edit the settings.json hooks array')).toBe(2);
+  });
+
+  it('returns 0 for a memory with no trigger terms', () => {
+    expect(scoreMemoryRelevance({ ...memory, trigger: [] }, 'anything')).toBe(0);
+  });
+
+  it('enforces word boundary matches and allows plural s', () => {
+    const mem1 = { ...memory, trigger: ['hook'] };
+    expect(scoreMemoryRelevance(mem1, 'we are hooked')).toBe(0);
+    expect(scoreMemoryRelevance(mem1, 'we need to install hooks')).toBe(1);
+    expect(scoreMemoryRelevance(mem1, 'we need to install hook')).toBe(1);
+  });
+
+  it('ignores generic short verbs', () => {
+    const mem2 = { ...memory, trigger: ['get', 'use', 'install', 'settings.json'] };
+    expect(scoreMemoryRelevance(mem2, 'get the settings.json and use it to install')).toBe(2);
+  });
+});
+
+describe('selectInjectionMemories', () => {
+  it('returns memories whose trigger terms match the prompt', () => {
+    const memories = selectInjectionMemories(SEEDED_MEMORIES, 'update settings.json hooks');
+    expect(memories.length).toBeGreaterThanOrEqual(1);
+    expect(memories[0].trigger).toContain('settings.json');
+  });
+
+  it('returns at most 3 memories', () => {
+    const many = serialiseMemories({
+      'Repeated mistakes': Array.from({ length: 6 }, (_, i) => ({
+        text: `Mistake ${i}`,
+        trigger: ['keyword'],
+        correction: `Fix ${i}`,
+        confidence: 0.70,
+        seen: 2,
+        sessions_seen: 2,
+      })),
+    });
+    const result = selectInjectionMemories(many, 'use keyword everywhere');
+    expect(result.length).toBeLessThanOrEqual(3);
+  });
+
+  it('returns empty array when no trigger terms match', () => {
+    const memories = selectInjectionMemories(SEEDED_MEMORIES, 'write a new React component');
+    expect(memories).toHaveLength(0);
+  });
+
+  it('excludes candidate memories (sessions_seen < 2)', () => {
+    const withCandidate = serialiseMemories({
+      'Repeated mistakes': [{
+        text: 'Candidate mistake about settings.json',
+        trigger: ['settings.json'],
+        correction: 'Fix it',
+        confidence: 0.50,
+        seen: 1,
+        sessions_seen: 1,
+      }],
+    });
+    const memories = selectInjectionMemories(withCandidate, 'edit settings.json');
+    expect(memories).toHaveLength(0);
+  });
+});
+
+describe('buildMemoryInjectionContext', () => {
+  it('wraps memories in a <coding-memories> block', () => {
+    const memories = selectInjectionMemories(SEEDED_MEMORIES, 'edit settings.json hooks');
+    const ctx = buildMemoryInjectionContext(memories);
+    expect(ctx).not.toBeNull();
+    expect(ctx!).toContain('<coding-memories>');
+    expect(ctx!).toContain('</coding-memories>');
+    expect(ctx!).toContain('Merge new hooks');
+  });
+
+  it('returns null when memory list is empty', () => {
+    expect(buildMemoryInjectionContext([])).toBeNull();
+  });
+});
+
+describe('processUserPromptSubmit with memories', () => {
+  it('does not include memories context when CC_HABITS_MEMORIES is off', () => {
+    fs.writeFileSync(storagePaths.memoriesFile!, SEEDED_MEMORIES);
+    const ctx = processUserPromptSubmit({ prompt: 'edit settings.json hooks' });
+    expect(ctx).not.toContain('<coding-memories>');
+  });
+
+  it('includes relevant memories when CC_HABITS_MEMORIES=1', () => {
+    process.env['CC_HABITS_MEMORIES'] = '1';
+    fs.writeFileSync(storagePaths.memoriesFile!, SEEDED_MEMORIES);
+    const ctx = processUserPromptSubmit({ prompt: 'edit settings.json hooks' });
+    expect(ctx).toContain('<coding-memories>');
+    expect(ctx).toContain('overwrite existing hook arrays');
+  });
+
+  it('still returns habits context even when no memories match', () => {
+    process.env['CC_HABITS_MEMORIES'] = '1';
+    fs.writeFileSync(storagePaths.memoriesFile!, SEEDED_MEMORIES);
+    const ctx = processUserPromptSubmit({ prompt: 'write a new React component' });
+    expect(ctx).toContain('<coding-habits>');
+    expect(ctx).not.toContain('<coding-memories>');
   });
 });
 

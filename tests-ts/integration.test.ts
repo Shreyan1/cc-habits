@@ -2,10 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { storagePaths, initHabitsMd, initLog, readSignals, readHabitsMd, parseHabits, appendSignal, serialiseHabits } from '../src/storage';
+import {
+  storagePaths, initHabitsMd, initLog, readSignals, readHabitsMd, parseHabits,
+  appendSignal, serialiseHabits, serialiseMemories, writeMemoriesMd,
+  parseMemories, readMemoriesMd, readMemoryTombstones,
+} from '../src/storage';
 import { installPaths } from '../src/install';
 import { processPostToolUse, processStop, isNoise, redact } from '../src/hook';
-import { cmdInit, cmdView, cmdReset } from '../src/cli';
+import { cmdInit, cmdView, cmdReset, cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones } from '../src/cli';
 import * as extractor from '../src/extractor';
 
 vi.mock('../src/extractor');
@@ -34,9 +38,13 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-test-'));
   storagePaths.habitsDir = tmpDir;
   storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
+  storagePaths.memoriesFile = path.join(tmpDir, 'memories.md');
   storagePaths.logFile = path.join(tmpDir, 'log.jsonl');
   storagePaths.errorLog = path.join(tmpDir, 'error.log');
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
+  storagePaths.memoryTombstonesFile = path.join(tmpDir, '.memory-tombstones.json');
+  storagePaths.memoryIndexFile = path.join(tmpDir, '.memory-index.json');
+  storagePaths.memoryPendingFile = path.join(tmpDir, '.memory-pending.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
   storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
@@ -52,6 +60,7 @@ beforeEach(() => {
   initHabitsMd();
   initLog();
   vi.mocked(extractor.extractRules).mockResolvedValue([]);
+  vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -343,14 +352,169 @@ describe('CLI view', () => {
   });
 });
 
+// CLI: memories ───────────────────────────────────────────────────────────
+describe('CLI memories', () => {
+  it('shows empty memories state and creates memories.md', () => {
+    const ret = cmdMemories();
+    expect(ret).toBe(0);
+    expect(fs.existsSync(storagePaths.memoriesFile)).toBe(true);
+  });
+
+  it('shows active and candidate memories', () => {
+    writeMemoriesMd(serialiseMemories({
+      'Repeated mistakes': [
+        {
+          text: 'Preserve existing hook arrays when editing settings',
+          trigger: ['settings.json', 'hooks'],
+          correction: 'Merge arrays instead of overwriting them',
+          confidence: 0.80,
+          seen: 3,
+          sessions_seen: 2,
+          last_seen: '2026-05-28',
+        },
+        {
+          text: 'Update parser tests when changing format fields',
+          trigger: ['parser', 'format'],
+          correction: 'Update parser, serializer, and spec together',
+          confidence: 0.50,
+          seen: 1,
+          sessions_seen: 1,
+        },
+      ],
+    }));
+    expect(cmdMemories()).toBe(0);
+  });
+});
+
+// CLI: memories --delete ──────────────────────────────────────────────────
+describe('CLI memories --delete', () => {
+  it('deletes and tombstones a memory by text', () => {
+    writeMemoriesMd(serialiseMemories({
+      'Repeated mistakes': [{
+        text: 'When editing settings, do not overwrite arrays',
+        trigger: ['settings.json'],
+        correction: 'Merge arrays',
+        confidence: 0.80,
+        seen: 2,
+        sessions_seen: 2,
+      }],
+    }));
+    const ret = cmdMemoriesDelete('When editing settings, do not overwrite arrays');
+    expect(ret).toBe(0);
+    const sections = parseMemories(readMemoriesMd());
+    expect(Object.values(sections).flat()).toHaveLength(0);
+    expect(readMemoryTombstones().length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('still tombstones even if memory text is not found', () => {
+    const ret = cmdMemoriesDelete('Nonexistent memory text');
+    expect(ret).toBe(0);
+    expect(readMemoryTombstones().length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('returns 1 when no text is provided', () => {
+    expect(cmdMemoriesDelete('')).toBe(1);
+  });
+});
+
+describe('CLI memories --tombstones', () => {
+  it('shows empty tombstones list', () => {
+    expect(cmdMemoriesTombstones()).toBe(0);
+  });
+});
+
+// Stop hook: memory extraction ────────────────────────────────────────────
+describe('Stop hook memory extraction', () => {
+  afterEach(() => {
+    delete process.env['CC_HABITS_MEMORIES'];
+  });
+
+  it('does not write memories when CC_HABITS_MEMORIES is off (default)', async () => {
+    writeSignals();
+    vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([{
+      section: 'Repeated mistakes',
+      text: 'When editing settings, do not overwrite arrays',
+      trigger: ['settings.json'],
+      correction: 'Merge arrays',
+    }]);
+    const result = await processStop(SESSION);
+    expect(result).not.toBeNull();
+    // extractMemoryCandidates should not be called when flag is off
+    expect(extractor.extractMemoryCandidates).not.toHaveBeenCalled();
+    expect(result!.memoryCandidatesCount).toBe(0);
+  });
+
+  it('extracts and writes memory candidates when CC_HABITS_MEMORIES=1', async () => {
+    process.env['CC_HABITS_MEMORIES'] = '1';
+    writeSignals();
+    vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([{
+      section: 'Repeated mistakes',
+      text: 'When editing settings, do not overwrite existing hook arrays',
+      trigger: ['settings.json', 'hooks'],
+      correction: 'Merge new hooks with existing hooks',
+    }]);
+    const result = await processStop(SESSION);
+    expect(result).not.toBeNull();
+    expect(extractor.extractMemoryCandidates).toHaveBeenCalled();
+    expect(result!.memoryCandidatesCount).toBe(1);
+    expect(fs.existsSync(storagePaths.memoriesFile)).toBe(true);
+    const md = fs.readFileSync(storagePaths.memoriesFile, 'utf-8');
+    expect(md).toContain('overwrite existing hook arrays');
+  });
+
+  it('reinforces an existing memory on a second session', async () => {
+    process.env['CC_HABITS_MEMORIES'] = '1';
+    const candidate = {
+      section: 'Repeated mistakes',
+      text: 'When editing settings, do not overwrite existing hook arrays',
+      trigger: ['settings.json'],
+      correction: 'Merge arrays',
+    };
+    // First session
+    writeSignals();
+    vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([candidate]);
+    await processStop(SESSION);
+    // Second session with same mistake
+    vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([candidate]);
+    writeSignals('session-2');
+    const result2 = await processStop('session-2');
+    expect(result2!.memoryCandidatesCount).toBe(0); // reinforced, not new
+    const { parseMemories, readMemoriesMd } = await import('../src/storage');
+    const sections = parseMemories(readMemoriesMd());
+    const mem = sections['Repeated mistakes']?.[0];
+    expect(mem?.seen).toBe(2);
+    expect(mem?.sessions_seen).toBe(2);
+    expect(mem?.confidence).toBeCloseTo(0.60);
+  });
+
+  it('handles extractor failure gracefully without crashing stop', async () => {
+    process.env['CC_HABITS_MEMORIES'] = '1';
+    writeSignals();
+    vi.mocked(extractor.extractMemoryCandidates).mockRejectedValue(new Error('provider down'));
+    const result = await processStop(SESSION);
+    expect(result).not.toBeNull(); // habits still extracted normally
+    expect(result!.memoryCandidatesCount).toBe(0);
+  });
+});
+
 // CLI: reset ──────────────────────────────────────────────────────────────
 describe('CLI reset', () => {
   it('requires --yes flag', () => { expect(cmdReset(false)).toBe(1); });
   it('deletes habits and log files', () => {
     writeSignals();
+    writeMemoriesMd(serialiseMemories({
+      'Repeated mistakes': [{
+        text: 'Preserve settings arrays',
+        trigger: ['settings'],
+        confidence: 0.80,
+        seen: 2,
+        sessions_seen: 2,
+      }],
+    }));
     expect(cmdReset(true)).toBe(0);
     expect(fs.existsSync(storagePaths.logFile)).toBe(false);
     expect(fs.existsSync(storagePaths.habitsFile)).toBe(false);
+    expect(fs.existsSync(storagePaths.memoriesFile)).toBe(false);
   });
   it('is idempotent — no error if already deleted', () => { expect(cmdReset(true)).toBe(0); });
 });

@@ -4,12 +4,16 @@ import {
   storagePaths, appendSignal, readSignals, readHabitsMd, parseHabits, writeHabitsMd,
   serialiseHabits, logError, sanitizeFilePath, detectManualDeletes, writeSnapshot,
   addTombstone, writePending, readPending, clearPending,
-  appendHistory, appendProvenance,
+  appendHistory, appendProvenance, readMemoriesMd, applyMemoryUpdates, parseMemories,
+  isMemoryTombstoned,
+  type Memory,
 } from './storage';
+import { normalizeInput, type NormalizedHookInput } from './adapters';
 import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule, sanitizeCategory } from './confidence';
 import type { AppliedChange } from './confidence';
-import { extractRules } from './extractor';
+import { extractRules, extractMemoryCandidates } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError } from './providers';
+import { readSyncTargets, syncTargets } from './sync';
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit']);
 const MIN_SIGNALS = 3;
@@ -122,6 +126,42 @@ export function buildDiff(toolName: string, filePath: string, toolInput: Record<
   return diff;
 }
 
+export function buildDiffFromNormalized(input: NormalizedHookInput): string {
+  if (input.diff) {
+    let diff = input.diff;
+    if (diff.length > MAX_DIFF_BYTES) diff = diff.slice(0, MAX_DIFF_BYTES) + '\n... (truncated)';
+    return diff;
+  }
+  const toolName = input.toolName;
+  const filePath = input.filePath;
+  let diff = '';
+  if (toolName === 'Write') {
+    const content = input.newContent ?? '';
+    diff = `+++ ${filePath}\n` + content.split('\n').map(ln => `+${ln}`).join('\n');
+  } else if (toolName === 'MultiEdit') {
+    const edits = input.edits ?? [];
+    if (edits.length === 0) return '';
+    const parts = edits.map(e => {
+      const old = e.old_string ?? '';
+      const nw = e.new_string ?? '';
+      return old.split('\n').map(ln => `-${ln}`).join('\n') + '\n' + nw.split('\n').map(ln => `+${ln}`).join('\n');
+    });
+    diff = `--- ${filePath}\n` + parts.join('\n---\n');
+  } else {
+    // Edit/default
+    const old = input.oldContent ?? '';
+    const nw = input.newContent ?? '';
+    if (old === nw) return '';
+    diff =
+      `--- ${filePath}\n` +
+      old.split('\n').map(ln => `-${ln}`).join('\n') +
+      '\n' +
+      nw.split('\n').map(ln => `+${ln}`).join('\n');
+  }
+  if (diff.length > MAX_DIFF_BYTES) diff = diff.slice(0, MAX_DIFF_BYTES) + '\n... (truncated)';
+  return diff;
+}
+
 // Per-repo opt-out (Responsible AI) ─────────────────────────────────────────
 // A developer working on code they can't send to a third-party API (employer
 // code, regulated data) needs a way to stop capture for that tree. Two switches:
@@ -168,20 +208,24 @@ function autoApplyEnabled(): boolean {
   return v === '1' || v === 'true' || v === 'on';
 }
 
+// Set CC_HABITS_MEMORIES=1 to enable memory extraction in the Stop hook.
+// Off by default until the extraction loop has been validated.
+function memoriesEnabled(): boolean {
+  const v = (process.env['CC_HABITS_MEMORIES'] ?? '').toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
+}
+
 // Pure logic ───────────────────────────────────────────────────────────────
-export function processPostToolUse(data: Record<string, unknown>): void {
+export function processPostToolUse(input: Record<string, unknown> | NormalizedHookInput): void {
   if (captureDisabled()) return;
 
-  const toolName = String(data['tool_name'] ?? '');
-  if (!WRITE_TOOLS.has(toolName)) return;
+  const data = (('filePath' in input) ? input : normalizeInput(input, 'claude-code')) as NormalizedHookInput;
 
-  const toolInput = (data['tool_input'] ?? {}) as Record<string, unknown>;
-  const sessionId = String(data['session_id'] ?? '');
-  const rawFilePath = String(toolInput['file_path'] ?? toolInput['path'] ?? '');
-  // S4: sanitize file path against traversal/control chars.
-  const filePath = sanitizeFilePath(rawFilePath);
+  const toolName = data.toolName || 'Edit';
+  const sessionId = data.sessionId;
+  const filePath = sanitizeFilePath(data.filePath);
 
-  let diff = buildDiff(toolName, filePath, toolInput);
+  let diff = buildDiffFromNormalized(data);
   if (!diff || isNoise(diff)) return; // D7: short-circuit zero-info edits before logging
   diff = redact(diff);
   const safeFilePath = redact(filePath);
@@ -194,11 +238,12 @@ export function processPostToolUse(data: Record<string, unknown>): void {
     file: safeFilePath,
     diff,
     ...(language ? { language } : {}),
+    source: data.source || 'claude-code',
   });
 
   // Session-start banner: on the first edit of this session, tell the user how
   // many habits are active. One truthful line beats a per-edit cry-wolf signal.
-  if (markerEnabled()) {
+  if (markerEnabled() && (data.source === 'claude-code' || !data.source)) {
     try {
       const count = readSignals(sessionId).length;
       const banner = buildSessionBanner(readHabitsMd(), count);
@@ -217,6 +262,8 @@ export interface StopResult {
   // CC_HABITS_AUTO=1 (auto-applied immediately). Optional for backwards compat
   // with callers that construct StopResult directly (e.g. test helpers).
   pendingCount?: number;
+  // New memory candidates added this session (CC_HABITS_MEMORIES=1 only).
+  memoryCandidatesCount?: number;
 }
 
 export async function processStop(sessionId: string): Promise<StopResult | null> {
@@ -295,7 +342,30 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   // B1: snapshot the habits.md state for `cc-habits diff`.
   appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised });
 
-  return { newCount, updatedCount, decayed, tombstoned: deleted.length, changes, pendingCount };
+  // Memory extraction: opt-in via CC_HABITS_MEMORIES=1. Runs after habit
+  // extraction so it never blocks or delays the habits path on failure.
+  let memoryCandidatesCount = 0;
+  if (memoriesEnabled()) {
+    try {
+      const memoriesMd = readMemoriesMd();
+      const candidates = await extractMemoryCandidates(capped, memoriesMd);
+      memoryCandidatesCount = applyMemoryUpdates(candidates);
+    } catch (e) {
+      logError(`stop: memory extraction failed: ${String(e)}`);
+    }
+  }
+
+  // Auto-sync targets if configured in config.yml
+  try {
+    const targets = readSyncTargets();
+    if (targets.length > 0) {
+      syncTargets(targets);
+    }
+  } catch (e) {
+    logError(`stop: auto-sync failed: ${String(e)}`);
+  }
+
+  return { newCount, updatedCount, decayed, tombstoned: deleted.length, changes, pendingCount, memoryCandidatesCount };
 }
 
 // Session summary (transparency surface) ───────────────────────────────────//
@@ -342,6 +412,11 @@ export function formatStopSummary(result: StopResult): string {
 
   if (created.length === 0 && reinforced.length === 0 && contradicted.length === 0 && tail.length === 0) {
     lines.push('  no habit changes this session');
+  }
+
+  if ((result.memoryCandidatesCount ?? 0) > 0) {
+    const n = result.memoryCandidatesCount!;
+    lines.push(`  + ${n} new memory candidate${n === 1 ? '' : 's'} added — run \`cch memories\` to review`);
   }
 
   lines.push('  habits.md updated · run `cc-habits view` for the full picture');
@@ -438,13 +513,92 @@ function injectionEnabled(): boolean {
   return v !== '0' && v !== 'false' && v !== 'off';
 }
 
-export function processUserPromptSubmit(_data: Record<string, unknown>): string | null {
+// Memory relevance scoring ─────────────────────────────────────────────────
+// Simple keyword overlap: score a memory against the current prompt text.
+// No LLM call — fast enough for UserPromptSubmit where latency matters.
+const MEMORY_INJECT_TOP_N = 3;
+const MEMORY_MIN_CONFIDENCE = 0.50;
+
+export function scoreMemoryRelevance(memory: Memory, promptText: string): number {
+  if (memory.trigger.length === 0) return 0;
+  const haystack = promptText.toLowerCase();
+  let score = 0;
+  const genericVerbs = new Set(['get', 'use', 'set', 'add', 'run', 'fit', 'fix', 'log', 'env', 'app']);
+  for (const term of memory.trigger) {
+    const cleanTerm = term.trim().toLowerCase();
+    if (cleanTerm.length < 3) continue;
+
+    // Ignore generic short verbs
+    if (cleanTerm.length < 4 && genericVerbs.has(cleanTerm)) {
+      continue;
+    }
+
+    // Escape regex characters
+    const escaped = cleanTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    // Enforce word boundaries for alphanumeric triggers, allowing optional plural 's'
+    const startBoundary = /^[a-zA-Z0-9_]/.test(cleanTerm) ? '\\b' : '';
+    const endBoundary = /[a-zA-Z0-9_]$/.test(cleanTerm) ? 's?\\b' : '';
+    
+    const regex = new RegExp(startBoundary + escaped + endBoundary, 'i');
+    if (regex.test(haystack)) {
+      score++;
+    }
+  }
+  return score;
+}
+
+export function selectInjectionMemories(memoriesMd: string, promptText: string): Memory[] {
+  const sections = parseMemories(memoriesMd);
+  const candidates: Array<{ memory: Memory; score: number }> = [];
+  for (const memories of Object.values(sections)) {
+    for (const m of memories) {
+      if ((m.sessions_seen ?? 1) < 2) continue;
+      if (m.confidence < MEMORY_MIN_CONFIDENCE) continue;
+      if (isMemoryTombstoned(m.text)) continue;
+      const score = scoreMemoryRelevance(m, promptText);
+      if (score > 0) candidates.push({ memory: m, score });
+    }
+  }
+  candidates.sort((a, b) => b.score - a.score || b.memory.confidence - a.memory.confidence);
+  return candidates.slice(0, MEMORY_INJECT_TOP_N).map(c => c.memory);
+}
+
+export function buildMemoryInjectionContext(memories: Memory[]): string | null {
+  if (memories.length === 0) return null;
+  const lines = [
+    '<coding-memories>',
+    'Relevant past mistakes to avoid for this task:',
+  ];
+  for (const m of memories) {
+    const correction = m.correction ? ` Correction: ${sanitizeRule(m.correction)}` : '';
+    lines.push(`- ${sanitizeRule(m.text)}.${correction}`);
+  }
+  lines.push('</coding-memories>');
+  return lines.join('\n');
+}
+
+export function processUserPromptSubmit(data: Record<string, unknown>): string | null {
   if (!injectionEnabled()) return null;
-  return buildInjectionContext(readHabitsMd());
+  const promptText = typeof data['prompt'] === 'string' ? data['prompt'] : '';
+  const habitsContext = buildInjectionContext(readHabitsMd());
+
+  let memoriesContext: string | null = null;
+  if (memoriesEnabled()) {
+    try {
+      const memoriesMd = readMemoriesMd();
+      const relevant = selectInjectionMemories(memoriesMd, promptText);
+      memoriesContext = buildMemoryInjectionContext(relevant);
+    } catch {
+      // injection failures must never block a prompt
+    }
+  }
+
+  if (habitsContext && memoriesContext) return habitsContext + '\n' + memoriesContext;
+  return habitsContext ?? memoriesContext;
 }
 
 // stdin/stdout wrappers ────────────────────────────────────────────────────
-export function handlePostToolUse(): void {
+export function handlePostToolUse(adapter = 'claude-code'): void {
   let raw = '';
   let oversized = false;
   process.stdin.setEncoding('utf-8');
@@ -459,10 +613,11 @@ export function handlePostToolUse(): void {
   process.stdin.on('end', () => {
     if (!oversized) {
       try {
-        const data = JSON.parse(raw) as Record<string, unknown>;
-        processPostToolUse(data);
-      } catch {
-        // malformed stdin — safe to ignore
+        const rawJson = JSON.parse(raw);
+        const normalized = normalizeInput(rawJson, adapter);
+        processPostToolUse(normalized);
+      } catch (e) {
+        logError(`post-tool-use (${adapter}): malformed stdin or normalization failed: ${String(e)}`);
       }
     }
     process.exit(0);
@@ -490,7 +645,7 @@ export async function handleStop(): Promise<void> {
 
   try {
     const data = JSON.parse(raw) as Record<string, unknown>;
-    const sessionId = String(data['session_id'] ?? '');
+    const sessionId = String(data['session_id'] ?? data['sessionId'] ?? data['session'] ?? '');
     const result = await processStop(sessionId);
     if (result !== null) {
       process.stderr.write(formatStopSummary(result) + '\n');
@@ -542,9 +697,21 @@ export function hookMain(): void {
   const event = process.argv[2];
   if (!event) { process.exit(0); return; }
 
+  let adapter = 'claude-code';
+  const adapterIdx = process.argv.indexOf('--adapter');
+  if (adapterIdx !== -1 && process.argv[adapterIdx + 1]) {
+    const candidate = process.argv[adapterIdx + 1];
+    if (candidate === 'claude-code' || candidate === 'gemini' || candidate === 'codex') {
+      adapter = candidate;
+    } else {
+      process.stderr.write(`cc-habits: invalid adapter: ${candidate}. Supported adapters: claude-code, gemini, codex. Falling back to claude-code.\n`);
+      adapter = 'claude-code';
+    }
+  }
+
   const wrap = async (): Promise<void> => {
     try {
-      if (event === 'post-tool-use') handlePostToolUse();
+      if (event === 'post-tool-use') handlePostToolUse(adapter);
       else if (event === 'stop') await handleStop();
       else if (event === 'user-prompt-submit') handleUserPromptSubmit();
       else process.exit(0);

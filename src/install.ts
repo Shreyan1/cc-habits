@@ -32,15 +32,15 @@ function makeHooks(hookBin: string): { postToolUse: object; stop: object; userPr
   return {
     postToolUse: {
       matcher: 'Write|Edit|MultiEdit',
-      hooks: [{ type: 'command', command: `${safeBin} post-tool-use || true` }],
+      hooks: [{ type: 'command', command: `${safeBin} post-tool-use --adapter claude-code || true` }],
     },
     stop: {
-      hooks: [{ type: 'command', command: `${safeBin} stop || true` }],
+      hooks: [{ type: 'command', command: `${safeBin} stop --adapter claude-code || true` }],
     },
     // UserPromptSubmit re-injects active habits into context each prompt (Patch 2).
     // No matcher — this event always fires.
     userPromptSubmit: {
-      hooks: [{ type: 'command', command: `${safeBin} user-prompt-submit || true` }],
+      hooks: [{ type: 'command', command: `${safeBin} user-prompt-submit --adapter claude-code || true` }],
     },
   };
 }
@@ -164,3 +164,221 @@ export function addImportToClaudeMd(): boolean {
   }
   return true;
 }
+
+import { execSync } from 'child_process';
+
+export function installLocalGitHook(): boolean {
+  try {
+    if (!fs.existsSync('.git')) return false;
+
+    const stat = fs.statSync('.git');
+    let hooksDir = '';
+    if (stat.isDirectory()) {
+      hooksDir = path.join('.git', 'hooks');
+    } else {
+      try {
+        const gitDir = execSync('git rev-parse --git-dir', { encoding: 'utf-8' }).trim();
+        hooksDir = path.join(gitDir, 'hooks');
+      } catch {
+        return false;
+      }
+    }
+
+    fs.mkdirSync(hooksDir, { recursive: true });
+    const hookFile = path.join(hooksDir, 'post-commit');
+    const command = 'cc-habits git-capture || true';
+
+    if (fs.existsSync(hookFile)) {
+      const content = fs.readFileSync(hookFile, 'utf-8');
+      if (content.includes('cc-habits git-capture') || content.includes('cch git-capture')) {
+        return false;
+      }
+      fs.appendFileSync(hookFile, `\n${command}\n`);
+    } else {
+      fs.writeFileSync(hookFile, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function installGlobalGitTemplateHook(): boolean {
+  try {
+    const templateDir = path.join(os.homedir(), '.git-templates');
+    const hooksDir = path.join(templateDir, 'hooks');
+    fs.mkdirSync(hooksDir, { recursive: true });
+
+    const hookFile = path.join(hooksDir, 'post-commit');
+    const command = 'cc-habits git-capture || true';
+
+    if (fs.existsSync(hookFile)) {
+      const content = fs.readFileSync(hookFile, 'utf-8');
+      if (!content.includes('cc-habits git-capture') && !content.includes('cch git-capture')) {
+        fs.appendFileSync(hookFile, `\n${command}\n`);
+      }
+    } else {
+      fs.writeFileSync(hookFile, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
+    }
+
+    execSync(`git config --global init.templateDir "${templateDir.replace(/"/g, '\\"')}"`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function registerJsonHooks(targetFile: string, toolId: string, hookBin: string): HookRegistration {
+  const safeBin = `"${hookBin.replace(/"/g, '\\"')}"`;
+  
+  const postCmd = `${safeBin} post-tool-use --adapter ${toolId} || true`;
+  const stopCmd = `${safeBin} stop --adapter ${toolId} || true`;
+  const promptCmd = `${safeBin} user-prompt-submit --adapter ${toolId} || true`;
+
+  let settings: Record<string, any> = {};
+  if (fs.existsSync(targetFile)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(targetFile, 'utf-8'));
+    } catch {
+      // warn or default
+    }
+  }
+
+  if (!settings['hooks']) settings['hooks'] = {};
+  const hooks = settings['hooks'] as Record<string, unknown[]>;
+  if (!hooks['PostToolUse']) hooks['PostToolUse'] = [];
+  if (!hooks['Stop']) hooks['Stop'] = [];
+  if (!hooks['UserPromptSubmit']) hooks['UserPromptSubmit'] = [];
+
+  let postAdded = false;
+  let stopAdded = false;
+  let promptAdded = false;
+
+  const postHook = {
+    matcher: 'Write|Edit|MultiEdit',
+    hooks: [{ type: 'command', command: postCmd }],
+  };
+  const stopHook = {
+    hooks: [{ type: 'command', command: stopCmd }],
+  };
+  const promptHook = {
+    hooks: [{ type: 'command', command: promptCmd }],
+  };
+
+  if (!hookAlreadyRegistered(hooks['PostToolUse'], postCmd)) {
+    hooks['PostToolUse'].push(postHook);
+    postAdded = true;
+  }
+  if (!hookAlreadyRegistered(hooks['Stop'], stopCmd)) {
+    hooks['Stop'].push(stopHook);
+    stopAdded = true;
+  }
+  if (!hookAlreadyRegistered(hooks['UserPromptSubmit'], promptCmd)) {
+    hooks['UserPromptSubmit'].push(promptHook);
+    promptAdded = true;
+  }
+
+  if (fs.existsSync(targetFile) && fs.lstatSync(targetFile).isSymbolicLink()) {
+    throw new Error(`refusing to write through symlink: ${targetFile}`);
+  }
+  const tmpPath = `${targetFile}.tmp.${process.pid}`;
+  try {
+    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+    fs.renameSync(tmpPath, targetFile);
+  } catch (e) {
+    try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
+    throw e;
+  }
+
+  return { postAdded, stopAdded, promptAdded };
+}
+
+export function registerCodexHooks(targetFile: string, hookBin: string): HookRegistration {
+  const safeBin = `"${hookBin.replace(/"/g, '\\"')}"`;
+  const postCmd = `${safeBin} post-tool-use --adapter codex || true`;
+  const stopCmd = `${safeBin} stop --adapter codex || true`;
+
+  let content = '';
+  if (fs.existsSync(targetFile)) {
+    content = fs.readFileSync(targetFile, 'utf-8');
+  }
+
+  let postAdded = false;
+  let stopAdded = false;
+
+  if (!content.includes(postCmd)) {
+    if (!content.includes('[hooks]')) {
+      content += `\n[hooks]\n`;
+    }
+    content += `PostToolUse = "${postCmd}"\n`;
+    postAdded = true;
+  }
+  if (!content.includes(stopCmd)) {
+    if (!content.includes('[hooks]')) {
+      content += `\n[hooks]\n`;
+    }
+    content += `Stop = "${stopCmd}"\n`;
+    stopAdded = true;
+  }
+
+  if (fs.existsSync(targetFile) && fs.lstatSync(targetFile).isSymbolicLink()) {
+    throw new Error(`refusing to write through symlink: ${targetFile}`);
+  }
+  const tmpPath = `${targetFile}.tmp.${process.pid}`;
+  try {
+    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+    fs.writeFileSync(tmpPath, content, 'utf-8');
+    fs.renameSync(tmpPath, targetFile);
+  } catch (e) {
+    try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
+    throw e;
+  }
+
+  return { postAdded, stopAdded, promptAdded: false };
+}
+
+export function registerClineHooks(hooksDir: string, hookBin: string): HookRegistration {
+  const safeBin = `"${hookBin.replace(/"/g, '\\"')}"`;
+  const postCmd = `#!/bin/sh\n${safeBin} post-tool-use --adapter cline || true\n`;
+  const stopCmd = `#!/bin/sh\n${safeBin} stop --adapter cline || true\n`;
+
+  fs.mkdirSync(hooksDir, { recursive: true });
+  const postFile = path.join(hooksDir, 'PostToolUse');
+  const stopFile = path.join(hooksDir, 'Stop');
+
+  if (fs.existsSync(postFile) && fs.lstatSync(postFile).isSymbolicLink()) {
+    throw new Error(`refusing to write through symlink: ${postFile}`);
+  }
+  if (fs.existsSync(stopFile) && fs.lstatSync(stopFile).isSymbolicLink()) {
+    throw new Error(`refusing to write through symlink: ${stopFile}`);
+  }
+
+  let postAdded = false;
+  let stopAdded = false;
+
+  if (!fs.existsSync(postFile)) {
+    fs.writeFileSync(postFile, postCmd, { mode: 0o755 });
+    postAdded = true;
+  } else {
+    const c = fs.readFileSync(postFile, 'utf-8');
+    if (!c.includes('post-tool-use')) {
+      fs.appendFileSync(postFile, `\n${safeBin} post-tool-use --adapter cline || true\n`);
+      postAdded = true;
+    }
+  }
+
+  if (!fs.existsSync(stopFile)) {
+    fs.writeFileSync(stopFile, stopCmd, { mode: 0o755 });
+    stopAdded = true;
+  } else {
+    const c = fs.readFileSync(stopFile, 'utf-8');
+    if (!c.includes('stop')) {
+      fs.appendFileSync(stopFile, `\n${safeBin} stop --adapter cline || true\n`);
+      stopAdded = true;
+    }
+  }
+
+  return { postAdded, stopAdded, promptAdded: false };
+}
+

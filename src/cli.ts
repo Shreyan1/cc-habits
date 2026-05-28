@@ -3,16 +3,26 @@ import path from 'path';
 import {
   storagePaths, initHabitsMd, initLog, readHabitsMd, readSignals, parseHabits,
   readPending, clearPending, writeHabitsMd, serialiseHabits, writeSnapshot,
-  readTombstones, addTombstone,
+  readTombstones, addTombstone, initMemoriesMd, readMemoriesMd, writeMemoriesMd,
+  parseMemories, serialiseMemories, addMemoryTombstone, readMemoryTombstones,
+  readHistory, appendHistory, logError, detectManualDeletes, applyMemoryUpdates,
+  writePending,
+  type Memory,
 } from './storage';
-import { applyUpdates, pendingToUpdates } from './confidence';
-import { registerHooks, addImportToClaudeMd } from './install';
+import { applyUpdates, pendingToUpdates, applyDecay, toPending, type AppliedChange } from './confidence';
+import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerClineHooks, resolveHookBinaryPath } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
 import { exportHabits, importHabits } from './portable';
 import { lintPath } from './lint';
 import { discoverSessions, bootstrap } from './bootstrap';
-import { syncTargets, SyncTarget } from './sync';
+import { syncTargets, SyncTarget, readSyncTargets } from './sync';
+import { runMigration } from './migrate';
+import { captureFromCli } from './capture';
+import { runGitCapture, shouldTriggerGitLearn } from './git-collector';
+import { extractRules, extractMemoryCandidates } from './extractor';
+import { formatStopSummary } from './hook';
+import { detectInstalledTools, isCliOnPath } from './detect';
 
 // Config file path is derived from storagePaths so CC_HABITS_DIR overrides
 // both data files AND the provider config in one environment variable.
@@ -59,33 +69,78 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   initHabitsMd();
   initLog();
 
-  const { postAdded, stopAdded, promptAdded } = registerHooks();
   const tick = '✓';
   const dash = '~';
-  process.stdout.write(`  ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
-  process.stdout.write(`  ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
-  process.stdout.write(`  ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
 
-  const importAdded = addImportToClaudeMd();
-  const sym = importAdded ? tick : dash;
-  process.stdout.write(`  ${sym} habits.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
+  const detected = detectInstalledTools();
+  if (detected.length > 0) {
+    process.stdout.write(`\n  Detected installed tools:\n`);
+    for (const tool of detected) {
+      process.stdout.write(`    • ${tool.name}\n`);
+    }
+    process.stdout.write('\n');
+
+    const hookBin = resolveHookBinaryPath();
+
+    for (const tool of detected) {
+      if (tool.id === 'claude-code') {
+        const register = await promptYesNoDefaultTrue(`  Register hooks in Claude Code? [Y/n] `);
+        if (register) {
+          const { postAdded, stopAdded, promptAdded } = registerHooks(hookBin);
+          process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
+          const importAdded = addImportToClaudeMd();
+          process.stdout.write(`    ${importAdded ? tick : dash} habits.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
+        }
+      } else if (tool.id === 'gemini') {
+        const register = await promptYesNoDefaultTrue(`  Register hooks in Gemini CLI? [Y/n] `);
+        if (register) {
+          const { postAdded, stopAdded, promptAdded } = registerJsonHooks(tool.settingsPath, 'gemini', hookBin);
+          process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
+        }
+      } else if (tool.id === 'codex') {
+        const register = await promptYesNoDefaultTrue(`  Register hooks in Codex CLI? [Y/n] `);
+        if (register) {
+          const { postAdded, stopAdded } = registerCodexHooks(tool.settingsPath, hookBin);
+          process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+        }
+      } else if (tool.id === 'cline') {
+        const register = await promptYesNoDefaultTrue(`  Register hooks in Cline/RooCode? [Y/n] `);
+        if (register) {
+          const { postAdded, stopAdded } = registerClineHooks(tool.settingsPath, hookBin);
+          process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+        }
+      } else if (tool.id === 'cursor') {
+        process.stdout.write(`  ${dash} Cursor detected — edits will be captured automatically via the VS Code extension or Git commits.\n`);
+      }
+    }
+  } else {
+    const { postAdded, stopAdded, promptAdded } = registerHooks();
+    process.stdout.write(`  ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
+    process.stdout.write(`  ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+    process.stdout.write(`  ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
+    const importAdded = addImportToClaudeMd();
+    process.stdout.write(`  ${importAdded ? tick : dash} habits.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
+  }
 
   const hasAnthropicEnv = !!process.env['ANTHROPIC_API_KEY'];
   const hasConfigFile   = fs.existsSync(CONFIG_FILE);
 
   if (providerFlag) {
-    // --provider <name> skips the interactive menu and goes straight to that provider.
     await configureProvider(providerFlag, tick, dash);
   } else if (hasAnthropicEnv) {
     process.stdout.write(`  ${dash} ANTHROPIC_API_KEY found in environment\n`);
   } else if (hasConfigFile) {
-    process.stdout.write(`  ${dash} Provider config already exists at ~/.claude/habits/config.yml\n`);
+    process.stdout.write(`  ${dash} Provider config already exists at ~/.cc-habits/config.yml\n`);
   } else {
     await showProviderMenu(tick, dash);
   }
 
-  // Offer bootstrap from past sessions if this is a fresh install with a provider configured.
-  // Re-check config file existence here — it may have just been written by showProviderMenu().
   const providerReady = hasAnthropicEnv || fs.existsSync(CONFIG_FILE) || !!providerFlag;
   const habitsEmpty = parseHabits(readHabitsMd());
   const hasExistingHabits = Object.values(habitsEmpty).some(h => h.length > 0);
@@ -119,11 +174,26 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     }
   }
 
+  const inGitRepo = fs.existsSync('.git');
+  if (inGitRepo) {
+    const installLocal = await promptYesNo('  Install git capture hook locally in this project? [y/N] ');
+    if (installLocal) {
+      const added = installLocalGitHook();
+      process.stdout.write(`  ${added ? tick : dash} Local Git post-commit hook ${added ? 'installed' : 'already installed or failed'}\n`);
+    }
+  }
+
+  const installGlobal = await promptYesNo('  Install git capture hook globally for all new repositories? [y/N] ');
+  if (installGlobal) {
+    const added = installGlobalGitTemplateHook();
+    process.stdout.write(`  ${added ? tick : dash} Global Git template post-commit hook ${added ? 'installed' : 'already installed or failed'}\n`);
+  }
+
   process.stdout.write('\n');
   process.stdout.write(
-    c(BOLD, 'cc-habits is ready.') + ' Start a Claude Code session to begin learning.\n',
+    c(BOLD, 'cc-habits is ready.') + ' Start a coding session or commit changes to begin learning.\n',
   );
-  process.stdout.write(c(DIM, '  Habits are stored at ~/.claude/habits/habits.md\n'));
+  process.stdout.write(c(DIM, '  Habits are stored at ~/.cc-habits/habits.md\n'));
   return 0;
 }
 
@@ -348,6 +418,106 @@ function renderHabitLine(h: { rule: string; confidence: number; reinforcing: num
   );
 }
 
+// memories ────────────────────────────────────────────────────────────────
+export function cmdMemoriesDelete(text: string): number {
+  if (!text.trim()) {
+    process.stderr.write('cc-habits memories --delete: requires a memory text string.\n');
+    process.stderr.write('  Usage: cc-habits memories --delete "memory text"\n');
+    return 1;
+  }
+  initMemoriesMd();
+  const sections = parseMemories(readMemoriesMd());
+  const normalised = text.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ');
+  let found = false;
+  for (const sectionMemories of Object.values(sections)) {
+    const idx = sectionMemories.findIndex(
+      m => m.text.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ') === normalised,
+    );
+    if (idx >= 0) {
+      sectionMemories.splice(idx, 1);
+      found = true;
+      break;
+    }
+  }
+  addMemoryTombstone(text);
+  writeMemoriesMd(serialiseMemories(sections));
+  if (found) {
+    process.stdout.write(`  memory deleted and tombstoned: ${text}\n`);
+  } else {
+    process.stdout.write(`  tombstoned (not found in memories.md): ${text}\n`);
+  }
+  return 0;
+}
+
+export function cmdMemoriesTombstones(): number {
+  const list = readMemoryTombstones();
+  if (list.length === 0) {
+    process.stdout.write(c(DIM, '  No tombstoned memories.\n'));
+    return 0;
+  }
+  process.stdout.write(c(BOLD, `\n  ${list.length} tombstoned memor${list.length === 1 ? 'y' : 'ies'}\n\n`));
+  for (const t of list) process.stdout.write(`  ${c(DIM, t)}\n`);
+  process.stdout.write('\n');
+  return 0;
+}
+
+export function cmdMemories(): number {
+  initMemoriesMd();
+  const memoriesMd = readMemoriesMd();
+  const sections = parseMemories(memoriesMd);
+  const allMemories = Object.values(sections).flat();
+  const active = allMemories.filter(m => (m.sessions_seen ?? 1) >= 2);
+  const candidates = allMemories.filter(m => (m.sessions_seen ?? 1) < 2);
+
+  process.stdout.write('\n');
+  process.stdout.write(c(BOLD + CYAN, '  cc-habits') + c(BOLD, ' · coding memories\n'));
+  process.stdout.write(c(DIM, `  ${storagePaths.memoriesFile}\n`));
+  process.stdout.write('\n');
+
+  if (allMemories.length === 0) {
+    process.stdout.write(c(DIM, '  No memories recorded yet.\n'));
+    process.stdout.write(c(DIM, '  Set CC_HABITS_MEMORIES=1 to start learning from agent mistakes.\n'));
+    process.stdout.write('\n');
+    return 0;
+  }
+
+  process.stdout.write(
+    `  ${c(BOLD, String(active.length))} active ` +
+    `· ${c(DIM, `${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`)}\n`,
+  );
+  process.stdout.write(c(DIM, `  To delete: cc-habits memories --delete "memory text"\n\n`));
+
+  for (const section of Object.keys(sections).sort()) {
+    const memories = sections[section];
+    if (!memories || memories.length === 0) continue;
+    process.stdout.write(
+      c(BOLD, `  ── ${section} `) + c(DIM, '─'.repeat(Math.max(0, 46 - section.length))) + '\n',
+    );
+    for (const memory of memories.filter(m => (m.sessions_seen ?? 1) >= 2)) renderMemoryLine(memory, false);
+    for (const memory of memories.filter(m => (m.sessions_seen ?? 1) < 2)) renderMemoryLine(memory, true);
+    process.stdout.write('\n');
+  }
+
+  return 0;
+}
+
+function renderMemoryLine(memory: Memory, isCandidate: boolean): void {
+  const bar = confidenceBar(memory.confidence);
+  const pct = `${Math.round(memory.confidence * 100)}%`;
+  const tag = isCandidate ? c(YELLOW, ' (candidate)') : '';
+  process.stdout.write(`\n  ${term(memory.text)}${tag}\n`);
+  if (memory.trigger.length > 0) {
+    process.stdout.write(c(DIM, `  trigger: ${term(memory.trigger.join(', '))}\n`));
+  }
+  if (memory.correction) {
+    process.stdout.write(c(DIM, `  correction: ${term(memory.correction)}\n`));
+  }
+  process.stdout.write(
+    `  [${bar}] ${c(BOLD, pct)}  ` +
+    c(DIM, `seen ${memory.seen} · ${memory.sessions_seen} session${memory.sessions_seen === 1 ? '' : 's'} · last ${memory.last_seen ?? '?'}`) + '\n',
+  );
+}
+
 // log (audit trail / Responsible AI) ────────────────────────────────────────
 // The accountability surface: shows exactly what cc-habits captured and would
 // send to the extractor. Content is already redacted at capture time. This lets
@@ -392,7 +562,15 @@ export function cmdReset(yes: boolean): number {
     return 1;
   }
   const deleted: string[] = [];
-  for (const p of [storagePaths.habitsFile, storagePaths.logFile, storagePaths.snapshotFile, storagePaths.pendingFile]) {
+  for (const p of [
+    storagePaths.habitsFile,
+    storagePaths.memoriesFile,
+    storagePaths.logFile,
+    storagePaths.snapshotFile,
+    storagePaths.pendingFile,
+    storagePaths.memoryIndexFile,
+    storagePaths.memoryPendingFile,
+  ]) {
     if (fs.existsSync(p)) {
       fs.unlinkSync(p);
       deleted.push(p);
@@ -649,7 +827,7 @@ export function cmdImport(inputPath: string): number {
 }
 
 // sync (Patch 1: portable AGENTS.md / Cursor / Cline emitter) ───────────────
-const VALID_SYNC_TARGETS: SyncTarget[] = ['agents', 'cursor', 'cline'];
+const VALID_SYNC_TARGETS: SyncTarget[] = ['agents', 'cursor', 'copilot', 'gemini', 'cline', 'aider', 'continue', 'jetbrains', 'windsurf'];
 
 export function cmdSync(rawTargets: string[], dir?: string): number {
   // Default target is AGENTS.md — the cross-tool standard. `all` expands to every target.
@@ -686,6 +864,156 @@ export function cmdSync(rawTargets: string[], dir?: string): number {
     process.stderr.write(`cc-habits sync: ${String(e)}\n`);
     return 1;
   }
+}
+
+// migrate ──────────────────────────────────────────────────────────────────
+export function cmdMigrate(force = false): number {
+  const result = runMigration(force);
+  if (result.migrated) {
+    process.stdout.write(`  migration complete: copied ${result.copiedFiles.length} files to ${storagePaths.habitsDir}\n`);
+    if (result.claudeMdUpdated) {
+      process.stdout.write(`  updated CLAUDE.md imports path.\n`);
+    }
+  } else {
+    process.stdout.write(`  no migration needed or destination already populated.\n`);
+  }
+  return 0;
+}
+
+// capture ──────────────────────────────────────────────────────────────────
+export function cmdCapture(opts: { file: string; diff: string; session?: string; source?: string }): number {
+  const success = captureFromCli(opts);
+  if (success) {
+    return 0;
+  }
+  return 1;
+}
+
+// git-capture ──────────────────────────────────────────────────────────────
+export async function cmdGitCapture(range?: string): Promise<number> {
+  const { signalsCaptured } = runGitCapture(range);
+  if (signalsCaptured > 0) {
+    process.stdout.write(`  captured ${signalsCaptured} git commit signal${signalsCaptured === 1 ? '' : 's'}.\n`);
+    if (shouldTriggerGitLearn()) {
+      process.stdout.write(`  git signal threshold met. Triggering automated learn...\n`);
+      await cmdLearn();
+    }
+  } else {
+    process.stdout.write(`  no new git commit signals captured.\n`);
+  }
+  return 0;
+}
+
+// learn ────────────────────────────────────────────────────────────────────
+export async function cmdLearn(opts: { session?: string; since?: number } = {}): Promise<number> {
+  const allSignals = readSignals();
+  let filtered = allSignals;
+  
+  if (opts.session) {
+    filtered = allSignals.filter(s => s.session_id === opts.session);
+  } else {
+    const now = Date.now();
+    const limitMs = (opts.since ?? 24) * 60 * 60 * 1000;
+    
+    const history = readHistory();
+    const lastSnapshot = history[history.length - 1];
+    const lastTs = lastSnapshot ? Date.parse(lastSnapshot.ts) : 0;
+    
+    filtered = allSignals.filter(s => {
+      const sigTs = s.ts ? Date.parse(s.ts) : 0;
+      if (opts.since !== undefined) {
+        return (now - sigTs) <= limitMs;
+      }
+      return sigTs > lastTs;
+    });
+  }
+  
+  if (filtered.length < 3) {
+    process.stdout.write(`  not enough signals to learn (need at least 3, found ${filtered.length}).\n`);
+    return 0;
+  }
+  
+  process.stdout.write(`  learning from ${filtered.length} signal${filtered.length === 1 ? '' : 's'}...\n`);
+  
+  const habitsMd = readHabitsMd();
+  const cats = parseHabits(habitsMd);
+  
+  const deleted = detectManualDeletes(cats);
+  for (const d of deleted) addTombstone(d);
+  
+  const decayed = applyDecay(cats);
+  
+  const capped = filtered.slice(-50);
+  
+  const sessionId = opts.session || `learn-${new Date().toISOString().slice(0, 10)}`;
+  const updates = await extractRules(capped, habitsMd);
+  const changes: AppliedChange[] = [];
+  const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes });
+  
+  const autoApply = (process.env['CC_HABITS_AUTO'] || '').toLowerCase() === '1';
+  const creates = updates.filter(u => (u.decision ?? '').toLowerCase() === 'create');
+  let pendingCount = 0;
+  if (!autoApply && creates.length > 0) {
+    clearPending();
+    const toAdd = toPending(creates);
+    const deduped = toAdd.filter(p => p.rule);
+    if (deduped.length > 0) {
+      writePending(deduped);
+      pendingCount = deduped.length;
+    }
+  }
+  
+  const sessionLanguages = Array.from(
+    new Set(capped.map(s => s.language).filter((l): l is string => !!l)),
+  );
+  if (sessionLanguages.length > 0) {
+    for (const habits of Object.values(cats)) {
+      for (const h of habits) {
+        if (h.last_session_id !== sessionId) continue;
+        const existing = new Set(h.languages ?? []);
+        sessionLanguages.forEach(l => existing.add(l));
+        h.languages = Array.from(existing).sort();
+      }
+    }
+  }
+  
+  const serialised = serialiseHabits(cats);
+  writeHabitsMd(serialised);
+  writeSnapshot(cats);
+  appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised });
+  
+  const memoriesEnabled = (process.env['CC_HABITS_MEMORIES'] || '').toLowerCase() === '1';
+  let memoryCandidatesCount = 0;
+  if (memoriesEnabled) {
+    try {
+      const memoriesMd = readMemoriesMd();
+      const candidates = await extractMemoryCandidates(capped, memoriesMd);
+      memoryCandidatesCount = applyMemoryUpdates(candidates);
+    } catch (e) {
+      logError(`learn: memory extraction failed: ${String(e)}`);
+    }
+  }
+  
+  const targets = readSyncTargets();
+  if (targets.length > 0) {
+    try {
+      syncTargets(targets);
+    } catch (e) {
+      logError(`learn: sync failed: ${String(e)}`);
+    }
+  }
+  
+  const summary = formatStopSummary({
+    newCount,
+    updatedCount,
+    decayed,
+    tombstoned: deleted.length,
+    changes,
+    pendingCount,
+    memoryCandidatesCount
+  });
+  process.stdout.write(summary + '\n');
+  return 0;
 }
 
 // Helpers ──────────────────────────────────────────────────────────────────
@@ -740,6 +1068,32 @@ function promptYesNo(question: string): Promise<boolean> {
       if (ch === '\x03') { done(false, ''); process.exit(0); }
       if (ch.toLowerCase() === 'y') done(true, 'y');
       else if (ch.toLowerCase() === 'n' || ch === '\r' || ch === '\n') done(false, 'n');
+    };
+
+    process.stdin.on('data', onData);
+  });
+}
+
+function promptYesNoDefaultTrue(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return Promise.resolve(true);
+  return new Promise(resolve => {
+    process.stdout.write(question);
+    process.stdin.setRawMode?.(true);
+    process.stdin.resume();
+    process.stdin.setEncoding('utf-8');
+
+    const done = (val: boolean, display: string): void => {
+      process.stdout.write(display + '\n');
+      process.stdin.setRawMode?.(false);
+      process.stdin.pause();
+      process.stdin.removeListener('data', onData);
+      resolve(val);
+    };
+
+    const onData = (ch: string): void => {
+      if (ch === '\x03') { done(false, ''); process.exit(0); }
+      if (ch.toLowerCase() === 'y' || ch === '\r' || ch === '\n') done(true, 'y');
+      else if (ch.toLowerCase() === 'n') done(false, 'n');
     };
 
     process.stdin.on('data', onData);

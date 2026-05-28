@@ -26,3 +26,4 @@ config.yml
 # Local-only working files
 CLAUDE.md
 internal/
+scratch/

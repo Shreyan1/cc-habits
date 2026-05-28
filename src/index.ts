@@ -1,14 +1,18 @@
 import {
   cmdInit, cmdView, cmdLog, cmdReset, cmdPending, cmdTombstone, cmdTombstones,
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
+  cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones,
+  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn,
 } from './cli';
+import { runMigration } from './migrate';
 
-const VERSION = '0.2.9';
+const VERSION = '0.3.0';
 
 // Fuzzy command suggestion ─────────────────────────────────────────────────
 const KNOWN_COMMANDS = [
   'init', 'bootstrap', 'view', 'log', 'reset', 'pending', 'tombstone', 'tombstones',
-  'diff', 'explain', 'lint', 'export', 'import', 'sync',
+  'diff', 'explain', 'lint', 'export', 'import', 'sync', 'memories',
+  'migrate', 'capture', 'git-capture', 'learn',
 ];
 
 function levenshtein(a: string, b: string): number {
@@ -42,7 +46,7 @@ function suggest(cmd: string): string | undefined {
   return bestDist <= 2 ? best : undefined;
 }
 
-const HELP = `cc-habits ${VERSION} — Claude Code learns your coding habits, automatically.
+const HELP = `cc-habits ${VERSION} — A tool-agnostic coding memory layer for developer habits and AI agents.
   Tip: 'cch' is a short alias for 'cc-habits'.
 
 Usage:
@@ -50,6 +54,9 @@ Usage:
   cc-habits init --provider ollama  Skip API key prompt, configure Ollama (free, local)
   cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
   cc-habits view                    Show current habits + recent signals
+  cc-habits memories                Show coding memories (set CC_HABITS_MEMORIES=1 to enable extraction)
+  cc-habits memories --delete "<t>" Delete and tombstone a memory so it is never re-learned
+  cc-habits memories --tombstones   List tombstoned memories
   cc-habits log [--limit N]         Show the capture log (audit trail of what was sent)
   cc-habits pending                 Show pending updates queued for the next session write
   cc-habits pending --approve       Apply pending updates to habits.md
@@ -63,17 +70,29 @@ Usage:
   cc-habits tombstone "<rule>"      Mark a rule so it is never re-learned
   cc-habits tombstones              List tombstoned rules
   cc-habits reset --yes             Delete habits.md, log.jsonl, pending, snapshot
+  cc-habits migrate [--force]       Migrate storage from old ~/.claude/habits/ to ~/.cc-habits/
+  cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
+  cc-habits git-capture [--range r] Capture changes from git commits (HEAD~1..HEAD by default)
+  cc-habits learn [--session id]    Compile habits and memories from collected signals
   cc-habits --version               Print the installed version
   cc-habits --help                  Show this message
 
 Env:
-  CC_HABITS_DIR                     Override storage location (default ~/.claude/habits)
+  CC_HABITS_DIR                     Override storage location (default ~/.cc-habits)
   CC_HABITS_PROVIDER                Override provider (anthropic|openai|groq|ollama)
+  CC_HABITS_MEMORIES=0              Set to 1 to enable memory extraction (opt-in preview)
 
 Docs: https://github.com/Shreyan1/cc-habits
 `;
 
 async function main(): Promise<void> {
+  // Silent auto-migration on startup
+  try {
+    runMigration();
+  } catch {
+    // ignore
+  }
+
   const args = process.argv.slice(2);
   const command = args[0];
 
@@ -95,6 +114,15 @@ async function main(): Promise<void> {
     process.exit(await cmdBootstrap());
   } else if (command === 'view') {
     process.exit(cmdView());
+  } else if (command === 'memories') {
+    const deleteIdx = args.indexOf('--delete');
+    if (deleteIdx >= 0) {
+      process.exit(cmdMemoriesDelete(args[deleteIdx + 1] ?? ''));
+    } else if (args.includes('--tombstones')) {
+      process.exit(cmdMemoriesTombstones());
+    } else {
+      process.exit(cmdMemories());
+    }
   } else if (command === 'log') {
     const limitIdx = args.indexOf('--limit');
     const limit = limitIdx >= 0 && args[limitIdx + 1] ? parseInt(args[limitIdx + 1], 10) : undefined;
@@ -128,11 +156,34 @@ async function main(): Promise<void> {
   } else if (command === 'sync') {
     const dirIdx = args.indexOf('--dir');
     const dir = dirIdx >= 0 ? args[dirIdx + 1] : undefined;
-    // Targets are positional args that are not flags and not the --dir value.
     const targets = args.filter((a, i) =>
       i > 0 && !a.startsWith('--') && i !== dirIdx + 1,
     );
     process.exit(cmdSync(targets, dir));
+  } else if (command === 'migrate') {
+    process.exit(cmdMigrate(args.includes('--force')));
+  } else if (command === 'capture') {
+    const fileIdx = args.indexOf('--file');
+    const diffIdx = args.indexOf('--diff');
+    const sessionIdx = args.indexOf('--session');
+    const sourceIdx = args.indexOf('--source');
+    process.exit(cmdCapture({
+      file: fileIdx >= 0 ? args[fileIdx + 1] ?? '' : '',
+      diff: diffIdx >= 0 ? args[diffIdx + 1] ?? '' : '',
+      session: sessionIdx >= 0 ? args[sessionIdx + 1] : undefined,
+      source: sourceIdx >= 0 ? args[sourceIdx + 1] : undefined,
+    }));
+  } else if (command === 'git-capture') {
+    const rangeIdx = args.indexOf('--range');
+    const range = rangeIdx >= 0 ? args[rangeIdx + 1] : undefined;
+    process.exit(await cmdGitCapture(range));
+  } else if (command === 'learn') {
+    const sessionIdx = args.indexOf('--session');
+    const sinceIdx = args.indexOf('--since');
+    process.exit(await cmdLearn({
+      session: sessionIdx >= 0 ? args[sessionIdx + 1] : undefined,
+      since: sinceIdx >= 0 && args[sinceIdx + 1] ? parseInt(args[sinceIdx + 1], 10) : undefined,
+    }));
   } else {
     const hint = suggest(command);
     process.stderr.write(`cc-habits: unknown command '${command}'`);

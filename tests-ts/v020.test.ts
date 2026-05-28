@@ -34,9 +34,13 @@ beforeEach(() => {
   process.env['CC_HABITS_DIR'] = tmpDir;
   storagePaths.habitsDir = tmpDir;
   storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
+  storagePaths.memoriesFile = path.join(tmpDir, 'memories.md');
   storagePaths.logFile = path.join(tmpDir, 'log.jsonl');
   storagePaths.errorLog = path.join(tmpDir, 'error.log');
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
+  storagePaths.memoryTombstonesFile = path.join(tmpDir, '.memory-tombstones.json');
+  storagePaths.memoryIndexFile = path.join(tmpDir, '.memory-index.json');
+  storagePaths.memoryPendingFile = path.join(tmpDir, '.memory-pending.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
   storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
@@ -183,8 +187,10 @@ describe('C2: CC_HABITS_DIR override', () => {
     vi.resetModules();
     const fresh = await import('../src/storage');
     expect(fresh.storagePaths.habitsFile).toBe('/tmp/custom-cc-habits/habits.md');
+    expect(fresh.storagePaths.memoriesFile).toBe('/tmp/custom-cc-habits/memories.md');
     expect(fresh.storagePaths.logFile).toBe('/tmp/custom-cc-habits/log.jsonl');
     expect(fresh.storagePaths.historyFile).toBe('/tmp/custom-cc-habits/.history.jsonl');
+    expect(fresh.storagePaths.memoryIndexFile).toBe('/tmp/custom-cc-habits/.memory-index.json');
     delete process.env['CC_HABITS_DIR'];
     vi.resetModules();
   });

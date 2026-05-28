@@ -8,10 +8,19 @@ import {
   readSignals,
   initHabitsMd,
   initLog,
+  initMemoriesMd,
   readHabitsMd,
+  readMemoriesMd,
   writeHabitsMd,
+  writeMemoriesMd,
   parseHabits,
   serialiseHabits,
+  parseMemories,
+  serialiseMemories,
+  applyMemoryUpdates,
+  addMemoryTombstone,
+  isMemoryTombstoned,
+  readMemoryTombstones,
 } from '../src/storage';
 
 // Save originals once
@@ -23,12 +32,17 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-test-'));
   storagePaths.habitsDir = tmpDir;
   storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
+  storagePaths.memoriesFile = path.join(tmpDir, 'memories.md');
   storagePaths.logFile = path.join(tmpDir, 'log.jsonl');
   storagePaths.errorLog = path.join(tmpDir, 'error.log');
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
+  storagePaths.memoryTombstonesFile = path.join(tmpDir, '.memory-tombstones.json');
+  storagePaths.memoryIndexFile = path.join(tmpDir, '.memory-index.json');
+  storagePaths.memoryPendingFile = path.join(tmpDir, '.memory-pending.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
   storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   initHabitsMd();
+  initMemoriesMd();
   initLog();
 });
 
@@ -142,5 +156,130 @@ describe('storage', () => {
     expect(md).toContain('## Learning');
     expect(md).toContain('[Python] Learning rule');
     expect(md.indexOf('Confirmed rule')).toBeLessThan(md.indexOf('Learning rule'));
+  });
+
+  it('initMemoriesMd creates the memories file with header', () => {
+    expect(fs.existsSync(storagePaths.memoriesFile)).toBe(true);
+    const content = readMemoriesMd();
+    expect(content).toContain('<!-- cc-habits memories format v0.1 -->');
+    expect(content).toContain('# Coding memories');
+  });
+
+  it('writes and reads memories.md', () => {
+    writeMemoriesMd('# Coding memories\n\n## Repeated mistakes\n\n- Avoid overwriting settings.\n');
+    expect(readMemoriesMd()).toContain('Avoid overwriting settings');
+  });
+
+  it('parse and serialise round-trip preserves active memories', () => {
+    const memories = {
+      'Repeated mistakes': [{
+        text: 'When modifying Claude Code hook installation, preserve existing user settings arrays instead of overwriting them',
+        trigger: ['src/install.ts', 'settings.json', 'hook installation'],
+        correction: 'Merge new hooks with existing hooks and preserve unrelated entries',
+        confidence: 0.80,
+        seen: 3,
+        sessions_seen: 2,
+        languages: ['ts'],
+        first_seen: '2026-05-28',
+        last_seen: '2026-05-28',
+      }],
+    };
+    const md = serialiseMemories(memories);
+    expect(md).toContain('## Repeated mistakes');
+    expect(md).toContain('Trigger: src/install.ts, settings.json, hook installation');
+    const parsed = parseMemories(md);
+    expect(parsed['Repeated mistakes']).toHaveLength(1);
+    expect(parsed['Repeated mistakes'][0].text).toContain('preserve existing user settings arrays');
+    expect(parsed['Repeated mistakes'][0].trigger).toEqual(['src/install.ts', 'settings.json', 'hook installation']);
+    expect(parsed['Repeated mistakes'][0].correction).toContain('Merge new hooks');
+    expect(parsed['Repeated mistakes'][0].confidence).toBeCloseTo(0.80);
+    expect(parsed['Repeated mistakes'][0].seen).toBe(3);
+    expect(parsed['Repeated mistakes'][0].sessions_seen).toBe(2);
+    expect(parsed['Repeated mistakes'][0].languages).toEqual(['ts']);
+  });
+
+  it('single-session memories land in Candidates section, not active', () => {
+    const memories = {
+      'Repeated mistakes': [
+        {
+          text: 'Active memory',
+          trigger: ['install'],
+          correction: 'Preserve settings',
+          confidence: 0.80,
+          seen: 3,
+          sessions_seen: 2,
+        },
+        {
+          text: 'Candidate memory',
+          trigger: ['parser'],
+          correction: 'Update tests',
+          confidence: 0.50,
+          seen: 1,
+          sessions_seen: 1,
+        },
+      ],
+    };
+    const md = serialiseMemories(memories);
+    expect(md).toContain('## Repeated mistakes');
+    expect(md).toContain('Active memory');
+    expect(md).toContain('## Candidates (not yet active)');
+    expect(md).toContain('[Repeated mistakes] Candidate memory');
+    expect(md.indexOf('Active memory')).toBeLessThan(md.indexOf('Candidate memory'));
+    const parsed = parseMemories(md);
+    expect(parsed['Repeated mistakes']).toHaveLength(2);
+    expect(parsed['Repeated mistakes'][1].sessions_seen).toBe(1);
+  });
+
+  it('applyMemoryUpdates adds new candidates', () => {
+    const count = applyMemoryUpdates([{
+      section: 'Repeated mistakes',
+      text: 'When editing settings, do not overwrite arrays',
+      trigger: ['settings.json'],
+      correction: 'Merge arrays',
+    }]);
+    expect(count).toBe(1);
+    const sections = parseMemories(readMemoriesMd());
+    expect(sections['Repeated mistakes']).toHaveLength(1);
+    expect(sections['Repeated mistakes'][0].sessions_seen).toBe(1);
+    expect(sections['Repeated mistakes'][0].confidence).toBeCloseTo(0.50);
+  });
+
+  it('applyMemoryUpdates reinforces an existing memory', () => {
+    const candidate = {
+      section: 'Repeated mistakes',
+      text: 'When editing settings, do not overwrite arrays',
+      trigger: ['settings.json'],
+      correction: 'Merge arrays',
+    };
+    applyMemoryUpdates([candidate]);
+    const count2 = applyMemoryUpdates([candidate]);
+    expect(count2).toBe(0); // reinforced, not new
+    const sections = parseMemories(readMemoriesMd());
+    const m = sections['Repeated mistakes'][0];
+    expect(m.seen).toBe(2);
+    expect(m.sessions_seen).toBe(2);
+    expect(m.confidence).toBeCloseTo(0.60);
+  });
+
+  it('applyMemoryUpdates skips tombstoned memories', () => {
+    addMemoryTombstone('When editing settings, do not overwrite arrays');
+    const count = applyMemoryUpdates([{
+      section: 'Repeated mistakes',
+      text: 'When editing settings, do not overwrite arrays',
+      trigger: ['settings.json'],
+      correction: 'Merge arrays',
+    }]);
+    expect(count).toBe(0);
+    const sections = parseMemories(readMemoriesMd());
+    expect(Object.values(sections).flat()).toHaveLength(0);
+  });
+
+  it('addMemoryTombstone and isMemoryTombstoned work correctly', () => {
+    expect(isMemoryTombstoned('Some memory text')).toBe(false);
+    addMemoryTombstone('Some memory text');
+    expect(isMemoryTombstoned('Some memory text')).toBe(true);
+    expect(isMemoryTombstoned('Some memory text.')).toBe(true); // trailing period
+    const list = readMemoryTombstones();
+    expect(list.length).toBeGreaterThanOrEqual(1);
   });
 });
