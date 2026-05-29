@@ -142,7 +142,7 @@ The core CLI is pure Node.js and runs anywhere Node 20+ runs. The pieces that ne
 
 ## How it works
 
-For any tool that supports hooks (Claude Code, Gemini CLI, Codex CLI), `cc-habits init` installs three hooks into that tool's settings. They speak slightly different payloads, so an `--adapter` flag (set automatically at install) normalizes each one into the same shape before the engine sees it:
+For any tool that supports hooks (Claude Code, Gemini CLI, Codex CLI, Kimi Code CLI), `cc-habits init` installs its hooks into that tool's settings. Each tool uses its own event names and tool labels, so an `--adapter` flag (set automatically at install) normalizes every payload into the same shape before the engine sees it:
 
 ```
 PostToolUse (Write|Edit|MultiEdit)
@@ -163,7 +163,13 @@ UserPromptSubmit (every prompt)
   → if CC_HABITS_MEMORIES=1: also injects relevant memories (trigger-matched, max 3)
   → survives context compaction; "laws, not requests"
   → set CC_HABITS_INJECT=0 to disable
+
+SessionStart (session begins)
+  → surfaces any pending habit suggestions so you remember to review them
+  → stays silent when nothing is pending; never re-injects active habits (no duplication)
 ```
+
+Event names differ per tool (for example Gemini uses AfterTool / AfterAgent / BeforeAgent / SessionStart, Kimi uses a TOML `[[hooks]]` block), but the internal events above are the same. Run `cch tools` to see every supported tool and which are detected on your machine.
 
 `habits.md` is also auto-imported into each hooked tool's session via its native mechanism:
 
@@ -467,7 +473,9 @@ cc-habits --version                   # print installed version
 8. **Per-repo opt-out.** Add `.cc-habits-ignore` to any repository to stop capture entirely in that directory tree.
 9. **Terminal-safe output.** `cc-habits log` / `view` / `explain` / `pending` strip ANSI and control sequences from captured content before display, so a malicious diff cannot spoof or manipulate your terminal.
 10. **Validated provider responses.** The extractor never trusts the LLM's JSON blindly — each rule object is shape-validated and coerced to known fields, so a buggy or MITM'd provider endpoint cannot inject arbitrary structure.
-11. **Symlink- and traversal-safe writes.** Every file write refuses to follow symlinks and sanitizes paths against `../` traversal and control characters. Storage files are written `0600` (owner-only).
+11. **Symlink- and traversal-safe writes.** Every file write refuses to follow symlinks and sanitizes paths against `../` traversal and control characters. Storage files (including `config.yml` and your API key) are written `0600` (owner-only), and are retightened even if the file already existed with looser permissions.
+12. **Shell-free git capture.** `cch git-capture` (and the auto post-commit hook) run git via argument arrays, never a shell, and validate the commit range. A repository file with a hostile name cannot execute code during capture.
+13. **Reviewed by default.** New habits are quarantined and queued for your review. `CC_HABITS_AUTO=1` opts into silent auto-apply, and cc-habits prints a warning whenever it does so, so the bypass is never hidden.
 
 ---
 
