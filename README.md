@@ -8,7 +8,7 @@
 
 Your AI coding agent is great. But out of the box it doesn't know *your* style. Every developer has years of accumulated micro-decisions (naming conventions, error-handling patterns, preferred abstractions) that the model cannot see. These days you generate a `CLAUDE.md`, an `AGENTS.md`, or a `.cursorrules` from a quick discussion and move on. But that's a snapshot of what you said you wanted on one afternoon. It never sees the corrections you make for weeks after, and you never reopen it to update it. Worse: switch from Claude Code to Cursor to Codex and you start again from zero in each one.
 
-`cc-habits` fills the gap. It watches the edits you make in whatever tool you're using, infers patterns, and quietly maintains a single `habits.md` that your agents read on every session, using the same `@import` and rules-file mechanisms you already know. A re-injection hook re-asserts your habits on every prompt so they survive context compaction. One memory layer, shared across Claude Code, Gemini CLI, Codex CLI, Cursor, Cline, Windsurf, Copilot, and anything else that reads a rules file.
+`cc-habits` fills the gap. It watches the edits you make in whatever tool you're using, infers patterns, and quietly maintains a single `habits.md` that your agents read on every session, using the same `@import` and rules-file mechanisms you already know. A re-injection hook re-asserts your habits on every prompt so they survive context compaction. One memory layer, shared across Claude Code, Gemini CLI, Codex CLI, Kimi Code CLI, Cursor, Cline, Windsurf, Copilot, and anything else that reads a rules file.
 
 **No new concepts. No vendor lock-in. Just a TypeScript package that makes the agents you already paid for genuinely yours, no matter which one you open today.**
 
@@ -20,9 +20,10 @@ cc-habits learns where it can hook in, and carries what it learned everywhere el
 
 | Tool | How it learns | How it applies your habits |
 |---|---|---|
-| **Claude Code** | PostToolUse / Stop / UserPromptSubmit hooks | `@import` + per-prompt injection |
-| **Gemini CLI** | hooks in `~/.gemini/settings.json` | `GEMINI.md` + per-prompt injection |
+| **Claude Code** | PostToolUse / Stop / UserPromptSubmit / SessionStart hooks | `@import` + per-prompt injection |
+| **Gemini CLI** | AfterTool / AfterAgent / BeforeAgent / SessionStart hooks in `~/.gemini/settings.json` | `GEMINI.md` @import |
 | **Codex CLI** | hooks in `.codex/config.toml` | `AGENTS.md` |
+| **Kimi Code CLI** | `[[hooks]]` in `~/.kimi/config.toml` | `AGENTS.md` |
 | **Cursor** | VS Code extension or Git commits | `cch sync cursor` → `.cursor/rules/` |
 | **Cline / RooCode** | PostToolUse / Stop hooks | `cch sync cline` → `.clinerules` |
 | **Windsurf** | Git commits | `cch sync windsurf` → `.windsurfrules` |
@@ -92,10 +93,24 @@ You can also run bootstrap any time with `cc-habits bootstrap`.
 
 **Requirements:**
 - Node.js 20+
-- At least one supported coding tool (Claude Code, Gemini CLI, Codex CLI, Cursor, Cline, Windsurf, …) **or** any Git workflow
+- At least one supported coding tool (Claude Code, Gemini CLI, Codex CLI, Kimi Code CLI, Cursor, Cline, Windsurf, …) **or** any Git workflow
 - An AI provider (see below)
 
 > **One-off install (no global install):** `npx cc-habits@latest init` runs just the init step. You will still need `npm install -g cc-habits` to use `cc-habits view`, `cch view`, and `cc-habits reset`.
+
+> Run `cch tools` at any time to see the full list of supported tools and which ones are detected on your machine.
+
+### Platform support
+
+| Platform | Status |
+|---|---|
+| **macOS** | Fully supported (primary development platform) |
+| **Linux** | Fully supported |
+| **Windows (WSL2)** | Supported, recommended path on Windows |
+| **Windows (Git Bash)** | Supported |
+| **Windows (native PowerShell / cmd)** | Partial: the core CLI works, but Git hooks, the `|| true` hook wrappers, and `cch shell-init` assume a POSIX shell. Use WSL2 or Git Bash for full functionality. |
+
+The core CLI is pure Node.js and runs anywhere Node 20+ runs. The pieces that need a POSIX shell are the optional Git post-commit hook, the tool hook commands, and the `cch shell-init` wrapper. CI runs the full test suite on Linux, macOS, and Windows.
 
 ### Choosing a provider
 
@@ -127,7 +142,7 @@ You can also run bootstrap any time with `cc-habits bootstrap`.
 
 ## How it works
 
-For any tool that supports hooks (Claude Code, Gemini CLI, Codex CLI), `cc-habits init` installs three hooks into that tool's settings. They speak slightly different payloads, so an `--adapter` flag (set automatically at install) normalizes each one into the same shape before the engine sees it:
+For any tool that supports hooks (Claude Code, Gemini CLI, Codex CLI, Kimi Code CLI), `cc-habits init` installs its hooks into that tool's settings. Each tool uses its own event names and tool labels, so an `--adapter` flag (set automatically at install) normalizes every payload into the same shape before the engine sees it:
 
 ```
 PostToolUse (Write|Edit|MultiEdit)
@@ -148,7 +163,13 @@ UserPromptSubmit (every prompt)
   → if CC_HABITS_MEMORIES=1: also injects relevant memories (trigger-matched, max 3)
   → survives context compaction; "laws, not requests"
   → set CC_HABITS_INJECT=0 to disable
+
+SessionStart (session begins)
+  → surfaces any pending habit suggestions so you remember to review them
+  → stays silent when nothing is pending; never re-injects active habits (no duplication)
 ```
+
+Event names differ per tool (for example Gemini uses AfterTool / AfterAgent / BeforeAgent / SessionStart, Kimi uses a TOML `[[hooks]]` block), but the internal events above are the same. Run `cch tools` to see every supported tool and which are detected on your machine.
 
 `habits.md` is also auto-imported into each hooked tool's session via its native mechanism:
 
@@ -396,6 +417,7 @@ You provide your own key. cc-habits does not collect or proxy keys.
 ```bash
 npm install -g cc-habits              # install globally (once)
 # cch is a short alias; all commands below work with either
+cc-habits tools                       # list supported tools and which are detected on this machine
 cc-habits init                        # detect tools, install hooks, create habits.md, choose a provider
 cc-habits bootstrap                   # learn habits from past sessions in this project
 cc-habits view                        # show current habits + recent signals
@@ -418,6 +440,8 @@ cc-habits pending --discard           # reject all pending proposals
 cc-habits tombstone "<rule>"          # block a rule from ever being re-learned
 cc-habits tombstones                  # list tombstoned rules
 cc-habits reset --yes                 # delete habits.md, memories.md, log.jsonl, pending, snapshot
+cc-habits shell-init                  # print a claude/gemini shell wrapper, add via: eval "$(cc-habits shell-init)"
+cc-habits help                        # interactive arrow-key menu (falls back to text when piped)
 cc-habits --version                   # print installed version
 ```
 
@@ -429,7 +453,7 @@ cc-habits --version                   # print installed version
 | `CC_HABITS_PROVIDER` | `anthropic` | Switch extractor backend: `anthropic`, `openai`, `groq`, `ollama`. |
 | `CC_HABITS_INJECT` | `1` (on) | Set to `0`/`false`/`off` to disable prompt-time habit injection. |
 | `CC_HABITS_MARKER` | `1` (on) | Set to `0`/`false`/`off` to silence the session-start "N habits active" banner. |
-| `CC_HABITS_AUTO` | `0` (off) | Set to `1` to skip the pending review queue and auto-apply new habits silently. |
+| `CC_HABITS_AUTO` | `0` (off) | Set to `1` to skip the pending review queue and auto-apply new habits silently. **Security:** auto-apply removes the human review that guards against a hostile repository planting a misleading habit. Leave it off when working in untrusted repositories. cc-habits prints a warning whenever auto-apply applies a habit. |
 | `CC_HABITS_MEMORIES` | `0` (off) | Set to `1` to enable memory extraction. New candidates are written to `memories.md` at session end. |
 | `CC_HABITS_DISABLE` | `0` (off) | Set to `1` to disable all capture and extraction for this shell session. |
 | `ANTHROPIC_API_KEY` | (from config.yml) | Bypass `config.yml` storage. |
@@ -449,7 +473,9 @@ cc-habits --version                   # print installed version
 8. **Per-repo opt-out.** Add `.cc-habits-ignore` to any repository to stop capture entirely in that directory tree.
 9. **Terminal-safe output.** `cc-habits log` / `view` / `explain` / `pending` strip ANSI and control sequences from captured content before display, so a malicious diff cannot spoof or manipulate your terminal.
 10. **Validated provider responses.** The extractor never trusts the LLM's JSON blindly — each rule object is shape-validated and coerced to known fields, so a buggy or MITM'd provider endpoint cannot inject arbitrary structure.
-11. **Symlink- and traversal-safe writes.** Every file write refuses to follow symlinks and sanitizes paths against `../` traversal and control characters. Storage files are written `0600` (owner-only).
+11. **Symlink- and traversal-safe writes.** Every file write refuses to follow symlinks and sanitizes paths against `../` traversal and control characters. Storage files (including `config.yml` and your API key) are written `0600` (owner-only), and are retightened even if the file already existed with looser permissions.
+12. **Shell-free git capture.** `cch git-capture` (and the auto post-commit hook) run git via argument arrays, never a shell, and validate the commit range. A repository file with a hostile name cannot execute code during capture.
+13. **Reviewed by default.** New habits are quarantined and queued for your review. `CC_HABITS_AUTO=1` opts into silent auto-apply, and cc-habits prints a warning whenever it does so, so the bypass is never hidden.
 
 ---
 

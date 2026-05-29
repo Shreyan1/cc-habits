@@ -25,7 +25,7 @@ export function resolveHookBinaryPath(): string {
   return 'cc-habits-hook'; // fallback for test/dev environments
 }
 
-function makeHooks(hookBin: string): { postToolUse: object; stop: object; userPromptSubmit: object } {
+function makeHooks(hookBin: string): { postToolUse: object; stop: object; userPromptSubmit: object; sessionStart: object } {
   // Quote the binary path to handle spaces (e.g. /Users/my name/.../.bin/cc-habits-hook).
   // Escape any embedded double-quotes in the path itself before wrapping.
   const safeBin = `"${hookBin.replace(/"/g, '\\"')}"`;
@@ -41,6 +41,11 @@ function makeHooks(hookBin: string): { postToolUse: object; stop: object; userPr
     // No matcher — this event always fires.
     userPromptSubmit: {
       hooks: [{ type: 'command', command: `${safeBin} user-prompt-submit --adapter claude-code || true` }],
+    },
+    // SessionStart surfaces pending habit suggestions automatically at the top of
+    // each session, so the developer does not have to remember to run cch pending.
+    sessionStart: {
+      hooks: [{ type: 'command', command: `${safeBin} session-start --adapter claude-code || true` }],
     },
   };
 }
@@ -91,7 +96,7 @@ function hookAlreadyRegistered(hooksList: unknown[], command: string): boolean {
   return false;
 }
 
-export function makeHooksForTest(hookBin: string): { postToolUse: object; stop: object; userPromptSubmit: object } {
+export function makeHooksForTest(hookBin: string): { postToolUse: object; stop: object; userPromptSubmit: object; sessionStart: object } {
   return makeHooks(hookBin);
 }
 
@@ -99,14 +104,17 @@ export interface HookRegistration {
   postAdded: boolean;
   stopAdded: boolean;
   promptAdded: boolean;
+  // Optional so registrations that have no SessionStart event (Codex/Cline) can omit it.
+  sessionStartAdded?: boolean;
 }
 
 export function registerHooks(hookBin?: string): HookRegistration {
   const bin = hookBin ?? resolveHookBinaryPath();
-  const { postToolUse, stop, userPromptSubmit } = makeHooks(bin);
+  const { postToolUse, stop, userPromptSubmit, sessionStart } = makeHooks(bin);
   const postCmd = (postToolUse as { hooks: Array<{ command: string }> }).hooks[0].command;
   const stopCmd = (stop as { hooks: Array<{ command: string }> }).hooks[0].command;
   const promptCmd = (userPromptSubmit as { hooks: Array<{ command: string }> }).hooks[0].command;
+  const sessionStartCmd = (sessionStart as { hooks: Array<{ command: string }> }).hooks[0].command;
 
   const settings = loadSettings();
   if (!settings['hooks']) settings['hooks'] = {};
@@ -114,10 +122,12 @@ export function registerHooks(hookBin?: string): HookRegistration {
   if (!hooks['PostToolUse']) hooks['PostToolUse'] = [];
   if (!hooks['Stop']) hooks['Stop'] = [];
   if (!hooks['UserPromptSubmit']) hooks['UserPromptSubmit'] = [];
+  if (!hooks['SessionStart']) hooks['SessionStart'] = [];
 
   let postAdded = false;
   let stopAdded = false;
   let promptAdded = false;
+  let sessionStartAdded = false;
 
   if (!hookAlreadyRegistered(hooks['PostToolUse'], postCmd)) {
     hooks['PostToolUse'].push(postToolUse);
@@ -131,9 +141,13 @@ export function registerHooks(hookBin?: string): HookRegistration {
     hooks['UserPromptSubmit'].push(userPromptSubmit);
     promptAdded = true;
   }
+  if (!hookAlreadyRegistered(hooks['SessionStart'], sessionStartCmd)) {
+    hooks['SessionStart'].push(sessionStart);
+    sessionStartAdded = true;
+  }
 
   saveSettings(settings);
-  return { postAdded, stopAdded, promptAdded };
+  return { postAdded, stopAdded, promptAdded, sessionStartAdded };
 }
 
 function atomicWriteText(filePath: string, content: string): void {
@@ -228,12 +242,24 @@ export function installGlobalGitTemplateHook(): boolean {
   }
 }
 
+// Gemini CLI uses a different hook-event taxonomy than Claude Code. We still
+// invoke the same internal cc-habits events (post-tool-use/stop/user-prompt-submit)
+// but they must live under Gemini's event keys (AfterTool/AfterAgent/BeforeAgent)
+// and match Gemini's own tool names (write_file/replace), otherwise Gemini
+// silently ignores the unknown keys and no hook ever fires.
+const GEMINI_POST_EVENT = 'AfterTool';
+const GEMINI_STOP_EVENT = 'AfterAgent';
+const GEMINI_PROMPT_EVENT = 'BeforeAgent';
+const GEMINI_SESSION_START_EVENT = 'SessionStart';
+const GEMINI_EDIT_MATCHER = 'write_file|replace|edit';
+
 export function registerJsonHooks(targetFile: string, toolId: string, hookBin: string): HookRegistration {
   const safeBin = `"${hookBin.replace(/"/g, '\\"')}"`;
-  
+
   const postCmd = `${safeBin} post-tool-use --adapter ${toolId} || true`;
   const stopCmd = `${safeBin} stop --adapter ${toolId} || true`;
   const promptCmd = `${safeBin} user-prompt-submit --adapter ${toolId} || true`;
+  const sessionStartCmd = `${safeBin} session-start --adapter ${toolId} || true`;
 
   let settings: Record<string, any> = {};
   if (fs.existsSync(targetFile)) {
@@ -246,16 +272,18 @@ export function registerJsonHooks(targetFile: string, toolId: string, hookBin: s
 
   if (!settings['hooks']) settings['hooks'] = {};
   const hooks = settings['hooks'] as Record<string, unknown[]>;
-  if (!hooks['PostToolUse']) hooks['PostToolUse'] = [];
-  if (!hooks['Stop']) hooks['Stop'] = [];
-  if (!hooks['UserPromptSubmit']) hooks['UserPromptSubmit'] = [];
+  if (!hooks[GEMINI_POST_EVENT]) hooks[GEMINI_POST_EVENT] = [];
+  if (!hooks[GEMINI_STOP_EVENT]) hooks[GEMINI_STOP_EVENT] = [];
+  if (!hooks[GEMINI_PROMPT_EVENT]) hooks[GEMINI_PROMPT_EVENT] = [];
+  if (!hooks[GEMINI_SESSION_START_EVENT]) hooks[GEMINI_SESSION_START_EVENT] = [];
 
   let postAdded = false;
   let stopAdded = false;
   let promptAdded = false;
+  let sessionStartAdded = false;
 
   const postHook = {
-    matcher: 'Write|Edit|MultiEdit',
+    matcher: GEMINI_EDIT_MATCHER,
     hooks: [{ type: 'command', command: postCmd }],
   };
   const stopHook = {
@@ -264,18 +292,25 @@ export function registerJsonHooks(targetFile: string, toolId: string, hookBin: s
   const promptHook = {
     hooks: [{ type: 'command', command: promptCmd }],
   };
+  const sessionStartHook = {
+    hooks: [{ type: 'command', command: sessionStartCmd }],
+  };
 
-  if (!hookAlreadyRegistered(hooks['PostToolUse'], postCmd)) {
-    hooks['PostToolUse'].push(postHook);
+  if (!hookAlreadyRegistered(hooks[GEMINI_POST_EVENT], postCmd)) {
+    hooks[GEMINI_POST_EVENT].push(postHook);
     postAdded = true;
   }
-  if (!hookAlreadyRegistered(hooks['Stop'], stopCmd)) {
-    hooks['Stop'].push(stopHook);
+  if (!hookAlreadyRegistered(hooks[GEMINI_STOP_EVENT], stopCmd)) {
+    hooks[GEMINI_STOP_EVENT].push(stopHook);
     stopAdded = true;
   }
-  if (!hookAlreadyRegistered(hooks['UserPromptSubmit'], promptCmd)) {
-    hooks['UserPromptSubmit'].push(promptHook);
+  if (!hookAlreadyRegistered(hooks[GEMINI_PROMPT_EVENT], promptCmd)) {
+    hooks[GEMINI_PROMPT_EVENT].push(promptHook);
     promptAdded = true;
+  }
+  if (!hookAlreadyRegistered(hooks[GEMINI_SESSION_START_EVENT], sessionStartCmd)) {
+    hooks[GEMINI_SESSION_START_EVENT].push(sessionStartHook);
+    sessionStartAdded = true;
   }
 
   if (fs.existsSync(targetFile) && fs.lstatSync(targetFile).isSymbolicLink()) {
@@ -291,7 +326,17 @@ export function registerJsonHooks(targetFile: string, toolId: string, hookBin: s
     throw e;
   }
 
-  return { postAdded, stopAdded, promptAdded };
+  return { postAdded, stopAdded, promptAdded, sessionStartAdded };
+}
+
+// Encode a string as a TOML value. Prefer a literal (single-quote) string so
+// backslashes in a Windows hook-binary path are not misread as escape sequences
+// (a basic string would turn C:\Users into an invalid \U escape). Fall back to an
+// escaped basic string only when the value itself contains a single quote or a
+// control character, which a literal string cannot represent. F4 fix.
+function tomlString(s: string): string {
+  if (!/['\x00-\x1f]/.test(s)) return `'${s}'`;
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 export function registerCodexHooks(targetFile: string, hookBin: string): HookRegistration {
@@ -311,14 +356,14 @@ export function registerCodexHooks(targetFile: string, hookBin: string): HookReg
     if (!content.includes('[hooks]')) {
       content += `\n[hooks]\n`;
     }
-    content += `PostToolUse = "${postCmd}"\n`;
+    content += `PostToolUse = ${tomlString(postCmd)}\n`;
     postAdded = true;
   }
   if (!content.includes(stopCmd)) {
     if (!content.includes('[hooks]')) {
       content += `\n[hooks]\n`;
     }
-    content += `Stop = "${stopCmd}"\n`;
+    content += `Stop = ${tomlString(stopCmd)}\n`;
     stopAdded = true;
   }
 
@@ -336,6 +381,53 @@ export function registerCodexHooks(targetFile: string, hookBin: string): HookReg
   }
 
   return { postAdded, stopAdded, promptAdded: false };
+}
+
+// Kimi Code CLI uses ~/.kimi/config.toml with [[hooks]] array-of-tables. Each
+// entry has event/command/matcher keys. Kimi follows Claude Code's event names
+// (PostToolUse/Stop/UserPromptSubmit/SessionStart) but its own file-tool names
+// (WriteFile/StrReplaceFile), so the PostToolUse matcher targets those.
+const KIMI_EDIT_MATCHER = 'WriteFile|StrReplaceFile';
+
+export function registerKimiHooks(targetFile: string, hookBin: string): HookRegistration {
+  const safeBin = `"${hookBin.replace(/"/g, '\\"')}"`;
+  const postCmd = `${safeBin} post-tool-use --adapter kimi || true`;
+  const stopCmd = `${safeBin} stop --adapter kimi || true`;
+  const promptCmd = `${safeBin} user-prompt-submit --adapter kimi || true`;
+  const sessionStartCmd = `${safeBin} session-start --adapter kimi || true`;
+
+  let content = '';
+  if (fs.existsSync(targetFile)) {
+    content = fs.readFileSync(targetFile, 'utf-8');
+  }
+
+  // Append a [[hooks]] block only if this exact command is not already present.
+  const appendHook = (event: string, command: string, matcher?: string): boolean => {
+    if (content.includes(command)) return false;
+    const matcherLine = matcher ? `matcher = ${tomlString(matcher)}\n` : '';
+    content += `\n[[hooks]]\nevent = ${tomlString(event)}\n${matcherLine}command = ${tomlString(command)}\n`;
+    return true;
+  };
+
+  const postAdded = appendHook('PostToolUse', postCmd, KIMI_EDIT_MATCHER);
+  const stopAdded = appendHook('Stop', stopCmd);
+  const promptAdded = appendHook('UserPromptSubmit', promptCmd);
+  const sessionStartAdded = appendHook('SessionStart', sessionStartCmd);
+
+  if (fs.existsSync(targetFile) && fs.lstatSync(targetFile).isSymbolicLink()) {
+    throw new Error(`refusing to write through symlink: ${targetFile}`);
+  }
+  const tmpPath = `${targetFile}.tmp.${process.pid}`;
+  try {
+    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+    fs.writeFileSync(tmpPath, content, 'utf-8');
+    fs.renameSync(tmpPath, targetFile);
+  } catch (e) {
+    try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
+    throw e;
+  }
+
+  return { postAdded, stopAdded, promptAdded, sessionStartAdded };
 }
 
 export function registerClineHooks(hooksDir: string, hookBin: string): HookRegistration {

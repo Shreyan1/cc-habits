@@ -312,7 +312,11 @@ describe('CLI init', () => {
     const claudeMd = fs.readFileSync(installPaths.claudeMd, 'utf-8');
     const importLines = claudeMd.split('\n').filter(ln => ln.startsWith('@import'));
     expect(importLines).toHaveLength(1);
-    expect(importLines[0].replace('@import ', '').trim()).toMatch(/^\//);
+    const importPath = importLines[0].replace('@import ', '').trim();
+    // Absolute path, not a ~ shortcut. On Windows that is C:\..., not /..., so
+    // assert via path.isAbsolute rather than a POSIX-only leading-slash check.
+    expect(path.isAbsolute(importPath)).toBe(true);
+    expect(importPath.startsWith('~')).toBe(false);
     expect(importLines[0]).toContain('habits.md');
   });
 
@@ -354,13 +358,13 @@ describe('CLI view', () => {
 
 // CLI: memories ───────────────────────────────────────────────────────────
 describe('CLI memories', () => {
-  it('shows empty memories state and creates memories.md', () => {
-    const ret = cmdMemories();
+  it('shows empty memories state and creates memories.md', async () => {
+    const ret = await cmdMemories();
     expect(ret).toBe(0);
     expect(fs.existsSync(storagePaths.memoriesFile)).toBe(true);
   });
 
-  it('shows active and candidate memories', () => {
+  it('shows active and candidate memories', async () => {
     writeMemoriesMd(serialiseMemories({
       'Repeated mistakes': [
         {
@@ -382,7 +386,7 @@ describe('CLI memories', () => {
         },
       ],
     }));
-    expect(cmdMemories()).toBe(0);
+    expect(await cmdMemories()).toBe(0);
   });
 });
 

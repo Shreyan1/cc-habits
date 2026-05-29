@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { Provider, ProviderRateLimitError, ProviderTimeoutError } from './index';
+import { Provider, ProviderRateLimitError, ProviderTimeoutError } from './types';
 
 export class AnthropicProvider implements Provider {
   name = 'anthropic';

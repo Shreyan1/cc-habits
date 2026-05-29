@@ -51,6 +51,13 @@ export function detectInstalledTools(): ToolInfo[] {
       settingsPath: path.join(home, '.codex', 'config.toml'),
     });
   }
+  if (fs.existsSync(path.join(home, '.kimi'))) {
+    tools.push({
+      id: 'kimi',
+      name: 'Kimi Code CLI',
+      settingsPath: path.join(home, '.kimi', 'config.toml'),
+    });
+  }
   if (isCliOnPath('cline')) {
     tools.push({
       id: 'cline',

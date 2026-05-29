@@ -8,11 +8,12 @@ import {
   isMemoryTombstoned,
   type Memory,
 } from './storage';
-import { normalizeInput, type NormalizedHookInput } from './adapters';
+import { normalizeInput, ALLOWED_ADAPTERS, type NormalizedHookInput } from './adapters';
 import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule, sanitizeCategory } from './confidence';
 import type { AppliedChange } from './confidence';
 import { extractRules, extractMemoryCandidates } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError } from './providers';
+import { memoriesEnabled } from './config';
 import { readSyncTargets, syncTargets } from './sync';
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit']);
@@ -203,17 +204,24 @@ function markerEnabled(): boolean {
 
 // Set CC_HABITS_AUTO=1 to skip the pending-review queue and auto-apply new
 // habits immediately (reverts to the original silent-learning behaviour).
-function autoApplyEnabled(): boolean {
+export function autoApplyEnabled(): boolean {
   const v = (process.env['CC_HABITS_AUTO'] ?? '').toLowerCase();
   return v === '1' || v === 'true' || v === 'on';
 }
 
-// Set CC_HABITS_MEMORIES=1 to enable memory extraction in the Stop hook.
-// Off by default until the extraction loop has been validated.
-function memoriesEnabled(): boolean {
-  const v = (process.env['CC_HABITS_MEMORIES'] ?? '').toLowerCase();
-  return v === '1' || v === 'true' || v === 'on';
+// F3: auto-apply removes the human-in-the-loop review that defends against a
+// hostile repo planting a semantically dangerous "habit". Warn whenever it
+// applies new rules so the bypass is never silent. Returns the warning line, or
+// null when no warning is warranted.
+export function autoApplyWarning(count: number): string | null {
+  if (!autoApplyEnabled() || count <= 0) return null;
+  const noun = count === 1 ? 'habit' : 'habits';
+  return `cc-habits: CC_HABITS_AUTO is on, ${count} new ${noun} applied without review. ` +
+    `Do not enable auto-apply while working in untrusted repositories.`;
 }
+
+// Memory extraction is opt-in via CC_HABITS_MEMORIES=1 (per shell) or a
+// persisted `memories_enabled` flag in config.yml. See memoriesEnabled() in config.ts.
 
 // Pure logic ───────────────────────────────────────────────────────────────
 export function processPostToolUse(input: Record<string, unknown> | NormalizedHookInput): void {
@@ -316,6 +324,9 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
       const deduped = toAdd.filter(p => p.rule);
       if (deduped.length > 0) writePending(deduped);
     } catch { /* pending write is best-effort; never block the session */ }
+  } else {
+    const warning = autoApplyWarning(creates.length);
+    if (warning) process.stderr.write(warning + '\n');
   }
 
   // B2: record provenance — which signals contributed to each create/reinforce.
@@ -597,7 +608,82 @@ export function processUserPromptSubmit(data: Record<string, unknown>): string |
   return habitsContext ?? memoriesContext;
 }
 
+// Cap the SessionStart reminder so we never blow past a tool's context limit
+// (Claude Code caps additionalContext at 10k chars; we stay well under).
+const MAX_SESSION_START_CONTEXT = 4000;
+
+// Builds the SessionStart reminder. Habits/memories are already injected via the
+// CLAUDE.md/GEMINI.md @import and the UserPromptSubmit hook, so re-injecting them
+// here would duplicate context. The distinct value of SessionStart is reminding
+// the developer about pending suggestions they would otherwise forget to review.
+// Returns null when there is nothing actionable so the session stays quiet.
+export function processSessionStart(): string | null {
+  let pending: ReturnType<typeof readPending>;
+  try {
+    pending = readPending();
+  } catch {
+    return null;
+  }
+  if (!pending.length) return null;
+
+  const count = pending.length;
+  const noun = count === 1 ? 'habit suggestion' : 'habit suggestions';
+  const lines = pending
+    .slice(0, 5)
+    .map(p => `  - [${p.category}] ${p.rule}`);
+  const more = count > 5 ? `  ...and ${count - 5} more\n` : '';
+  const msg =
+    `cc-habits: ${count} pending ${noun} awaiting review:\n` +
+    `${lines.join('\n')}\n${more}` +
+    `Run \`cch pending\` to review, \`cch pending --approve\` to accept, or \`cch pending --discard\` to reject.`;
+
+  return msg.length > MAX_SESSION_START_CONTEXT
+    ? msg.slice(0, MAX_SESSION_START_CONTEXT)
+    : msg;
+}
+
 // stdin/stdout wrappers ────────────────────────────────────────────────────
+export function handleSessionStart(adapter = 'claude-code'): void {
+  // SessionStart hooks may receive a small JSON payload on stdin, but we only
+  // need local state, so drain and ignore it. Always exit 0 so a session never
+  // fails to start because of cc-habits.
+  let raw = '';
+  let oversized = false;
+  process.stdin.setEncoding('utf-8');
+  process.stdin.on('data', chunk => {
+    raw += chunk;
+    if (raw.length > MAX_STDIN_BYTES && !oversized) {
+      oversized = true;
+      process.stdin.destroy();
+    }
+  });
+  const finish = (): void => {
+    try {
+      const context = processSessionStart();
+      if (context) {
+        // Claude Code injects SessionStart context via a structured field; plain
+        // stdout is silently dropped as of recent versions. Other tools read
+        // plain stdout, so branch on the adapter.
+        if (adapter === 'claude-code') {
+          process.stdout.write(JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: 'SessionStart',
+              additionalContext: context,
+            },
+          }) + '\n');
+        } else {
+          process.stdout.write(context + '\n');
+        }
+      }
+    } catch (e) {
+      logError(`session-start: ${String(e)}`);
+    }
+    process.exit(0);
+  };
+  process.stdin.on('end', finish);
+  process.stdin.on('error', () => process.exit(0));
+}
+
 export function handlePostToolUse(adapter = 'claude-code'): void {
   let raw = '';
   let oversized = false;
@@ -700,11 +786,11 @@ export function hookMain(): void {
   let adapter = 'claude-code';
   const adapterIdx = process.argv.indexOf('--adapter');
   if (adapterIdx !== -1 && process.argv[adapterIdx + 1]) {
-    const candidate = process.argv[adapterIdx + 1];
-    if (candidate === 'claude-code' || candidate === 'gemini' || candidate === 'codex' || candidate === 'cline') {
+    const candidate = process.argv[adapterIdx + 1]!;
+    if (ALLOWED_ADAPTERS.has(candidate)) {
       adapter = candidate;
     } else {
-      process.stderr.write(`cc-habits: invalid adapter: ${candidate}. Supported adapters: claude-code, gemini, codex, cline. Falling back to claude-code.\n`);
+      process.stderr.write(`cc-habits: invalid adapter: ${candidate}. Supported adapters: ${[...ALLOWED_ADAPTERS].join(', ')}. Falling back to claude-code.\n`);
       adapter = 'claude-code';
     }
   }
@@ -714,6 +800,7 @@ export function hookMain(): void {
       if (event === 'post-tool-use') handlePostToolUse(adapter);
       else if (event === 'stop') await handleStop();
       else if (event === 'user-prompt-submit') handleUserPromptSubmit();
+      else if (event === 'session-start') handleSessionStart(adapter);
       else process.exit(0);
     } catch (e) {
       logError(`hook ${event}: ${String(e)}`);

@@ -136,7 +136,7 @@ describe('SEC-1: extractor prompt — no double-substitution', () => {
 
 // SEC-2: Config file permissions ──────────────────────────────────────────
 describe('SEC-2: config.yml must not be world-readable', () => {
-  it('config file written with mode 0o600', () => {
+  it.skipIf(process.platform === 'win32')('config file written with mode 0o600', () => {
     const configPath = path.join(tmpDir, 'test_config.yml');
     fs.writeFileSync(configPath, 'anthropic_api_key: sk-ant-test\n', { encoding: 'utf-8', mode: 0o600 });
     const mode = fs.statSync(configPath).mode & 0o777;
@@ -144,7 +144,7 @@ describe('SEC-2: config.yml must not be world-readable', () => {
     expect(mode & 0o044).toBe(0); // neither group nor world readable
   });
 
-  it('0644 default would expose the key to other users (confirms the risk)', () => {
+  it.skipIf(process.platform === 'win32')('0644 default would expose the key to other users (confirms the risk)', () => {
     const configPath = path.join(tmpDir, 'test_config_insecure.yml');
     fs.writeFileSync(configPath, 'anthropic_api_key: sk-ant-test\n', 'utf-8'); // default mode
     const mode = fs.statSync(configPath).mode & 0o777;
@@ -399,7 +399,7 @@ describe('SEC-9: buildInjectionContext re-sanitizes rules from habits.md', () =>
 
 // SEC-10: Symlink attack on settings.json ───────────────────────────────────
 describe('SEC-10: saveSettings refuses to follow symlinks', () => {
-  it('registerHooks throws if settings.json is a symlink', () => {
+  it.skipIf(process.platform === 'win32')('registerHooks throws if settings.json is a symlink', () => {
     const decoy = path.join(tmpDir, 'decoy_settings.json');
     fs.writeFileSync(decoy, '{}');
     // settings.json file was created by initHabitsMd via registerHooks in beforeEach;
@@ -415,7 +415,7 @@ describe('SEC-10: saveSettings refuses to follow symlinks', () => {
 
 // SEC-11: Symlink attack on CLAUDE.md ──────────────────────────────────────
 describe('SEC-11: addImportToClaudeMd refuses to follow symlinks', () => {
-  it('throws if CLAUDE.md is a symlink', () => {
+  it.skipIf(process.platform === 'win32')('throws if CLAUDE.md is a symlink', () => {
     const decoy = path.join(tmpDir, 'decoy_claude.md');
     fs.writeFileSync(decoy, '# original\n');
     if (fs.existsSync(installPaths.claudeMd)) fs.unlinkSync(installPaths.claudeMd);
@@ -429,7 +429,7 @@ describe('SEC-11: addImportToClaudeMd refuses to follow symlinks', () => {
 
 // SEC-12: Atomic write — no partial file visible to readers ────────────────
 describe('SEC-12: writeHabitsMd writes atomically (temp-then-rename)', () => {
-  it('file mode is 0600 after atomic write', () => {
+  it.skipIf(process.platform === 'win32')('file mode is 0600 after atomic write', () => {
     writeHabitsMd('# habits content');
     const mode = fs.statSync(storagePaths.habitsFile).mode & 0o777;
     expect(mode).toBe(0o600);

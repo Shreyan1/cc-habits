@@ -20,7 +20,7 @@ export interface Signal {
   file: string;
   diff: string;
   language?: string;
-  source?: 'claude-code' | 'git' | 'vscode' | 'cli' | 'gemini' | 'codex' | 'cline';
+  source?: 'claude-code' | 'git' | 'vscode' | 'cli' | 'gemini' | 'codex' | 'cline' | 'kimi';
 }
 
 export interface Habit {
@@ -37,7 +37,7 @@ export interface Habit {
 
 export type HabitsMap = Record<string, Habit[]>;
 
-// C2: CC_HABITS_DIR overrides the default ~/.claude/habits location. This is
+// C2: CC_HABITS_DIR overrides the default ~/.cc-habits location. This is
 // the single source of truth — every other path is derived from it.
 function defaultRoot(): string {
   return process.env['CC_HABITS_DIR'] ?? path.join(os.homedir(), '.cc-habits');
@@ -103,6 +103,15 @@ const CANDIDATE_MEMORIES_SECTION_HEADER =
 
 export function ensureDirs(): void {
   fs.mkdirSync(storagePaths.habitsDir, { recursive: true });
+}
+
+// Securely (re)write config.yml. Routes through safeWrite so the file is
+// symlink-guarded and written atomically at mode 0600, even when config.yml
+// already exists with looser permissions (writeFileSync would not retighten an
+// existing file, leaving an API key potentially group/world readable). F2 fix.
+export function writeConfigFile(content: string): void {
+  ensureDirs();
+  safeWrite(storagePaths.configFile, content);
 }
 
 function safeWrite(filePath: string, content: string): void {
@@ -234,6 +243,59 @@ function normalizeRule(s: string): string {
   return s.trim().replace(/\.$/, '').toLowerCase();
 }
 
+// Fuzzy tombstone matching ──────────────────────────────────────────────────
+// Exact normalized matching alone lets a reworded-but-equivalent rule slip past
+// the "never re-learned" guarantee. We add a deterministic token-overlap layer
+// that catches near-duplicate phrasings (e.g. swapping one word, reordering).
+// Deep synonym rewordings ("type hints on signatures" vs "explicit type
+// annotations for parameters and return types") share too little vocabulary to
+// catch lexically without false positives — those are handled upstream by
+// feeding tombstones into the extraction prompt.
+const TOMBSTONE_STOPWORDS = new Set([
+  'a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'and', 'or', 'with', 'use',
+  'using', 'do', 'not', 'always', 'never', 'prefer', 'should', 'must', 'when',
+  'that', 'this', 'your', 'all', 'any', 'as', 'is', 'are', 'be', 'it', 'its',
+  'into', 'from', 'at', 'by', 'avoid', 'instead',
+]);
+
+// Significant content tokens: lowercase, alnum-only, stopwords removed, light
+// plural stemming so "types"/"type" and "hints"/"hint" collapse together.
+function significantTokens(s: string): Set<string> {
+  return new Set(
+    normalizeRule(s)
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .map(t => t.replace(/s$/, ''))
+      .filter(t => t.length > 2 && !TOMBSTONE_STOPWORDS.has(t)),
+  );
+}
+
+// Jaccard similarity of two rules' significant-token sets.
+function ruleSimilarity(a: string, b: string): number {
+  const ta = significantTokens(a);
+  const tb = significantTokens(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let shared = 0;
+  for (const t of ta) if (tb.has(t)) shared++;
+  const union = ta.size + tb.size - shared;
+  return union === 0 ? 0 : shared / union;
+}
+
+// A near-duplicate shares most of its vocabulary. Require both a high Jaccard
+// score and at least two shared content tokens so short rules (1–2 tokens) only
+// ever match exactly and cannot trigger spurious fuzzy blocks.
+const TOMBSTONE_SIMILARITY_THRESHOLD = 0.5;
+const TOMBSTONE_MIN_SHARED_TOKENS = 2;
+
+function isFuzzyMatch(candidate: string, tombstoned: string): boolean {
+  const ca = significantTokens(candidate);
+  const cb = significantTokens(tombstoned);
+  let shared = 0;
+  for (const t of ca) if (cb.has(t)) shared++;
+  if (shared < TOMBSTONE_MIN_SHARED_TOKENS) return false;
+  return ruleSimilarity(candidate, tombstoned) >= TOMBSTONE_SIMILARITY_THRESHOLD;
+}
+
 export function readTombstones(): string[] {
   if (!fs.existsSync(storagePaths.tombstonesFile)) return [];
   try {
@@ -259,7 +321,10 @@ export function addTombstone(rule: string): void {
 
 export function isTombstoned(rule: string): boolean {
   const target = normalizeRule(rule);
-  return readTombstones().some(t => t === target);
+  const tombstones = readTombstones();
+  // Fast path: exact normalized match. Fallback: fuzzy near-duplicate match so a
+  // lightly reworded variant of a deleted rule is still blocked.
+  return tombstones.some(t => t === target || isFuzzyMatch(rule, t));
 }
 
 // Memory tombstones ────────────────────────────────────────────────────────
@@ -288,7 +353,8 @@ export function addMemoryTombstone(text: string): void {
 
 export function isMemoryTombstoned(text: string): boolean {
   const target = normalizeRule(text);
-  return readMemoryTombstones().some(t => t === target);
+  const tombstones = readMemoryTombstones();
+  return tombstones.some(t => t === target || isFuzzyMatch(text, t));
 }
 
 // Snapshot (auto-detect manual deletes) ────────────────────────────────────

@@ -54,6 +54,42 @@ describe('v0.3.0 universal: normalizeInput', () => {
     expect(res.source).toBe('gemini');
   });
 
+  it('normalizes Gemini AfterTool tool_input payload (write_file)', () => {
+    const raw = {
+      tool_name: 'write_file',
+      session_id: 'sess-gemini-real',
+      tool_input: {
+        file_path: 'app.go',
+        content: 'package main'
+      }
+    };
+    const res = normalizeInput(raw, 'gemini');
+    expect(res.toolName).toBe('write_file');
+    expect(res.filePath).toBe('app.go');
+    expect(res.newContent).toBe('package main');
+    expect(res.sessionId).toBe('sess-gemini-real');
+    expect(res.source).toBe('gemini');
+  });
+
+  it('normalizes Gemini AfterTool tool_input payload (replace)', () => {
+    const raw = {
+      tool_name: 'replace',
+      session_id: 'sess-gemini-replace',
+      tool_input: {
+        file_path: 'main.py',
+        old_string: 'x = 1',
+        new_string: 'x = 2'
+      }
+    };
+    const res = normalizeInput(raw, 'gemini');
+    expect(res.toolName).toBe('replace');
+    expect(res.filePath).toBe('main.py');
+    expect(res.oldContent).toBe('x = 1');
+    expect(res.newContent).toBe('x = 2');
+    expect(res.sessionId).toBe('sess-gemini-replace');
+    expect(res.source).toBe('gemini');
+  });
+
   it('normalizes Codex format correctly', () => {
     const raw = {
       tool_name: 'Edit',
@@ -201,8 +237,13 @@ describe('v0.3.0 universal: install hooks security and interpolation', () => {
     expect(res.postAdded).toBe(true);
 
     const data = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-    const command = data.hooks.PostToolUse[0].hooks[0].command;
-    expect(command).toContain('post-tool-use --adapter gemini');
+    // Gemini CLI uses AfterTool (not Claude's PostToolUse) and its own tool names.
+    const entry = data.hooks.AfterTool[0];
+    expect(entry.matcher).toBe('write_file|replace|edit');
+    expect(entry.hooks[0].command).toContain('post-tool-use --adapter gemini');
+    expect(data.hooks.AfterAgent[0].hooks[0].command).toContain('stop --adapter gemini');
+    expect(data.hooks.BeforeAgent[0].hooks[0].command).toContain('user-prompt-submit --adapter gemini');
+    expect(data.hooks.PostToolUse).toBeUndefined();
   });
 
   it('registerCodexHooks writes correct toml hooks with --adapter', () => {
@@ -226,7 +267,7 @@ describe('v0.3.0 universal: install hooks security and interpolation', () => {
     expect(content).toContain('post-tool-use --adapter cline');
   });
 
-  it('registerJsonHooks respects symlink protection', () => {
+  it.skipIf(process.platform === 'win32')('registerJsonHooks respects symlink protection', () => {
     const realFile = path.join(tmpDir, 'real.json');
     fs.writeFileSync(realFile, '{}');
     const symLink = path.join(tmpDir, 'sym.json');
