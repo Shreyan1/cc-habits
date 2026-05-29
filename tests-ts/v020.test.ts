@@ -182,15 +182,17 @@ describe('B2: cc-habits explain', () => {
 // C2: configurable habitsDir ──────────────────────────────────────────────
 describe('C2: CC_HABITS_DIR override', () => {
   it('storagePaths derive from CC_HABITS_DIR when set', async () => {
-    process.env['CC_HABITS_DIR'] = '/tmp/custom-cc-habits';
+    // Use an OS-appropriate base dir so expectations match path.join on Windows too.
+    const dir = path.join(os.tmpdir(), 'custom-cc-habits');
+    process.env['CC_HABITS_DIR'] = dir;
     // Re-import the module to pick up the env var.
     vi.resetModules();
     const fresh = await import('../src/storage');
-    expect(fresh.storagePaths.habitsFile).toBe('/tmp/custom-cc-habits/habits.md');
-    expect(fresh.storagePaths.memoriesFile).toBe('/tmp/custom-cc-habits/memories.md');
-    expect(fresh.storagePaths.logFile).toBe('/tmp/custom-cc-habits/log.jsonl');
-    expect(fresh.storagePaths.historyFile).toBe('/tmp/custom-cc-habits/.history.jsonl');
-    expect(fresh.storagePaths.memoryIndexFile).toBe('/tmp/custom-cc-habits/.memory-index.json');
+    expect(fresh.storagePaths.habitsFile).toBe(path.join(dir, 'habits.md'));
+    expect(fresh.storagePaths.memoriesFile).toBe(path.join(dir, 'memories.md'));
+    expect(fresh.storagePaths.logFile).toBe(path.join(dir, 'log.jsonl'));
+    expect(fresh.storagePaths.historyFile).toBe(path.join(dir, '.history.jsonl'));
+    expect(fresh.storagePaths.memoryIndexFile).toBe(path.join(dir, '.memory-index.json'));
     delete process.env['CC_HABITS_DIR'];
     vi.resetModules();
   });

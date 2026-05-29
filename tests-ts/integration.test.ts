@@ -312,7 +312,11 @@ describe('CLI init', () => {
     const claudeMd = fs.readFileSync(installPaths.claudeMd, 'utf-8');
     const importLines = claudeMd.split('\n').filter(ln => ln.startsWith('@import'));
     expect(importLines).toHaveLength(1);
-    expect(importLines[0].replace('@import ', '').trim()).toMatch(/^\//);
+    const importPath = importLines[0].replace('@import ', '').trim();
+    // Absolute path, not a ~ shortcut. On Windows that is C:\..., not /..., so
+    // assert via path.isAbsolute rather than a POSIX-only leading-slash check.
+    expect(path.isAbsolute(importPath)).toBe(true);
+    expect(importPath.startsWith('~')).toBe(false);
     expect(importLines[0]).toContain('habits.md');
   });
 

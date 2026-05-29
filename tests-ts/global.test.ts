@@ -186,14 +186,16 @@ describe('Signal cap: long sessions do not hit provider 413', () => {
 });
 
 describe('@import uses absolute path', () => {
-  it('import line starts with / not ~', async () => {
+  it('import line is absolute, not a ~ shortcut', async () => {
     process.env['ANTHROPIC_API_KEY'] = 'test-key';
     await cmdInit();
     const claudeMd = fs.readFileSync(installPaths.claudeMd, 'utf-8');
     const importLines = claudeMd.split('\n').filter(ln => ln.startsWith('@import'));
     expect(importLines).toHaveLength(1);
     const importPath = importLines[0].replace('@import ', '').trim();
-    expect(importPath).toMatch(/^\//);
+    // On Windows an absolute path is C:\..., not /..., so use path.isAbsolute.
+    expect(path.isAbsolute(importPath)).toBe(true);
+    expect(importPath.startsWith('~')).toBe(false);
     expect(importPath).toContain('habits.md');
   });
 
