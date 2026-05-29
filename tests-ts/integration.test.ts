@@ -354,13 +354,13 @@ describe('CLI view', () => {
 
 // CLI: memories ───────────────────────────────────────────────────────────
 describe('CLI memories', () => {
-  it('shows empty memories state and creates memories.md', () => {
-    const ret = cmdMemories();
+  it('shows empty memories state and creates memories.md', async () => {
+    const ret = await cmdMemories();
     expect(ret).toBe(0);
     expect(fs.existsSync(storagePaths.memoriesFile)).toBe(true);
   });
 
-  it('shows active and candidate memories', () => {
+  it('shows active and candidate memories', async () => {
     writeMemoriesMd(serialiseMemories({
       'Repeated mistakes': [
         {
@@ -382,7 +382,7 @@ describe('CLI memories', () => {
         },
       ],
     }));
-    expect(cmdMemories()).toBe(0);
+    expect(await cmdMemories()).toBe(0);
   });
 });
 

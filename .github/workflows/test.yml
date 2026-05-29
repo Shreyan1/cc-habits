@@ -6,9 +6,14 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }}, node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      # Keep running the other combinations even if one platform fails, so a
+      # single OS regression does not hide results for the rest.
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: ["20", "22"]
     steps:
       - uses: actions/checkout@v4

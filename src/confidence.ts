@@ -280,7 +280,10 @@ export function toPending(updates: RuleUpdate[]): PendingUpdate[] {
       reasoning: u.reasoning,
       ts,
     }))
-    .filter(u => u.rule);
+    .filter(u => u.rule)
+    // Never surface a tombstoned (or reworded-equivalent) rule for review — the
+    // user already rejected it, so it must not reappear in the pending queue.
+    .filter(u => !isTombstoned(u.rule));
 }
 
 export function pendingToUpdates(pending: PendingUpdate[]): RuleUpdate[] {

@@ -6,11 +6,11 @@ import {
   readTombstones, addTombstone, initMemoriesMd, readMemoriesMd, writeMemoriesMd,
   parseMemories, serialiseMemories, addMemoryTombstone, readMemoryTombstones,
   readHistory, appendHistory, logError, detectManualDeletes, applyMemoryUpdates,
-  writePending,
+  writePending, writeConfigFile,
   type Memory,
 } from './storage';
 import { applyUpdates, pendingToUpdates, applyDecay, toPending, type AppliedChange } from './confidence';
-import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerClineHooks, resolveHookBinaryPath } from './install';
+import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
 import { exportHabits, importHabits } from './portable';
@@ -21,8 +21,24 @@ import { runMigration } from './migrate';
 import { captureFromCli } from './capture';
 import { runGitCapture, shouldTriggerGitLearn } from './git-collector';
 import { extractRules, extractMemoryCandidates } from './extractor';
-import { formatStopSummary } from './hook';
+import { ProviderRateLimitError, ProviderTimeoutError } from './providers';
+import { memoriesEnabled, setMemoriesEnabled } from './config';
+import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools, isCliOnPath } from './detect';
+import { SUPPORTED_TOOLS } from './supported';
+
+// Turn a provider failure into a plain-language, actionable hint. Returns
+// undefined for non-provider errors so the caller can rethrow them.
+function providerHint(e: unknown): string | undefined {
+  if (e instanceof ProviderRateLimitError) {
+    return 'provider rate-limited (HTTP 429) after retries, nothing changed this run.\n' +
+      '  Tip: wait a minute and retry, or switch provider with `cch init` (Ollama is free and local).';
+  }
+  if (e instanceof ProviderTimeoutError) {
+    return 'provider request timed out, nothing changed this run. Check your network and retry.';
+  }
+  return undefined;
+}
 
 // Config file path is derived from storagePaths so CC_HABITS_DIR overrides
 // both data files AND the provider config in one environment variable.
@@ -86,20 +102,22 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
       if (tool.id === 'claude-code') {
         const register = await promptYesNoDefaultTrue(`  Register hooks in Claude Code? [Y/n] `);
         if (register) {
-          const { postAdded, stopAdded, promptAdded } = registerHooks(hookBin);
+          const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerHooks(hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
           const importAdded = addImportToClaudeMd();
           process.stdout.write(`    ${importAdded ? tick : dash} habits.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
         }
       } else if (tool.id === 'gemini') {
         const register = await promptYesNoDefaultTrue(`  Register hooks in Gemini CLI? [Y/n] `);
         if (register) {
-          const { postAdded, stopAdded, promptAdded } = registerJsonHooks(tool.settingsPath, 'gemini', hookBin);
-          process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
-          process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
-          process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
+          const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerJsonHooks(tool.settingsPath, 'gemini', hookBin);
+          process.stdout.write(`    ${postAdded ? tick : dash} AfterTool hook ${postAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${stopAdded ? tick : dash} AfterAgent hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${promptAdded ? tick : dash} BeforeAgent hook ${promptAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
         }
       } else if (tool.id === 'codex') {
         const register = await promptYesNoDefaultTrue(`  Register hooks in Codex CLI? [Y/n] `);
@@ -107,6 +125,15 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           const { postAdded, stopAdded } = registerCodexHooks(tool.settingsPath, hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+        }
+      } else if (tool.id === 'kimi') {
+        const register = await promptYesNoDefaultTrue(`  Register hooks in Kimi Code CLI? [Y/n] `);
+        if (register) {
+          const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerKimiHooks(tool.settingsPath, hookBin);
+          process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
         }
       } else if (tool.id === 'cline') {
         const register = await promptYesNoDefaultTrue(`  Register hooks in Cline/RooCode? [Y/n] `);
@@ -278,11 +305,7 @@ async function configureProvider(provider: string, tick: string, dash: string): 
       process.stdout.write('  3. Start: ' + c(BOLD, 'ollama serve') + '\n');
       process.stdout.write(c(DIM, '  Config written — re-run cc-habits init once Ollama is running to verify.\n'));
     }
-    fs.writeFileSync(
-      CONFIG_FILE,
-      `provider: ollama\nollama_url: ${OLLAMA_DEFAULT_URL}\nollama_model: ${OLLAMA_DEFAULT_MODEL}\n`,
-      { encoding: 'utf-8', mode: 0o600 },
-    );
+    writeConfigFile(`provider: ollama\nollama_url: ${OLLAMA_DEFAULT_URL}\nollama_model: ${OLLAMA_DEFAULT_MODEL}\n`);
     process.stdout.write(`  ${tick} Ollama config saved (model: ${OLLAMA_DEFAULT_MODEL})\n`);
     return;
   }
@@ -292,8 +315,8 @@ async function configureProvider(provider: string, tick: string, dash: string): 
     process.stdout.write(c(DIM, '  Get an API key at https://console.anthropic.com\n\n'));
     const key = await promptSecret('  Enter your Anthropic API key (hidden): ');
     if (key) {
-      fs.writeFileSync(CONFIG_FILE, `anthropic_api_key: ${key}\n`, { encoding: 'utf-8', mode: 0o600 });
-      process.stdout.write(`  ${tick} API key saved to ~/.claude/habits/config.yml\n`);
+      writeConfigFile(`anthropic_api_key: ${key}\n`);
+      process.stdout.write(`  ${tick} API key saved to ~/.cc-habits/config.yml\n`);
     } else {
       process.stdout.write(`  ${dash} No key entered. Set ANTHROPIC_API_KEY env var before use.\n`);
     }
@@ -305,11 +328,7 @@ async function configureProvider(provider: string, tick: string, dash: string): 
     process.stdout.write(c(DIM, '  Get an API key at https://platform.openai.com\n\n'));
     const key = await promptSecret('  Enter your OpenAI API key (hidden): ');
     if (key) {
-      fs.writeFileSync(
-        CONFIG_FILE,
-        `provider: openai\nopenai_api_key: ${key}\nopenai_model: gpt-4o-mini\n`,
-        { encoding: 'utf-8', mode: 0o600 },
-      );
+      writeConfigFile(`provider: openai\nopenai_api_key: ${key}\nopenai_model: gpt-4o-mini\n`);
       process.stdout.write(`  ${tick} OpenAI config saved (model: gpt-4o-mini)\n`);
     } else {
       process.stdout.write(`  ${dash} No key entered.\n`);
@@ -322,11 +341,7 @@ async function configureProvider(provider: string, tick: string, dash: string): 
     process.stdout.write(c(DIM, '  Get a free API key at https://console.groq.com\n\n'));
     const key = await promptSecret('  Enter your Groq API key (hidden): ');
     if (key) {
-      fs.writeFileSync(
-        CONFIG_FILE,
-        `provider: groq\ngroq_api_key: ${key}\ngroq_model: llama-3.3-70b-versatile\n`,
-        { encoding: 'utf-8', mode: 0o600 },
-      );
+      writeConfigFile(`provider: groq\ngroq_api_key: ${key}\ngroq_model: llama-3.3-70b-versatile\n`);
       process.stdout.write(`  ${tick} Groq config saved\n`);
     } else {
       process.stdout.write(`  ${dash} No key entered.\n`);
@@ -461,7 +476,33 @@ export function cmdMemoriesTombstones(): number {
   return 0;
 }
 
-export function cmdMemories(): number {
+// Persist the memories-enabled flag and report the new state.
+export function cmdMemoriesToggle(enabled: boolean): number {
+  setMemoriesEnabled(enabled);
+  if (enabled) {
+    process.stdout.write(c(GREEN, '  ✓ memory learning enabled.\n'));
+    process.stdout.write(c(DIM, '  Future sessions will learn from corrections you make to agent output.\n'));
+    process.stdout.write(c(DIM, '  Next: keep coding, then run `cch memories` to see what was learned.\n'));
+  } else {
+    process.stdout.write(c(DIM, '  memory learning disabled. Existing memories are kept.\n'));
+  }
+  return 0;
+}
+
+// Shown when there are no memories yet, tailored to whether learning is on.
+function printMemoriesEmptyState(enabled: boolean): void {
+  if (enabled) {
+    process.stdout.write(c(DIM, '  No memories recorded yet — memory learning is ON.\n'));
+    process.stdout.write(c(DIM, '  They appear after sessions where you correct the agent. Keep coding.\n'));
+  } else {
+    process.stdout.write(c(DIM, '  No memories recorded yet, and memory learning is OFF.\n'));
+    process.stdout.write(c(DIM, '  Enable it persistently:  cch memories --enable\n'));
+    process.stdout.write(c(DIM, '  Or for one shell only:    export CC_HABITS_MEMORIES=1\n'));
+  }
+  process.stdout.write('\n');
+}
+
+export async function cmdMemories(): Promise<number> {
   initMemoriesMd();
   const memoriesMd = readMemoriesMd();
   const sections = parseMemories(memoriesMd);
@@ -475,9 +516,13 @@ export function cmdMemories(): number {
   process.stdout.write('\n');
 
   if (allMemories.length === 0) {
-    process.stdout.write(c(DIM, '  No memories recorded yet.\n'));
-    process.stdout.write(c(DIM, '  Set CC_HABITS_MEMORIES=1 to start learning from agent mistakes.\n'));
-    process.stdout.write('\n');
+    const enabled = memoriesEnabled();
+    // Offer to turn it on right here when disabled and running interactively.
+    if (!enabled && process.stdin.isTTY) {
+      const turnOn = await promptYesNo('  Enable memory learning now? [y/N] ');
+      if (turnOn) return cmdMemoriesToggle(true);
+    }
+    printMemoriesEmptyState(enabled);
     return 0;
   }
 
@@ -620,6 +665,85 @@ export function cmdPending(action: 'show' | 'approve' | 'discard'): number {
   writeSnapshot(cats);
   clearPending();
   process.stdout.write(`  applied ${newCount} new, ${updatedCount} updated\n`);
+  return 0;
+}
+
+// Shell wrapper (optional, opt-in) ─────────────────────────────────────────
+// Prints a pending-habits banner to stderr, used by the shell wrapper before
+// launching claude/gemini. Stays silent (and exits 0) when nothing is pending
+// so it never adds noise to a clean session.
+export function cmdSessionBanner(): number {
+  const pending = readPending();
+  if (pending.length === 0) return 0;
+  const noun = pending.length === 1 ? 'suggestion' : 'suggestions';
+  process.stderr.write(c(BOLD, `\n  cc-habits: ${pending.length} pending habit ${noun} to review\n`));
+  for (const p of pending.slice(0, 5)) {
+    process.stderr.write(c(DIM, `    - [${term(p.category)}] ${term(p.rule)}\n`));
+  }
+  if (pending.length > 5) process.stderr.write(c(DIM, `    ...and ${pending.length - 5} more\n`));
+  process.stderr.write(c(DIM, '  Run `cch pending` to review, `cch pending --approve` to accept.\n\n'));
+  return 0;
+}
+
+// Emits a shell snippet that wraps `claude` and `gemini` so the pending banner
+// prints in the terminal before the tool launches. The user opts in by adding
+// `eval "$(cc-habits shell-init)"` to their ~/.zshrc or ~/.bashrc. We only print
+// the snippet — we never edit the user's rc file for them.
+export function cmdShellInit(): number {
+  // F5: embed the resolved absolute binary path so the wrapper does not depend on
+  // PATH lookup of `cc-habits` (which a hijacked PATH entry could shadow). Fall
+  // back to the bare name only when the install location cannot be determined.
+  let cch = 'cc-habits';
+  try {
+    const hookBin = resolveHookBinaryPath();
+    if (hookBin.includes(path.sep)) {
+      const candidate = path.join(path.dirname(hookBin), 'cc-habits');
+      if (fs.existsSync(candidate)) cch = candidate;
+    }
+  } catch { /* fall back to PATH-resolved cc-habits */ }
+
+  // When we resolved an absolute path, call it directly (no PATH lookup). When we
+  // could not, fall back to a PATH-guarded call so the wrapper still degrades safely.
+  const runner = cch === 'cc-habits'
+    ? 'command -v cc-habits >/dev/null 2>&1 && cc-habits session-banner 2>/dev/null || true'
+    : `"${cch.replace(/"/g, '\\"')}" session-banner 2>/dev/null || true`;
+
+  const snippet = `# cc-habits shell integration — add to ~/.zshrc or ~/.bashrc:
+#   eval "$(cc-habits shell-init)"
+# Prints pending habit suggestions before launching claude/gemini, then runs
+# the real binary. The cc-habits path below is resolved at generation time to
+# avoid PATH-hijack. Safe no-op when the binary is missing.
+__cc_habits_banner() {
+  ${runner}
+}
+claude() { __cc_habits_banner; command claude "$@"; }
+gemini() { __cc_habits_banner; command gemini "$@"; }
+`;
+  process.stdout.write(snippet);
+  return 0;
+}
+
+// Lists every coding tool cc-habits supports, how each is captured and injected,
+// and whether it is currently detected on this machine.
+export function cmdTools(): number {
+  let detectedIds: Set<string>;
+  try {
+    detectedIds = new Set(detectInstalledTools().map(t => t.id));
+  } catch {
+    detectedIds = new Set();
+  }
+
+  process.stdout.write(c(BOLD, '\n  Supported tools\n\n'));
+  for (const tool of SUPPORTED_TOOLS) {
+    const installed = detectedIds.has(tool.id);
+    const mark = installed ? c(GREEN, '✓') : c(DIM, '·');
+    const status = installed ? c(GREEN, ' (detected)') : '';
+    process.stdout.write(`  ${mark} ${c(BOLD, tool.name)}${status}\n`);
+    process.stdout.write(c(DIM, `      capture: ${tool.capture}\n`));
+    process.stdout.write(c(DIM, `      inject:  ${tool.inject}\n`));
+  }
+  process.stdout.write(c(DIM, '\n  ✓ = detected on this machine · · = supported but not detected\n'));
+  process.stdout.write(c(DIM, '  Run `cch init` to register hooks for your detected tools.\n\n'));
   return 0;
 }
 
@@ -946,7 +1070,15 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
   const capped = filtered.slice(-50);
   
   const sessionId = opts.session || `learn-${new Date().toISOString().slice(0, 10)}`;
-  const updates = await extractRules(capped, habitsMd);
+  let updates: Awaited<ReturnType<typeof extractRules>> = [];
+  try {
+    updates = await extractRules(capped, habitsMd);
+  } catch (e) {
+    const hint = providerHint(e);
+    if (!hint) throw e;
+    process.stdout.write(c(YELLOW, `  ${hint}\n`));
+    return 0;
+  }
   const changes: AppliedChange[] = [];
   const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes });
   
@@ -961,8 +1093,11 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
       writePending(deduped);
       pendingCount = deduped.length;
     }
+  } else {
+    const warning = autoApplyWarning(creates.length);
+    if (warning) process.stderr.write(c(YELLOW, '  ' + warning + '\n'));
   }
-  
+
   const sessionLanguages = Array.from(
     new Set(capped.map(s => s.language).filter((l): l is string => !!l)),
   );
@@ -982,14 +1117,15 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
   writeSnapshot(cats);
   appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised });
   
-  const memoriesEnabled = (process.env['CC_HABITS_MEMORIES'] || '').toLowerCase() === '1';
   let memoryCandidatesCount = 0;
-  if (memoriesEnabled) {
+  if (memoriesEnabled()) {
     try {
       const memoriesMd = readMemoriesMd();
       const candidates = await extractMemoryCandidates(capped, memoriesMd);
       memoryCandidatesCount = applyMemoryUpdates(candidates);
     } catch (e) {
+      const hint = providerHint(e);
+      if (hint) process.stdout.write(c(YELLOW, `  memory extraction skipped: ${hint}\n`));
       logError(`learn: memory extraction failed: ${String(e)}`);
     }
   }

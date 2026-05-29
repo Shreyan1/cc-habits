@@ -177,7 +177,7 @@ describe('syncTargets', () => {
     expect(fs.existsSync(path.join(proj, 'AGENTS.md'))).toBe(false);
   });
 
-  it('refuses to write through a symlink', () => {
+  it.skipIf(process.platform === 'win32')('refuses to write through a symlink', () => {
     const proj = path.join(tmpDir, 'proj-symlink');
     fs.mkdirSync(proj, { recursive: true });
     const target = path.join(tmpDir, 'real-target.md');

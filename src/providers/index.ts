@@ -5,26 +5,12 @@ import { GroqProvider } from './groq';
 import { OllamaProvider } from './ollama';
 import { storagePaths } from '../storage';
 
+// Re-export the contract and error types so existing importers of './providers'
+// keep working. The definitions live in types.ts to avoid an import cycle.
+import type { Provider } from './types';
+export { Provider, ProviderRateLimitError, ProviderTimeoutError } from './types';
+
 const REQUEST_TIMEOUT_MS = 10_000;
-
-export interface Provider {
-  name: string;
-  generate(prompt: string, opts: { maxTokens: number; timeoutMs: number }): Promise<string>;
-}
-
-export class ProviderRateLimitError extends Error {
-  constructor(provider: string) {
-    super(`${provider}: rate limited (HTTP 429). Skipping extraction this session.`);
-    this.name = 'ProviderRateLimitError';
-  }
-}
-
-export class ProviderTimeoutError extends Error {
-  constructor(provider: string, ms: number) {
-    super(`${provider}: request timed out after ${ms}ms. Skipping extraction.`);
-    this.name = 'ProviderTimeoutError';
-  }
-}
 
 export interface ProviderConfig {
   provider: 'anthropic' | 'openai' | 'groq' | 'ollama';

@@ -21,6 +21,8 @@ import {
   addMemoryTombstone,
   isMemoryTombstoned,
   readMemoryTombstones,
+  addTombstone,
+  isTombstoned,
 } from '../src/storage';
 
 // Save originals once
@@ -281,5 +283,29 @@ describe('storage', () => {
     expect(isMemoryTombstoned('Some memory text.')).toBe(true); // trailing period
     const list = readMemoryTombstones();
     expect(list.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('isTombstoned matches exact and trailing-period/case variants', () => {
+    expect(isTombstoned('Use explicit return types')).toBe(false);
+    addTombstone('Use explicit return types');
+    expect(isTombstoned('Use explicit return types')).toBe(true);
+    expect(isTombstoned('use explicit return types.')).toBe(true);
+    expect(isTombstoned('  Use Explicit Return Types  ')).toBe(true);
+  });
+
+  it('isTombstoned catches fuzzy rewordings of a rejected rule', () => {
+    addTombstone('Always use explicit TypeScript return type annotations on functions');
+    // Reworded variant sharing most significant tokens — must be caught.
+    expect(
+      isTombstoned('Use explicit return type annotations for all TypeScript functions'),
+    ).toBe(true);
+  });
+
+  it('isTombstoned does not false-positive on unrelated rules', () => {
+    addTombstone('Always use explicit TypeScript return type annotations on functions');
+    expect(isTombstoned('Prefer single quotes for string literals')).toBe(false);
+    expect(isTombstoned('Use 2-space indentation')).toBe(false);
+    // Shares only one significant token ("typescript") — below the 2-token floor.
+    expect(isTombstoned('Enable TypeScript strict mode')).toBe(false);
   });
 });

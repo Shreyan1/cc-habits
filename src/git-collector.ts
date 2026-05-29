@@ -1,20 +1,44 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { captureFromCli } from './capture';
 import { readHistory, readSignals } from './storage';
 
+// SECURITY: this module runs automatically from the post-commit git hook, so it
+// processes untrusted repository content (commit ranges and file names). Never
+// build shell command strings here. We use execFileSync with an argument array
+// so no shell is involved and metacharacters in file names or refs are passed
+// literally to git, never interpreted. We also validate the user-supplied range
+// to block git option-injection (a ref starting with "-").
+
+// Conservative allowlist for a commit range / ref. Must start with an
+// alphanumeric or "/" (never "-", which git would read as an option) and may
+// contain the usual ref characters plus a single ".." range separator.
+const SAFE_REF = /^[A-Za-z0-9_/][A-Za-z0-9_./~^-]*(\.\.[A-Za-z0-9_./~^-]+)?$/;
+
+function git(args: string[], cwdOverride?: string, ignoreOutput = false): string {
+  return execFileSync('git', args, {
+    encoding: 'utf-8',
+    ...(cwdOverride ? { cwd: cwdOverride } : {}),
+    ...(ignoreOutput ? { stdio: 'ignore' as const } : {}),
+  }) as unknown as string;
+}
+
 export function runGitCapture(range?: string, cwdOverride?: string): { signalsCaptured: number } {
   let signalsCaptured = 0;
-  const execOpts = cwdOverride ? { cwd: cwdOverride } : {};
-  
-  // Resolve commit range. If none provided, default to last commit: HEAD~1..HEAD
+
+  // Resolve commit range. If none provided, default to last commit HEAD~1..HEAD.
   let commitRange = range?.trim();
-  if (!commitRange) {
+  if (commitRange) {
+    // Reject anything that is not a plain ref/range. This blocks both shell
+    // metacharacters (defence in depth, execFileSync already neutralizes them)
+    // and git option-injection via a leading dash.
+    if (!SAFE_REF.test(commitRange)) {
+      return { signalsCaptured: 0 };
+    }
+  } else {
     try {
-      // Check if HEAD~1 exists
-      execSync('git rev-parse --verify HEAD~1', { ...execOpts, stdio: 'ignore' });
+      git(['rev-parse', '--verify', 'HEAD~1'], cwdOverride, true);
       commitRange = 'HEAD~1..HEAD';
     } catch {
-      // No HEAD~1, so diff HEAD against empty tree
       commitRange = 'HEAD';
     }
   }
@@ -22,33 +46,30 @@ export function runGitCapture(range?: string, cwdOverride?: string): { signalsCa
   try {
     let commits: string[] = [];
     if (commitRange.includes('..') || commitRange.includes('~')) {
-      // Get all commits in the range (oldest first)
-      const output = execSync(`git log --reverse --format="%H" ${commitRange}`, { ...execOpts, encoding: 'utf-8' });
+      const output = git(['log', '--reverse', '--format=%H', commitRange], cwdOverride);
       commits = output.split('\n').map(c => c.trim()).filter(Boolean);
     } else {
-      // Single commit/ref. Verify it first.
-      const sha = execSync(`git rev-parse ${commitRange}`, { ...execOpts, encoding: 'utf-8' }).trim();
+      const sha = git(['rev-parse', commitRange], cwdOverride).trim();
       if (sha) commits = [sha];
     }
 
     for (const sha of commits) {
-      // For each commit, get the list of changed files
       let parent = `${sha}~1`;
       try {
-        execSync(`git rev-parse --verify ${parent}`, { ...execOpts, stdio: 'ignore' });
+        git(['rev-parse', '--verify', parent], cwdOverride, true);
       } catch {
-        // Fallback to empty tree SHA if no parent exists
+        // Fallback to the empty-tree SHA when no parent exists (first commit).
         parent = '4b825dc642cb6eb9a0ff12f406d9b61400b5d465';
       }
 
-      // Get changed files
-      const filesOutput = execSync(`git diff --name-only ${parent} ${sha}`, { ...execOpts, encoding: 'utf-8' });
+      // "--" separates revisions from pathspecs so a file named like an option
+      // cannot be misread, and execFileSync means the name is never shell-parsed.
+      const filesOutput = git(['diff', '--name-only', parent, sha], cwdOverride);
       const files = filesOutput.split('\n').map(f => f.trim()).filter(Boolean);
 
       for (const file of files) {
         try {
-          // Get the diff for this specific file
-          const diff = execSync(`git diff ${parent} ${sha} -- "${file}"`, { ...execOpts, encoding: 'utf-8' });
+          const diff = git(['diff', parent, sha, '--', file], cwdOverride);
           if (diff.trim()) {
             const captured = captureFromCli({
               file,
@@ -59,12 +80,12 @@ export function runGitCapture(range?: string, cwdOverride?: string): { signalsCa
             if (captured) signalsCaptured++;
           }
         } catch {
-          // Skip if file diff fails (e.g. binary files or deleted files where git diff fails)
+          // Skip files where git diff fails (binary, deleted, renamed edge cases).
         }
       }
     }
-  } catch (e) {
-    // Silent fail or log error (post-commit must never break git commits)
+  } catch {
+    // Silent fail. The post-commit hook must never break a commit.
   }
 
   return { signalsCaptured };

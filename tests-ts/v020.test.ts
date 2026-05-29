@@ -234,7 +234,7 @@ describe('C4: export and import', () => {
     expect(md).toContain('Use strict mode');
   });
 
-  it('export to a path writes a 0600 file', () => {
+  it.skipIf(process.platform === 'win32')('export to a path writes a 0600 file', () => {
     writeHabitsMd(serialiseHabits({
       TS: [{ rule: 'X', confidence: 0.7, reinforcing: 3, contradicting: 0, sessions_seen: 3 }],
     }));
