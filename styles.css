@@ -1237,3 +1237,22 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   }
   .mq__viewport { -webkit-mask-image: none; mask-image: none; }
 }
+
+/* ── Mistake memory cards ─────────────────────────────────────────────── */
+.memory {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.memory__when {
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-dim);
+}
+.memory__caution {
+  font-weight: 500;
+  color: var(--signal-neg);
+}
+.memory__fix {
+  color: var(--ink-muted);
+}

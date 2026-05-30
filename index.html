@@ -1199,10 +1199,72 @@ function WhatItLearns() {
         <div className="mt-4">
           <ButtonGhost
             as="a"
-            href="https://github.com/Shreyan1/cc-habits/blob/main/HABITS_FORMAT.md"
+            href="docs.html#spec"
             target="_blank"
             rel="noreferrer">
             View the spec <span className="arr" aria-hidden="true">→</span>
+          </ButtonGhost>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MemoryCard({ header, when, caution, correction }) {
+  return (
+    <TerminalPanel header={header}>
+      <div className="memory">
+        <p className="memory__when">when {when}</p>
+        <p className="memory__caution">{caution}</p>
+        {correction ? <p className="memory__fix">→ {correction}</p> : null}
+      </div>
+    </TerminalPanel>
+  );
+}
+
+function Memories() {
+  const copy = useCopy();
+  return (
+    <section id="memories" className="section">
+      <div className="container">
+        <div className="section-head">
+          <p className="t-caption ink-dim">{copy.memoriesCaption}</p>
+          <h2 className="t-display-2">{copy.memoriesTitle}</h2>
+        </div>
+
+        <div className="habits-grid">
+          <MemoryCard
+            header="## Async"
+            when="calling an async function"
+            caution="Used the promise as a value, forgot to await."
+            correction="await the call, or return the promise." />
+
+          <MemoryCard
+            header="## SQL"
+            when="building a query from input"
+            caution="Interpolated a variable straight into the SQL string."
+            correction="use a parameterized query." />
+
+          <MemoryCard
+            header="## Resources"
+            when="opening a file or socket"
+            caution="Left the handle open on the error path."
+            correction="close it in finally, or use a context manager." />
+        </div>
+
+        <p
+          className="t-body mt-8"
+          style={{ maxWidth: "64ch", color: "var(--ink-muted)" }}>
+          {copy.memoriesBody}
+        </p>
+
+        <div className="mt-4">
+          <ButtonGhost
+            as="a"
+            href="docs.html#memories"
+            target="_blank"
+            rel="noreferrer">
+            How memories work <span className="arr" aria-hidden="true">→</span>
           </ButtonGhost>
         </div>
       </div>
@@ -1482,6 +1544,7 @@ function FinalCta() {
 Object.assign(window, {
   TheProblem,
   WhatItLearns,
+  Memories,
   Guardrails,
   UseAnywhere,
   Install,
@@ -1526,9 +1589,12 @@ const COPY = {
   hiwTitle: "A few hooks. One markdown file. Zero config.",
   hiwSub: "cc-habits plugs into your tool's lifecycle hooks, the same way across Claude Code, Gemini CLI, Codex, and Kimi. They run silently, execute in under 50ms, and never block your terminal.",
   hiwFooter: "The capture and inject hooks run locally in milliseconds. The session-end hook makes a single small-model call, and a session-start hook surfaces anything waiting for your review. You choose the provider.",
-  learnsCaption: "02  ·  what it learns",
+  learnsCaption: "02  ·  what it learns  ·  habits",
   learnsTitle: "Your style, in plain markdown.",
   learnsBody: "habits.md is human-readable markdown. Read it, edit it, delete a rule, or commit it to git. The format is documented as an open spec, so you own your data.",
+  memoriesCaption: "02  ·  what it remembers  ·  memories",
+  memoriesTitle: "Mistakes, so they don't repeat.",
+  memoriesBody: <span>Habits are only half the memory. Turn the other half on with <strong><em>cch memories --enable</em></strong>: cc-habits notices when you fix the same class of bug twice and writes it to <code>memories.md</code>, a trigger-matched caution your agent sees only when it's about to do that thing again. Habits shape how code is written; memories stop the agent repeating what burned you before. Same plain-text, same review queue, same tombstones.</span>,
   guardCaption: "03  ·  accuracy",
   guardTitle: "Four guardrails so it won't poison your context.",
   portableCaption: "04  ·  portable",
@@ -1671,7 +1737,7 @@ const LOGO_PATHS = {
   claude: { vb: "0 0 24 24", d: "m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z" },
   googlegemini: { vb: "0 0 24 24", d: "M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81" },
   openai: { vb: "0 0 24 24", d: "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" },
-  moonshotai: { vb: "0 0 24 24", d: "m1.053 16.91 9.538 2.55a21 20.981 0 0 0 .06 2.031l5.956 1.592a12 11.99 0 0 1-15.554-6.172m-1.02-5.79 11.352 3.035a21 20.981 0 0 0-.469 2.01l10.817 2.89a12 11.99 0 0 1-1.845 2.004L.658 15.918a12 11.99 0 0 1-.625-4.796m1.593-5.146L13.573 9.17a21 20.981 0 0 0-1.01 1.874l11.297 3.02a21 20.981 0 0 1-.67 2.362l-11.55-3.087L.125 10.26a12 11.99 0 0 1 1.499-4.285ZM6.067 1.58l11.285 3.016a21 20.981 0 0 0-1.688 1.719l7.824 2.091a21 20.981 0 0 1 .513 2.664L2.107 5.218a12 11.99 0 0 1 3.96-3.638M21.68 4.866 7.222 1.003A12 11.99 0 0 1 21.68 4.866" },
+  kimi: { vb: "0 0 24 25", paths: ["M21.7202 0.939941C22.9502 0.939941 23.9502 1.93994 23.9502 3.16994C23.9502 4.39994 22.9502 5.39994 21.7202 5.39994H19.7502C19.6002 5.39994 19.4902 5.27994 19.4902 5.13994V3.16994C19.4902 1.93994 20.4902 0.939941 21.7202 0.939941Z", "M9.39 13.9501L17.82 5.59012C17.98 5.43012 17.89 5.12012 17.68 5.12012H13.14C13.14 5.12012 13.04 5.14012 13 5.18012L3.92 14.1901C3.78 14.3301 3.57 14.2101 3.57 13.9801V5.39012C3.57 5.24012 3.47 5.12012 3.35 5.12012H0.219999C0.0999993 5.12012 0 5.24012 0 5.39012V23.9201C0 24.0701 0.0999993 24.1901 0.219999 24.1901H3.35C3.47 24.1901 3.57 24.0701 3.57 23.9201V20.1401C3.57 20.0601 3.6 19.9801 3.65 19.9301L6.47 17.1401C6.54 17.0701 6.63 17.0601 6.71 17.1101L14.24 22.6501C15.47 23.4801 16.85 23.9901 18.25 24.1401C18.37 24.1501 18.48 24.0301 18.48 23.8701V20.3101C18.48 20.1701 18.4 20.0601 18.29 20.0501C17.47 19.9201 16.66 19.6001 15.94 19.1101L9.42 14.3901C9.28 14.3001 9.27 14.0701 9.39 13.9501Z"] },
   cursor: { vb: "0 0 24 24", d: "M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23" },
   cline: { vb: "0 0 24 24", d: "m23.365 13.556-1.442-2.895V8.994c0-2.764-2.218-5.002-4.954-5.002h-2.464c.178-.367.276-.779.276-1.213A2.77 2.77 0 0 0 12.018 0a2.77 2.77 0 0 0-2.763 2.779c0 .434.098.846.276 1.213H7.067c-2.736 0-4.954 2.238-4.954 5.002v1.667L.64 13.549c-.149.29-.149.636 0 .927l1.472 2.855v1.667C2.113 21.762 4.33 24 7.067 24h9.902c2.736 0 4.954-2.238 4.954-5.002V17.33l1.44-2.865c.143-.286.143-.622.002-.91m-12.854 2.36a2.27 2.27 0 0 1-2.261 2.273 2.27 2.27 0 0 1-2.261-2.273v-4.042A2.27 2.27 0 0 1 8.249 9.6a2.267 2.267 0 0 1 2.262 2.274zm7.285 0a2.27 2.27 0 0 1-2.26 2.273 2.27 2.27 0 0 1-2.262-2.273v-4.042A2.267 2.267 0 0 1 15.535 9.6a2.267 2.267 0 0 1 2.261 2.274z" },
   windsurf: { vb: "0 0 24 24", d: "M23.55 5.067c-1.2038-.002-2.1806.973-2.1806 2.1765v4.8676c0 .972-.8035 1.7594-1.7597 1.7594-.568 0-1.1352-.286-1.4718-.7659l-4.9713-7.1003c-.4125-.5896-1.0837-.941-1.8103-.941-1.1334 0-2.1533.9635-2.1533 2.153v4.8957c0 .972-.7969 1.7594-1.7596 1.7594-.57 0-1.1363-.286-1.4728-.7658L.4076 5.1598C.2822 4.9798 0 5.0688 0 5.2882v4.2452c0 .2147.0656.4228.1884.599l5.4748 7.8183c.3234.462.8006.8052 1.3509.9298 1.3771.313 2.6446-.747 2.6446-2.0977v-4.893c0-.972.7875-1.7593 1.7596-1.7593h.003a1.798 1.798 0 0 1 1.4718.7658l4.9723 7.0994c.4135.5905 1.05.941 1.8093.941 1.1587 0 2.1515-.9645 2.1515-2.153v-4.8948c0-.972.7875-1.7594 1.7596-1.7594h.194a.22.22 0 0 0 .2204-.2202v-4.622a.22.22 0 0 0-.2203-.2203Z" },
@@ -1682,7 +1748,7 @@ const INTEGRATIONS = [
   { name: "Claude Code", key: "claude" },
   { name: "Gemini CLI", key: "googlegemini" },
   { name: "Codex", key: "openai" },
-  { name: "Kimi", key: "moonshotai" },
+  { name: "Kimi", key: "kimi" },
   { name: "Cursor", key: "cursor" },
   { name: "Cline", key: "cline" },
   { name: "Windsurf", key: "windsurf" },
@@ -1694,10 +1760,11 @@ function LogoMark({ item }) {
   // currentColor. A monospace initial badge covers any missing key.
   const logo = LOGO_PATHS[item.key];
   if (logo) {
+    const ds = logo.paths || [logo.d];
     return (
       <svg className="mq__logo" viewBox={logo.vb} width="22" height="22"
            role="img" aria-label={item.name} fill="currentColor">
-        <path d={logo.d} />
+        {ds.map((d, i) => <path key={i} d={d} />)}
       </svg>
     );
   }
@@ -1749,6 +1816,7 @@ function App() {
         <TheProblem />
         <HowItWorks />
         <WhatItLearns />
+        <Memories />
         <Guardrails />
         <UseAnywhere />
         <Install />
