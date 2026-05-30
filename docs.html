@@ -6,7 +6,7 @@
     <title>Docs - cc-habits</title>
     <meta
       name="description"
-      content="cc-habits documentation and the habits-format v0.2 specification." />
+      content="cc-habits documentation and the habits-format v0.3 specification." />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -99,7 +99,7 @@
           </ul>
           <p class="t-caption ink-dim">spec</p>
           <ul>
-            <li><a href="#spec">habits-format v0.2</a></li>
+            <li><a href="#spec">habits-format v0.3</a></li>
             <li><a href="#spec-structure">File structure</a></li>
             <li><a href="#spec-semantics">Semantics</a></li>
             <li><a href="#spec-companion">Companion files</a></li>
@@ -121,7 +121,7 @@
           <h2 id="install">Install</h2>
           <p>
             cc-habits is a global npm package. You'll need Node 20+
-            (already installed if you use Claude Code).
+            (already installed if you use most AI coding CLIs).
           </p>
           <pre class="code"><code>$ npm install -g cc-habits@latest
 $ <strong><em>cc-habits init</em></strong>        # <strong><em>cch init</em></strong> works too</code></pre>
@@ -142,10 +142,10 @@ $ <strong><em>cc-habits init</em></strong>        # <strong><em>cch init</em></s
             <div class="row"><span>Groq API</span><span>free tier</span><span>console.groq.com</span></div>
           </div>
           <p>
-            <strong>No Anthropic API key?</strong> A Claude Code subscription and an
-            Anthropic API key are billed separately. If you only have a Claude Code
-            plan, Ollama is the recommended free alternative - it runs locally and
-            needs no API key.
+            <strong>No API key?</strong> A coding-tool subscription and an AI
+            provider key are billed separately. If you only have a tool
+            subscription, Ollama is the recommended free alternative - it runs
+            locally and needs no API key.
           </p>
           <pre class="code"><code># Quickest path with no API key:
 brew install ollama          # or download from ollama.com
@@ -167,35 +167,43 @@ ollama serve &amp;
 
           <h2 id="how-it-works">How it works</h2>
           <p>
-            cc-habits installs three Claude Code hooks into your
-            <code>~/.claude/settings.json</code>:
+            cc-habits installs hooks into whichever tools you use, the same way
+            across Claude Code, Gemini CLI, Codex, and Kimi. Each tool uses its
+            own event names, so an <code>--adapter</code> flag (set automatically
+            at install) normalizes every payload into one shape. Run
+            <code><strong><em>cch tools</em></strong></code> to see which tools are detected:
           </p>
           <pre class="code"><code>PostToolUse (Write|Edit|MultiEdit)
   → captures the diff
-  → appends to ~/.claude/habits/log.jsonl
+  → appends to ~/.cc-habits/log.jsonl
   → exits in &lt;50ms, never blocks a session
 
 Stop (session end)
   → reads session signals from log.jsonl
-  → one Haiku call to extract patterns
-  → updates ~/.claude/habits/habits.md
+  → one small-model call to extract patterns
+  → updates ~/.cc-habits/habits.md
   → prints "cc-habits: learned 2, updated 3."
 
 UserPromptSubmit (every prompt)
   → injects your strongest active habits into context
   → survives context compaction; "laws, not requests"
-  → set CC_HABITS_INJECT=0 to disable</code></pre>
+  → set CC_HABITS_INJECT=0 to disable
+
+SessionStart (session begins)
+  → surfaces any pending suggestions waiting for review
+  → stays silent when nothing is pending</code></pre>
           <p>
-            <code>habits.md</code> is also auto-imported into every Claude Code session
-            via an <code>@import</code> line appended to your existing
-            <code>~/.claude/CLAUDE.md</code>. The import gives Claude the full
-            picture at session start; the UserPromptSubmit hook re-asserts the
-            top habits on every turn so they don't get summarised away when the
-            context compacts mid-session.
+            <code>habits.md</code> is also auto-imported into every session via an
+            <code>@import</code> line in your tool's memory file (for example
+            <code>~/.claude/CLAUDE.md</code> or <code>GEMINI.md</code>), and synced
+            into <code>AGENTS.md</code> and rules files for the rest. The import
+            gives the agent the full picture at session start; the UserPromptSubmit
+            hook re-asserts the top habits on every turn so they don't get
+            summarised away when the context compacts mid-session.
           </p>
           <p>
             No per-project setup. Hooks live at the user level; habits live in
-            <code>~/.claude/habits/</code>. cc-habits works globally across every
+            <code>~/.cc-habits/</code>. cc-habits works globally across every
             repository you open.
           </p>
 
@@ -224,7 +232,7 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
 - Wrap external I/O in try/except and re-raise as RuntimeError. Confidence: 0.55
   - Signal: 2 reinforcing, 0 contradicting</code></pre>
           <p>
-            Claude Code reads this file at the start of every session.
+            Your agent reads this file at the start of every session.
             When it generates code, it already knows your preferences.
           </p>
 
@@ -276,22 +284,23 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
           <p>Every artifact lives in your home directory. None of these are synced or uploaded by cc-habits.</p>
           <div class="provider-table privacy-table">
             <div class="row hd"><span>Artifact</span><span>Path</span><span>Mode</span></div>
-            <div class="row"><span>Habits file</span><span>~/.claude/habits/habits.md</span><span>0600</span></div>
-            <div class="row"><span>Signal log</span><span>~/.claude/habits/log.jsonl</span><span>0600</span></div>
-            <div class="row"><span>Snapshot</span><span>~/.claude/habits/.snapshot.json</span><span>0600</span></div>
-            <div class="row"><span>Tombstones</span><span>~/.claude/habits/.tombstones.json</span><span>0600</span></div>
-            <div class="row"><span>Pending</span><span>~/.claude/habits/.pending.json</span><span>0600</span></div>
-            <div class="row"><span>Error log</span><span>~/.claude/habits/error.log</span><span>0600</span></div>
-            <div class="row"><span>Config (API key)</span><span>~/.claude/habits/config.yml</span><span>0600</span></div>
+            <div class="row"><span>Habits file</span><span>~/.cc-habits/habits.md</span><span>0600</span></div>
+            <div class="row"><span>Signal log</span><span>~/.cc-habits/log.jsonl</span><span>0600</span></div>
+            <div class="row"><span>Snapshot</span><span>~/.cc-habits/.snapshot.json</span><span>0600</span></div>
+            <div class="row"><span>Tombstones</span><span>~/.cc-habits/.tombstones.json</span><span>0600</span></div>
+            <div class="row"><span>Pending</span><span>~/.cc-habits/.pending.json</span><span>0600</span></div>
+            <div class="row"><span>Error log</span><span>~/.cc-habits/error.log</span><span>0600</span></div>
+            <div class="row"><span>Config (API key)</span><span>~/.cc-habits/config.yml</span><span>0600</span></div>
           </div>
 
           <h3 id="privacy-network">What leaves the machine</h3>
           <p>
-            Exactly <strong>one outbound call per Claude Code session</strong>:
-            the Stop hook sends a redacted batch of session signals to the
-            Anthropic API (or the provider you chose) for habit extraction.
-            This call uses <strong>your</strong> API key, hits the provider
-            directly, and is governed by <strong>your</strong> agreement with them.
+            Outbound calls go only to the <strong>AI provider you chose</strong>:
+            the session-end hook sends a redacted batch of signals for habit
+            extraction. With Ollama, that runs locally and nothing leaves your
+            machine. With a cloud provider it uses <strong>your</strong> API key,
+            hits the provider directly, and is governed by <strong>your</strong>
+            agreement with them.
           </p>
           <p>
             cc-habits does not operate a server. There is
@@ -313,9 +322,10 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
           <p>
             In addition, extracted rules are <strong>sanitized</strong> before
             being written into <code>habits.md</code>: control characters,
-            URLs, and prompt-injection keywords (e.g. "IGNORE PREVIOUS",
+            URLs, zero-width and homoglyph evasions, container-escape tags, and
+            prompt-injection keywords (e.g. "IGNORE PREVIOUS",
             <code>SYSTEM:</code>) are stripped to prevent a compromised signal
-            from poisoning your <code>CLAUDE.md</code> context.
+            from poisoning your agent's context.
           </p>
           <p>
             If you process other categories of sensitive data (non-Latin PII,
@@ -333,8 +343,8 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
           </p>
           <p>If you are operating in a regulated environment:</p>
           <ul class="docs-list">
-            <li>Treat <code>~/.claude/habits/</code> as you would any folder containing source-code diffs.</li>
-            <li>Set <code>ANTHROPIC_API_KEY</code> via your secrets manager rather than storing it in <code>config.yml</code>.</li>
+            <li>Treat <code>~/.cc-habits/</code> as you would any folder containing source-code diffs.</li>
+            <li>Set your provider key (for example <code>ANTHROPIC_API_KEY</code>) via your secrets manager rather than storing it in <code>config.yml</code>.</li>
             <li>Periodically run <code><strong><em>cc-habits reset --yes</em></strong></code> (or <code><strong><em>cch reset --yes</em></strong></code>) to clear local history. Tombstones survive.</li>
             <li>For air-gapped contexts, do not run <code><strong><em>cc-habits init</em></strong></code>. Without an API key, the Stop hook fails closed.</li>
           </ul>
@@ -342,7 +352,7 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
           <h3 id="privacy-hygiene">Recommended hygiene</h3>
           <ul class="docs-list">
             <li>
-              <strong>Do not sync <code>~/.claude/habits/</code></strong> via
+              <strong>Do not sync <code>~/.cc-habits/</code></strong> via
               Dropbox, iCloud, Syncthing, or similar. Diffs of your code
               travelling between machines materially expands the data-loss
               surface. Add it to your sync tool's ignore list.
@@ -365,8 +375,8 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
           <ul class="docs-list">
             <li>It will not phone home. There is no cc-habits server.</li>
             <li>It will not modify code in your repositories. It only writes to <code>~/.claude/</code>.</li>
-            <li>It will not register itself with Claude Code without <code><strong><em>cc-habits init</em></strong></code> (or <code><strong><em>cch init</em></strong></code>) running explicitly.</li>
-            <li>It will not fail a Claude Code session. Every hook is wrapped in <code>try/catch</code> and exits 0 on error.</li>
+            <li>It will not register itself with any tool without <code><strong><em>cc-habits init</em></strong></code> (or <code><strong><em>cch init</em></strong></code>) running explicitly.</li>
+            <li>It will not fail a coding session. Every hook is wrapped in <code>try/catch</code> and exits 0 on error.</li>
           </ul>
 
           <h3 id="privacy-report">Reporting a privacy concern</h3>
@@ -412,9 +422,9 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
           <h2 id="guarantees">Safety guarantees</h2>
           <ol class="docs-list">
             <li>
-              <strong>Never fails a Claude Code session.</strong> Every hook is
+              <strong>Never fails a coding session.</strong> Every hook is
               wrapped in <code>try/catch</code>. On error: logs to
-              <code>~/.claude/habits/error.log</code>, exits 0. The
+              <code>~/.cc-habits/error.log</code>, exits 0. The
               <code>|| true</code> in the hook command is an extra layer.
             </li>
             <li>
@@ -436,9 +446,9 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
 
           <!-- ============== SPEC SECTION ============== -->
           <p class="t-caption ink-dim">cc-habits  ·  spec</p>
-          <h1 id="spec" class="docs-h1">habits-format v0.2</h1>
+          <h1 id="spec" class="docs-h1">habits-format v0.3</h1>
           <div class="spec-badges">
-            <span>Status: Draft v0.2</span>
+            <span>Status: Draft v0.3</span>
             <span>·</span>
             <span>Editor: Shreyan Basu Ray</span>
             <span>·</span>
@@ -476,7 +486,7 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
 
           <h3>2.1 Format version comment</h3>
           <p>The first non-empty line MUST be an HTML comment of the form:</p>
-          <pre class="code"><code>&lt;!-- cc-habits format v0.2 --&gt;</code></pre>
+          <pre class="code"><code>&lt;!-- cc-habits format v0.3 --&gt;</code></pre>
           <p>
             Readers MUST refuse to parse files whose major version they do not
             implement. Older minor versions SHOULD be parsed best-effort
@@ -596,13 +606,13 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
             <li>A reader encountering an unknown major version MUST refuse to parse.</li>
           </ul>
           <p>
-            This spec is v0.2. Minor versions are additive and backward-compatible.
+            This spec is v0.3. Minor versions are additive and backward-compatible.
             Breaking changes will bump the major version.
           </p>
 
           <h2 id="spec-grammar">7. Reference grammar (informal)</h2>
           <pre class="code"><code>File           = VersionComment Title EditPolicy? CategoryBlock* LearningBlock?
-VersionComment = "&lt;!-- cc-habits format v0.2 --&gt;"
+VersionComment = "&lt;!-- cc-habits format v0.3 --&gt;"
 Title          = "# Coding habits"
 CategoryBlock  = "## " CategoryName HabitEntry*
 LearningBlock  = "## Learning (not yet active)" BlockQuote LearningEntry*
@@ -632,7 +642,7 @@ MetaLine       = SignalLine | SessionsLine | LanguagesLine | FirstLearnedLine | 
       <div class="container">
         <div class="footer__bottom" style="margin-top: 0; padding-top: 0; border-top: none">
           <span>© 2026 cc-habits</span>
-          <span>&lt;!-- cc-habits format v0.2 --&gt;</span>
+          <span>&lt;!-- cc-habits format v0.3 --&gt;</span>
         </div>
       </div>
     </footer>

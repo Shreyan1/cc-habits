@@ -1202,12 +1202,11 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .mq__logo {
   width: 22px;
   height: 22px;
-  object-fit: contain;
-  filter: grayscale(1);
-  opacity: 0.6;
-  transition: filter 0.2s, opacity 0.2s;
+  color: var(--ink-muted);
+  opacity: 0.78;
+  transition: color 0.2s, opacity 0.2s;
 }
-.mq__item:hover .mq__logo { filter: grayscale(0); opacity: 1; }
+.mq__item:hover .mq__logo { color: var(--ink); opacity: 1; }
 .mq__badge {
   display: inline-flex;
   align-items: center;
