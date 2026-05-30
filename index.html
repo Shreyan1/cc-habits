@@ -541,6 +541,8 @@ function Wordmark({ size = "1.25rem", showCursor = false, className = "" }) {
       className={`wordmark ${className}`}
       style={{ fontSize: size }}
       aria-label="cc-habits">
+      <img className="wordmark-icon wordmark-icon--light" src="logo/cc-habits-icon.svg" alt="" aria-hidden="true" />
+      <img className="wordmark-icon wordmark-icon--dark" src="logo/cc-habits-icon-dark.svg" alt="" aria-hidden="true" />
       cc-habits
       {showCursor ? <span className="wordmark__cursor" aria-hidden="true" /> : null}
     </span>

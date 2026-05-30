@@ -226,14 +226,27 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   font-weight: 400;
   letter-spacing: -0.01em;
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
+  gap: 0.35em;
   white-space: nowrap;
 }
+.wordmark-icon {
+  display: inline-block;
+  height: 1.8em;
+  width: auto;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.wordmark-icon--dark { display: none; }
+.nav--scrolled .wordmark-icon--light { display: none; }
+.nav--scrolled .wordmark-icon--dark  { display: inline-block; }
+.footer        .wordmark-icon--light { display: none; }
+.footer        .wordmark-icon--dark  { display: inline-block; }
 .wordmark__cursor {
   display: inline-block;
   width: 0.55em;
   height: 0.85em;
-  margin-left: 0.18em;
+  margin-left: 0.02em;
   background: currentColor;
   box-shadow: 0 0 0 2px currentColor;
   vertical-align: -0.05em;
