@@ -125,14 +125,14 @@
             (already installed if you use most AI coding CLIs).
           </p>
           <pre class="code"><code>$ npm install -g cc-habits@latest
-$ <strong><em>cc-habits init</em></strong>        # <strong><em>cch init</em></strong> works too</code></pre>
+$ <strong><em>cch init</em></strong>        # cch is short for cc-habits</code></pre>
           <p>
             <code>cch</code> is a short alias for <code>cc-habits</code>. All
             commands work with either form (<code><strong><em>cch init</em></strong></code>,
             <code><strong><em>cch view</em></strong></code>, <code><strong><em>cch pending</em></strong></code>, etc.).
           </p>
           <p>
-            <code><strong><em>cc-habits init</em></strong></code> walks you through provider setup interactively.
+            <code><strong><em>cch init</em></strong></code> walks you through provider setup interactively.
             Pick whichever fits your situation:
           </p>
           <div class="provider-table">
@@ -152,7 +152,7 @@ $ <strong><em>cc-habits init</em></strong>        # <strong><em>cch init</em></s
 brew install ollama          # or download from ollama.com
 ollama pull llama3.2
 ollama serve &amp;
-<strong><em>cc-habits init --provider ollama</em></strong></code></pre>
+<strong><em>cch init --provider ollama</em></strong></code></pre>
 
           <p>
             During init, if cc-habits finds past Claude Code sessions for this
@@ -164,7 +164,7 @@ ollama serve &amp;
 
   Extracting patterns...
   ✓ Learned 7 habits across 4 categories from 42 edits</code></pre>
-          <p>You can re-run this at any time with <code><strong><em>cc-habits bootstrap</em></strong></code>.</p>
+          <p>You can re-run this at any time with <code><strong><em>cch bootstrap</em></strong></code>.</p>
 
           <h2 id="how-it-works">How it works</h2>
           <p>
@@ -275,7 +275,7 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
           </p>
 
           <h2 id="view">View your habits</h2>
-          <pre class="code"><code>$ <strong><em>cc-habits view</em></strong>
+          <pre class="code"><code>$ <strong><em>cch view</em></strong>
 
   cc-habits · your coding habits
 
@@ -328,20 +328,20 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
           <p>You provide your own API key. cc-habits does not collect or proxy keys.</p>
 
           <h2 id="commands">Commands</h2>
-          <pre class="code"><code><strong><em>cc-habits init</em></strong>                        # install hooks, choose a provider
-<strong><em>cc-habits bootstrap</em></strong>                   # learn habits from past Claude Code sessions
-<strong><em>cc-habits view</em></strong>                        # show current habits + recent signals
-<strong><em>cc-habits diff</em></strong> [--since N]            # changes since the last write
-<strong><em>cc-habits explain</em></strong> "&lt;rule&gt;"            # show signals that produced a habit
-<strong><em>cc-habits lint</em></strong> &lt;file&gt; [--json]        # check a source file against your habits
-<strong><em>cc-habits export</em></strong> [path]               # print habits.md (or write to path)
-<strong><em>cc-habits import</em></strong> &lt;file&gt;               # merge a portable habits file
-<strong><em>cc-habits sync</em></strong> [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline
-<strong><em>cc-habits pending</em></strong> [--approve|--discard]  # review queued updates
-<strong><em>cc-habits tombstone</em></strong> "&lt;rule&gt;"          # block a rule permanently
-<strong><em>cc-habits tombstones</em></strong>                  # list tombstoned rules
-<strong><em>cc-habits reset</em></strong> --yes                 # wipe habits.md, log.jsonl, pending
-<strong><em>cc-habits --version</em></strong>                   # print installed version</code></pre>
+          <pre class="code"><code><strong><em>cch init</em></strong>                        # install hooks, choose a provider
+<strong><em>cch bootstrap</em></strong>                   # learn habits from past Claude Code sessions
+<strong><em>cch view</em></strong>                        # show current habits + recent signals
+<strong><em>cch diff</em></strong> [--since N]            # changes since the last write
+<strong><em>cch explain</em></strong> "&lt;rule&gt;"            # show signals that produced a habit
+<strong><em>cch lint</em></strong> &lt;file&gt; [--json]        # check a source file against your habits
+<strong><em>cch export</em></strong> [path]               # print habits.md (or write to path)
+<strong><em>cch import</em></strong> &lt;file&gt;               # merge a portable habits file
+<strong><em>cch sync</em></strong> [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline
+<strong><em>cch pending</em></strong> [--approve|--discard]  # review queued updates
+<strong><em>cch tombstone</em></strong> "&lt;rule&gt;"          # block a rule permanently
+<strong><em>cch tombstones</em></strong>                  # list tombstoned rules
+<strong><em>cch reset</em></strong> --yes                 # wipe habits.md, log.jsonl, pending
+<strong><em>cch --version</em></strong>                   # print installed version</code></pre>
 
           <h2 id="guarantees">Safety guarantees</h2>
           <ol class="docs-list">
@@ -357,12 +357,12 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
             </li>
             <li>
               <strong>habits.md is human-readable.</strong> Read, edit, or delete
-              it at any time. <code>cc-habits reset --yes</code> gives you a
+              it at any time. <code>cch reset --yes</code> gives you a
               clean slate.
             </li>
             <li>
               <strong>Append-only log.</strong> Signals in <code>log.jsonl</code>
-              are never modified or deleted except by <code>cc-habits reset</code>.
+              are never modified or deleted except by <code>cch reset</code>.
             </li>
           </ol>
 
@@ -438,8 +438,8 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
           <ul class="docs-list">
             <li>Treat <code>~/.cc-habits/</code> as you would any folder containing source-code diffs.</li>
             <li>Set your provider key (for example <code>ANTHROPIC_API_KEY</code>) via your secrets manager rather than storing it in <code>config.yml</code>.</li>
-            <li>Periodically run <code><strong><em>cc-habits reset --yes</em></strong></code> (or <code><strong><em>cch reset --yes</em></strong></code>) to clear local history. Tombstones survive.</li>
-            <li>For air-gapped contexts, do not run <code><strong><em>cc-habits init</em></strong></code>. Without an API key, the Stop hook fails closed.</li>
+            <li>Periodically run <code><strong><em>cch reset --yes</em></strong></code> (or <code><strong><em>cch reset --yes</em></strong></code>) to clear local history. Tombstones survive.</li>
+            <li>For air-gapped contexts, do not run <code><strong><em>cch init</em></strong></code>. Without an API key, the Stop hook fails closed.</li>
           </ul>
 
           <h3 id="privacy-hygiene">Recommended hygiene</h3>
@@ -468,7 +468,7 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
           <ul class="docs-list">
             <li>It will not phone home. There is no cc-habits server.</li>
             <li>It will not modify code in your repositories. It only writes to <code>~/.claude/</code>.</li>
-            <li>It will not register itself with any tool without <code><strong><em>cc-habits init</em></strong></code> (or <code><strong><em>cch init</em></strong></code>) running explicitly.</li>
+            <li>It will not register itself with any tool without <code><strong><em>cch init</em></strong></code> (or <code><strong><em>cch init</em></strong></code>) running explicitly.</li>
             <li>It will not fail a coding session. Every hook is wrapped in <code>try/catch</code> and exits 0 on error.</li>
           </ul>
 

@@ -58,7 +58,7 @@ const COPY = {
   ],
   installCaption: "05  ·  install",
   installTitle: "Two commands. You're done.",
-  installBody: <span><strong><em>cc-habits init</em></strong> walks you through picking a provider: Anthropic for the cheapest run, Ollama for a free local run, or OpenAI/Groq keys. It even offers to bootstrap habits from your past Claude Code sessions instantly.</span>,
+  installBody: <span><strong><em>cch init</em></strong> walks you through picking a provider: Anthropic for the cheapest run, Ollama for a free local run, or OpenAI/Groq keys. It even offers to bootstrap habits from your past Claude Code sessions instantly.</span>,
   faqCaption: "06  ·  faq",
   faqTitle: "Common questions.",
   ctaTitle: "Make every agent write like you.",

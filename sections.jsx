@@ -248,7 +248,7 @@ function Install() {
         <div className="install-stack">
           <TerminalPanel header="terminal">
             <div style={{ color: "var(--ink-dim)" }}>$ npm install -g cc-habits@latest</div>
-            <div style={{ color: "var(--ink-dim)", marginTop: "0.25rem" }}>$ cc-habits init</div>
+            <div style={{ color: "var(--ink-dim)", marginTop: "0.25rem" }}>$ cch init</div>
             <div style={{ marginTop: "0.75rem", color: "var(--ink-muted)", fontSize: "0.8125rem" }}>
               {"> picked anthropic/haiku as extractor"}
             </div>
