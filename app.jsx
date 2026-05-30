@@ -27,23 +27,23 @@ window.useTweakSet = useTweakSet;
    Voice library - copy variants per voice tweak
    ============================================================ */
 const COPY = {
-  heroHeadline: "Claude Code that writes like you.",
-  heroCaption: "cc-habits  ·  v0.2.6  ·  open source",
+  heroHeadline: "Every coding agent, writing like you.",
+  heroCaption: "cc-habits  ·  v0.4.0  ·  open source",
   heroTagline: "It learns your style from the edits you already make, and feeds it back into every session, automatically.",
   heroSub:
     "A 100% local CLI that writes your style to a plain habits.md Claude reads every session. Every hook runs in under 50ms and never blocks your terminal. No lock-in.",
   problemCaption: "00  ·  why this exists",
-  problemPull: "You've been training Claude all along. It just hasn't been listening.",
+  problemPull: "You've been training your agents all along. They just haven't been listening.",
   problemBody: [
     "Every developer has a fingerprint: the names you reach for, how you handle errors, the abstractions you prefer. None of it is in any prompt you've written.",
     "You generated a CLAUDE.md and moved on. That file captured what you said you wanted on the day you made it, not what you've shown Claude a hundred times since. It's stale. You never update it.",
     "cc-habits doesn't ask you to describe your style. It watches your edits. Every time you fix what Claude wrote, that's a signal. It collects them, finds the patterns, and writes it to a file Claude reads on every session, automatically."
   ],
-  problemContrastLeft: "what claude wrote",
+  problemContrastLeft: "what the agent wrote",
   problemContrastRight: "what you changed it to",
   hiwCaption: "01  ·  how cc-habits works",
-  hiwTitle: "Three hooks. One markdown file. Zero config.",
-  hiwSub: "cc-habits plugs three hooks into Claude Code's lifecycle. They run silently, execute in under 50ms, and never block your terminal.",
+  hiwTitle: "A few hooks. One markdown file. Zero config.",
+  hiwSub: "cc-habits plugs into your tool's lifecycle hooks, the same way across Claude Code, Gemini CLI, Codex, and Kimi. They run silently, execute in under 50ms, and never block your terminal.",
   hiwFooter: "The Capture and Submit hooks run locally in milliseconds. The session-end Stop hook makes a single small-model call. You choose the provider.",
   learnsCaption: "02  ·  what it learns",
   learnsTitle: "Your style, in plain markdown.",
@@ -51,17 +51,17 @@ const COPY = {
   guardCaption: "03  ·  accuracy",
   guardTitle: "Four guardrails so it won't poison your context.",
   portableCaption: "04  ·  portable",
-  portableTitle: "Your habits aren't locked to Claude Code.",
+  portableTitle: "Your habits aren't locked to one tool.",
   portableBody: [
     <span><strong><em>cch sync</em></strong> automatically translates your active habits into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and <code>.clinerules</code>.</span>,
-    "Train your habits in Claude Code; use them across Cursor, Cline, and Codex without re-learning."
+    "Learn your habits in whatever tool you're using today; use them across Claude Code, Gemini CLI, Codex, Kimi, Cursor, and Cline without re-learning."
   ],
   installCaption: "05  ·  install",
   installTitle: "Two commands. You're done.",
   installBody: <span><strong><em>cc-habits init</em></strong> walks you through picking a provider: Anthropic for the cheapest run, Ollama for a free local run, or OpenAI/Groq keys. It even offers to bootstrap habits from your past Claude Code sessions instantly.</span>,
   faqCaption: "06  ·  faq",
   faqTitle: "Common questions.",
-  ctaTitle: "Make Claude Code write like you.",
+  ctaTitle: "Make every agent write like you.",
 };
 
 /* ============================================================

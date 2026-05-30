@@ -1162,3 +1162,79 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ── Integration marquee ─────────────────────────────────────────────── */
+.mq {
+  padding: 2.5rem 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  overflow: hidden;
+}
+.mq__caption {
+  text-align: center;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 1.5rem;
+}
+.mq__viewport {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.mq__track {
+  display: flex;
+  width: max-content;
+  gap: 3rem;
+  animation: mq-scroll 32s linear infinite;
+}
+.mq:hover .mq__track { animation-play-state: paused; }
+.mq__item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.mq__logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  filter: grayscale(1);
+  opacity: 0.6;
+  transition: filter 0.2s, opacity 0.2s;
+}
+.mq__item:hover .mq__logo { filter: grayscale(0); opacity: 1; }
+.mq__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+.mq__name {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+@keyframes mq-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mq__track {
+    animation: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.25rem 2.5rem;
+  }
+  .mq__viewport { -webkit-mask-image: none; mask-image: none; }
+}

@@ -22,7 +22,7 @@ function Hero() {
       <div className="container hero__inner">
         <div className="hero__brand">
           <Wordmark size="1.45rem" className="hero__logo" />
-          <span className="hero__badge">v0.2.6</span>
+          <span className="hero__badge">v0.4.0</span>
           <span className="hero__badge">open source</span>
         </div>
 
@@ -39,7 +39,7 @@ function Hero() {
         <p className="t-body hero__sub">{copy.heroSub}</p>
 
         <div className="hero__ctas">
-          <CopyCTA label="npm install -g cc-habits" />
+          <CopyCTA label="npm install -g cc-habits@latest" />
           <ButtonGhost as="a" href="#how-it-works">
             How it works <span className="arr" aria-hidden="true">→</span>
           </ButtonGhost>

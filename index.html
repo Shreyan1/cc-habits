@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>cc-habits - Claude Code learns your coding habits</title>
+    <title>cc-habits - your coding agents learn your habits</title>
     <meta
       name="description"
-      content="cc-habits learns your coding style from your actual edits and feeds it back into every Claude Code session, automatically. No new concepts. A TypeScript package that makes Claude Code genuinely yours." />
+      content="cc-habits learns your coding style from your actual edits and feeds it back into every AI coding tool you use, automatically. One tool-agnostic memory layer across Claude Code, Gemini CLI, Codex, Kimi, Cursor, and Cline." />
 
     <!-- Display face: Silkscreen (bitmap-pixel mono, stands in for Departure Mono) -->
     <!-- Body face: JetBrains Mono -->
@@ -574,7 +574,7 @@ function ButtonGhost({ children, onClick, className = "", as = "button", href, .
 }
 
 function CopyCTA({
-  text = "npm install -g cc-habits",
+  text = "npm install -g cc-habits@latest",
   label,
   compactLabel,
   variant = "primary",
@@ -715,7 +715,7 @@ function NavBar() {
         </div>
         <div className="nav__cta">
           <DayNightToggle />
-          <CopyCTA label="npm install -g cc-habits" compactLabel="install" withArrow={false} />
+          <CopyCTA label="npm install -g cc-habits@latest" compactLabel="install" withArrow={false} />
         </div>
       </div>
     </nav>
@@ -783,7 +783,7 @@ function Footer() {
         <div className="footer__grid">
           <div className="footer__col">
             <Wordmark size="1.5rem" />
-            <p className="footer__tagline">Claude Code, more personalized.</p>
+            <p className="footer__tagline">Your coding agents, more personalized.</p>
           </div>
           <div className="footer__col">
             <h4>Product</h4>
@@ -916,7 +916,7 @@ function Hero() {
       <div className="container hero__inner">
         <div className="hero__brand">
           <Wordmark size="1.45rem" className="hero__logo" />
-          <span className="hero__badge">v0.2.6</span>
+          <span className="hero__badge">v0.4.0</span>
           <span className="hero__badge">open source</span>
         </div>
 
@@ -933,7 +933,7 @@ function Hero() {
         <p className="t-body hero__sub">{copy.heroSub}</p>
 
         <div className="hero__ctas">
-          <CopyCTA label="npm install -g cc-habits" />
+          <CopyCTA label="npm install -g cc-habits@latest" />
           <ButtonGhost as="a" href="#how-it-works">
             How it works <span className="arr" aria-hidden="true">→</span>
           </ButtonGhost>
@@ -1325,7 +1325,7 @@ function Install() {
 
         <div className="install-stack">
           <TerminalPanel header="terminal">
-            <div style={{ color: "var(--ink-dim)" }}>$ npm install -g cc-habits</div>
+            <div style={{ color: "var(--ink-dim)" }}>$ npm install -g cc-habits@latest</div>
             <div style={{ color: "var(--ink-dim)", marginTop: "0.25rem" }}>$ cc-habits init</div>
             <div style={{ marginTop: "0.75rem", color: "var(--ink-muted)", fontSize: "0.8125rem" }}>
               {"> picked anthropic/haiku as extractor"}
@@ -1370,7 +1370,7 @@ function Install() {
             </div>
 
             <div className="mt-4" style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-              <CopyCTA label="npm install -g cc-habits" />
+              <CopyCTA label="npm install -g cc-habits@latest" />
             </div>
           </div>
         </div>
@@ -1385,23 +1385,23 @@ const FAQ_GROUPS = [
     items: [
       {
         q: "Does this work across all my projects?",
-        a: <span>Yes. Hooks live in <code>~/.claude/settings.json</code> and habits in <code>~/.claude/habits/</code>, both user-level. Everything is global by default, with no per-project setup.</span>
+        a: <span>Yes. Hooks live in each tool's settings (for example <code>~/.claude/settings.json</code> or <code>~/.gemini/settings.json</code>) and your habits in <code>~/.cc-habits/</code>, all user-level. Everything is global by default, with no per-project setup.</span>
       },
       {
         q: "I already auto-generate a CLAUDE.md. Does this replace it?",
         a: <span>No. It fills the gap. <strong><em>cch init</em></strong> adds a single <code>@import</code> line to your existing <code>~/.claude/CLAUDE.md</code> and overwrites nothing. Your generated file stays; cc-habits keeps it current with what you actually do.</span>
       },
       {
-        q: "Will it slow down or break my Claude Code sessions?",
+        q: "Will it slow down or break my coding sessions?",
         a: "No. The capture and inject hooks run locally in under 50ms. Every hook is wrapped in try/catch and exits 0 on error, so cc-habits can never fail or block a session."
       },
       {
         q: "What if it learns the wrong thing?",
-        a: <span>A new habit sits in <code>## Learning</code>, invisible to Claude, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Run <strong><em>cch pending</em></strong> to approve or discard before anything applies.</span>
+        a: <span>A new habit sits in <code>## Learning</code>, invisible to your agent, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Run <strong><em>cch pending</em></strong> to approve or discard before anything applies.</span>
       },
       {
-        q: "Do I need an Anthropic API key on top of my Claude Code plan?",
-        a: "They're separate purchases. If you only have a Claude Code plan, run with Ollama: free and fully local, no key required. Anthropic Haiku (~$0.09/mo), OpenAI, and Groq are also supported."
+        q: "Do I need a separate API key on top of my coding-tool plan?",
+        a: "They're separate purchases. If you only have a tool subscription, run with Ollama: free and fully local, no key required. Anthropic Haiku (~$0.09/mo), OpenAI, and Groq are also supported."
       }
     ]
   },
@@ -1418,7 +1418,7 @@ const FAQ_GROUPS = [
       },
       {
         q: "Am I the data controller? (GDPR / DPDP / CCPA)",
-        a: <span>Yes. Everything lives in your home directory and the only outbound call uses your own key, so you are both controller and processor. In regulated setups, set <code>ANTHROPIC_API_KEY</code> via a secrets manager and don't sync <code>~/.claude/habits/</code> across machines.</span>
+        a: <span>Yes. Everything lives in your home directory and the only outbound call uses your own key, so you are both controller and processor. In regulated setups, set your provider key via a secrets manager and don't sync <code>~/.cc-habits/</code> across machines.</span>
       },
       {
         q: "Can I run it offline, and how do I wipe everything?",
@@ -1464,7 +1464,7 @@ function FinalCta() {
         <div className="final-cta">
           <h2 className="t-display-1 final-cta__title">{copy.ctaTitle}</h2>
           <div className="final-cta__buttons">
-            <CopyCTA label="npm install -g cc-habits" />
+            <CopyCTA label="npm install -g cc-habits@latest" />
             <ButtonGhost
               as="a"
               href="https://github.com/Shreyan1/cc-habits"
@@ -1508,41 +1508,41 @@ window.useTweakValues = useTweakValues;
 window.useTweakSet = useTweakSet;
 
 const COPY = {
-  heroHeadline: "Claude Code that writes like you.",
-  heroCaption: "cc-habits  ·  v0.2.6  ·  open source",
+  heroHeadline: "Every coding agent, writing like you.",
+  heroCaption: "cc-habits  ·  v0.4.0  ·  open source",
   heroTagline: "It learns your style from the edits you already make, and feeds it back into every session, automatically.",
   heroSub:
-    "A 100% local CLI that writes your style to a plain habits.md Claude reads every session. Every hook runs in under 50ms and never blocks your terminal. No lock-in.",
+    "A local-first CLI that writes your style to a plain habits.md every agent reads every session, across Claude Code, Gemini CLI, Codex, and Kimi. Every hook runs in under 50ms and never blocks your terminal. No lock-in.",
   problemCaption: "00  ·  why this exists",
-  problemPull: "You've been training Claude all along. It just hasn't been listening.",
+  problemPull: "You've been training your agents all along. They just haven't been listening.",
   problemBody: [
     "Every developer has a fingerprint: the names you reach for, how you handle errors, the abstractions you prefer. None of it is in any prompt you've written.",
-    "You generated a CLAUDE.md and moved on. That file captured what you said you wanted on the day you made it, not what you've shown Claude a hundred times since. It's stale. You never update it.",
-    "cc-habits doesn't ask you to describe your style. It watches your edits. Every time you fix what Claude wrote, that's a signal. It collects them, finds the patterns, and writes it to a file Claude reads on every session, automatically."
+    "You generated a CLAUDE.md or AGENTS.md and moved on. That file captured what you said you wanted on the day you made it, not what you've shown your tools a hundred times since. It's stale. You never update it.",
+    "cc-habits doesn't ask you to describe your style. It watches your edits. Every time you fix what the agent wrote, that's a signal. It collects them, finds the patterns, and writes it to a file your tools read on every session, automatically."
   ],
-  problemContrastLeft: "what claude wrote",
+  problemContrastLeft: "what the agent wrote",
   problemContrastRight: "what you changed it to",
   hiwCaption: "01  ·  how cc-habits works",
-  hiwTitle: "Three hooks. One markdown file. Zero config.",
-  hiwSub: "cc-habits plugs three hooks into Claude Code's lifecycle. They run silently, execute in under 50ms, and never block your terminal.",
-  hiwFooter: "The Capture and Submit hooks run locally in milliseconds. The session-end Stop hook makes a single small-model call. You choose the provider.",
+  hiwTitle: "A few hooks. One markdown file. Zero config.",
+  hiwSub: "cc-habits plugs into your tool's lifecycle hooks, the same way across Claude Code, Gemini CLI, Codex, and Kimi. They run silently, execute in under 50ms, and never block your terminal.",
+  hiwFooter: "The capture and inject hooks run locally in milliseconds. The session-end hook makes a single small-model call, and a session-start hook surfaces anything waiting for your review. You choose the provider.",
   learnsCaption: "02  ·  what it learns",
   learnsTitle: "Your style, in plain markdown.",
   learnsBody: "habits.md is human-readable markdown. Read it, edit it, delete a rule, or commit it to git. The format is documented as an open spec, so you own your data.",
   guardCaption: "03  ·  accuracy",
   guardTitle: "Four guardrails so it won't poison your context.",
   portableCaption: "04  ·  portable",
-  portableTitle: "Your habits aren't locked to Claude Code.",
+  portableTitle: "Your habits aren't locked to one tool.",
   portableBody: [
     <span><strong><em>cch sync</em></strong> automatically translates your active habits into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and <code>.clinerules</code>.</span>,
-    "Train your habits in Claude Code; use them across Cursor, Cline, and Codex without re-learning."
+    "Learn your habits in whatever tool you're using today; use them across Claude Code, Gemini CLI, Codex, Kimi, Cursor, and Cline without re-learning."
   ],
   installCaption: "05  ·  install",
   installTitle: "Two commands. You're done.",
-  installBody: <span><strong><em>cc-habits init</em></strong> walks you through picking a provider: Anthropic for the cheapest run, Ollama for a free local run, or OpenAI/Groq keys. It even offers to bootstrap habits from your past Claude Code sessions instantly.</span>,
+  installBody: <span><strong><em>cc-habits init</em></strong> detects your tools and walks you through picking a provider: Anthropic for the cheapest run, Ollama for a free local run, or OpenAI/Groq keys. It even offers to bootstrap habits from your past sessions instantly.</span>,
   faqCaption: "06  ·  faq",
   faqTitle: "Common questions.",
-  ctaTitle: "Make Claude Code write like you.",
+  ctaTitle: "Make every agent write like you.",
 };
 
 const RAIN_GLYPHS = "01<>[]/_-=+*.,;:#";
@@ -1667,6 +1667,56 @@ function RainBackground() {
   return <canvas ref={canvasRef} className="rain-canvas" aria-hidden="true" />;
 }
 
+const INTEGRATIONS = [
+  { name: "Claude Code", slug: "claude" },
+  { name: "Gemini CLI", slug: "googlegemini" },
+  { name: "Codex", slug: null },
+  { name: "Kimi", slug: null },
+  { name: "Cursor", slug: "cursor" },
+  { name: "Cline", slug: null },
+  { name: "Windsurf", slug: null },
+  { name: "Ollama", slug: "ollama" },
+];
+
+function LogoMark({ item }) {
+  // Brand logos come from the Simple Icons CDN; tools without an entry fall back
+  // to a monospace initial badge so every item reads as a real integration.
+  if (item.slug) {
+    return (
+      <img
+        className="mq__logo"
+        src={"https://cdn.simpleicons.org/" + item.slug}
+        alt={item.name}
+        width="22"
+        height="22"
+        loading="lazy"
+        onError={(e) => { e.currentTarget.style.display = "none"; }}
+      />
+    );
+  }
+  return <span className="mq__badge" aria-hidden="true">{item.name[0]}</span>;
+}
+
+function LogoMarquee() {
+  // Duplicate the list so the -50% translate loops seamlessly.
+  const items = [...INTEGRATIONS, ...INTEGRATIONS];
+  return (
+    <section className="mq" aria-label="Supported tools and integrations">
+      <div className="mq__caption">works with your whole toolchain</div>
+      <div className="mq__viewport">
+        <div className="mq__track">
+          {items.map((item, i) => (
+            <div className="mq__item" key={i}>
+              <LogoMark item={item} />
+              <span className="mq__name">{item.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
@@ -1688,6 +1738,7 @@ function App() {
       <NavBar />
       <main>
         <Hero />
+        <LogoMarquee />
         <TheProblem />
         <HowItWorks />
         <WhatItLearns />

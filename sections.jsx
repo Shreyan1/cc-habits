@@ -247,7 +247,7 @@ function Install() {
 
         <div className="install-stack">
           <TerminalPanel header="terminal">
-            <div style={{ color: "var(--ink-dim)" }}>$ npm install -g cc-habits</div>
+            <div style={{ color: "var(--ink-dim)" }}>$ npm install -g cc-habits@latest</div>
             <div style={{ color: "var(--ink-dim)", marginTop: "0.25rem" }}>$ cc-habits init</div>
             <div style={{ marginTop: "0.75rem", color: "var(--ink-muted)", fontSize: "0.8125rem" }}>
               {"> picked anthropic/haiku as extractor"}
@@ -293,7 +293,7 @@ function Install() {
             </div>
 
             <div className="mt-4" style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-              <CopyCTA label="npm install -g cc-habits" />
+              <CopyCTA label="npm install -g cc-habits@latest" />
             </div>
           </div>
         </div>
@@ -391,7 +391,7 @@ function FinalCta() {
         <div className="final-cta">
           <h2 className="t-display-1 final-cta__title">{copy.ctaTitle}</h2>
           <div className="final-cta__buttons">
-            <CopyCTA label="npm install -g cc-habits" />
+            <CopyCTA label="npm install -g cc-habits@latest" />
             <ButtonGhost
               as="a"
               href="https://github.com/Shreyan1/cc-habits"

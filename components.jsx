@@ -67,7 +67,7 @@ function ButtonGhost({ children, onClick, className = "", as = "button", href, .
 
 /* CopyButton - used by NavBar + Hero CTA */
 function CopyCTA({
-  text = "npm install -g cc-habits",
+  text = "npm install -g cc-habits@latest",
   label,
   compactLabel,
   variant = "primary",
@@ -228,7 +228,7 @@ function NavBar() {
         </div>
         <div className="nav__cta">
           <DayNightToggle />
-          <CopyCTA label="npm install -g cc-habits" compactLabel="install" withArrow={false} />
+          <CopyCTA label="npm install -g cc-habits@latest" compactLabel="install" withArrow={false} />
         </div>
       </div>
     </nav>
@@ -323,7 +323,7 @@ function Footer() {
         <div className="footer__grid">
           <div className="footer__col">
             <Wordmark size="1.5rem" />
-            <p className="footer__tagline">Claude Code, more personalized.</p>
+            <p className="footer__tagline">Your coding agents, more personalized.</p>
           </div>
           <div className="footer__col">
             <h4>Product</h4>
