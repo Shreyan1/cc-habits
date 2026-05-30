@@ -18,12 +18,102 @@ function mulberry32(seed) {
 /* ============================================================
    Wordmark
    ============================================================ */
-function Wordmark({ size = "1.25rem", showCursor = false, className = "" }) {
+const BRIEF_COLS = 26;
+const BRIEF_ROWS = 24;
+const BRIEF_GRID = [
+  "          ######          ",
+  "         ########         ",
+  "         ##    ##         ",
+  "         ##    ##         ",
+  "  ######################  ",
+  " ######################## ",
+  "###                    ###",
+  "##                      ##",
+  "##                      ##",
+  "##    ##                ##",
+  "##      ##              ##",
+  "##        ##            ##",
+  "##      ##    oooooo    ##",
+  "##    ##      oooooo    ##",
+  "##                      ##",
+  "##                      ##",
+  "##      #        #      ##",
+  "##      #        #      ##",
+  "##      ##########      ##",
+  "##                      ##",
+  "##                      ##",
+  "###                    ###",
+  " ######################## ",
+  "  ######################  "
+];
+
+function PixBriefBlink({ unit = 12, ink = "#102600", accent = "#00B7FF", style }) {
+  const [eyeFrame, setEyeFrame] = useState(0); // 0=open 1=half 2=closed
+  useEffect(() => {
+    const seq = [[0,2500],[1,100],[2,150],[1,100],[0,150]];
+    let step = 0;
+    let t;
+    function tick() {
+      step = (step + 1) % seq.length;
+      setEyeFrame(seq[step][0]);
+      t = setTimeout(tick, seq[step][1]);
+    }
+    t = setTimeout(tick, seq[0][1]);
+    return () => clearTimeout(t);
+  }, []);
+
+  const eyeCols = [14,15,16,17,18,19];
+  const eyeRows = { 0:[10,11,12,13], 1:[11,12,13], 2:[12,13] };
+  const activeEyeCells = new Set(
+    eyeRows[eyeFrame].flatMap(r => eyeCols.map(c => r+','+c))
+  );
+
+  const cells = [];
+  BRIEF_GRID.forEach((row, y) => {
+    [...row].forEach((ch, x) => {
+      const isEye = eyeCols.includes(x) && [10,11,12,13].includes(y);
+      if (isEye) {
+        const show = activeEyeCells.has(y+','+x);
+        cells.push(<div key={x+'-'+y} style={{ background: show ? accent : 'transparent' }} />);
+      } else {
+        cells.push(<div key={x+'-'+y} style={{ background: ch==='#' ? ink : 'transparent' }} />);
+      }
+    });
+  });
+
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat('+BRIEF_COLS+', '+unit+'px)',
+      gridTemplateRows: 'repeat('+BRIEF_ROWS+', '+unit+'px)',
+      ...style
+    }}>{cells}</div>
+  );
+}
+
+function Wordmark({ size = "1.25rem", showCursor = false, className = "", blink = false }) {
   return (
     <span
       className={`wordmark ${className}`}
       style={{ fontSize: size }}
       aria-label="cc-habits">
+      {blink ? (
+        <PixBriefBlink 
+          unit={1.5} 
+          ink="var(--ink)" 
+          accent="var(--accent)" 
+          style={{ 
+            display: 'inline-grid', 
+            marginRight: '0.35em', 
+            verticalAlign: 'middle' 
+          }} 
+        />
+      ) : (
+        <>
+          <img className="wordmark-icon wordmark-icon--light" src="logo/cc-habits-icon.svg" alt="" aria-hidden="true" />
+          <img className="wordmark-icon wordmark-icon--dark" src="logo/cc-habits-icon-dark.svg" alt="" aria-hidden="true" />
+        </>
+      )}
       cc-habits
       {showCursor ? <span className="wordmark__cursor" aria-hidden="true" /> : null}
     </span>
