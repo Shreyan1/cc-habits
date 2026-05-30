@@ -312,6 +312,61 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
             the math.
           </p>
 
+          <h2 id="cost">Cost</h2>
+          <p>One small-model call per session. That's it.</p>
+          <p>
+            <strong>With Ollama (free, local):</strong> $0 / month - runs entirely
+            on your machine.
+          </p>
+          <p><strong>With Anthropic Haiku 4.5:</strong></p>
+          <div class="provider-table">
+            <div class="row hd"><span>Usage</span><span>Cost / month</span></div>
+            <div class="row"><span>Light (1 session / day)</span><span>~$0.09</span></div>
+            <div class="row"><span>Medium (3 sessions / day)</span><span>~$0.27</span></div>
+            <div class="row"><span>Heavy (5+ sessions / day)</span><span>~$0.60</span></div>
+          </div>
+          <p>You provide your own API key. cc-habits does not collect or proxy keys.</p>
+
+          <h2 id="commands">Commands</h2>
+          <pre class="code"><code><strong><em>cc-habits init</em></strong>                        # install hooks, choose a provider
+<strong><em>cc-habits bootstrap</em></strong>                   # learn habits from past Claude Code sessions
+<strong><em>cc-habits view</em></strong>                        # show current habits + recent signals
+<strong><em>cc-habits diff</em></strong> [--since N]            # changes since the last write
+<strong><em>cc-habits explain</em></strong> "&lt;rule&gt;"            # show signals that produced a habit
+<strong><em>cc-habits lint</em></strong> &lt;file&gt; [--json]        # check a source file against your habits
+<strong><em>cc-habits export</em></strong> [path]               # print habits.md (or write to path)
+<strong><em>cc-habits import</em></strong> &lt;file&gt;               # merge a portable habits file
+<strong><em>cc-habits sync</em></strong> [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline
+<strong><em>cc-habits pending</em></strong> [--approve|--discard]  # review queued updates
+<strong><em>cc-habits tombstone</em></strong> "&lt;rule&gt;"          # block a rule permanently
+<strong><em>cc-habits tombstones</em></strong>                  # list tombstoned rules
+<strong><em>cc-habits reset</em></strong> --yes                 # wipe habits.md, log.jsonl, pending
+<strong><em>cc-habits --version</em></strong>                   # print installed version</code></pre>
+
+          <h2 id="guarantees">Safety guarantees</h2>
+          <ol class="docs-list">
+            <li>
+              <strong>Never fails a coding session.</strong> Every hook is
+              wrapped in <code>try/catch</code>. On error: logs to
+              <code>~/.cc-habits/error.log</code>, exits 0. The
+              <code>|| true</code> in the hook command is an extra layer.
+            </li>
+            <li>
+              <strong>No data leaves your machine</strong> except the extraction
+              API call. No telemetry, no analytics, no server.
+            </li>
+            <li>
+              <strong>habits.md is human-readable.</strong> Read, edit, or delete
+              it at any time. <code>cc-habits reset --yes</code> gives you a
+              clean slate.
+            </li>
+            <li>
+              <strong>Append-only log.</strong> Signals in <code>log.jsonl</code>
+              are never modified or deleted except by <code>cc-habits reset</code>.
+            </li>
+          </ol>
+
+          <hr class="hairline divider-major" />
           <h2 id="privacy">Privacy</h2>
           <p>
             cc-habits is a <strong>local-first</strong> tool. It is designed
@@ -426,61 +481,6 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
                target="_blank" rel="noreferrer">github.com/Shreyan1/cc-habits/security/advisories/new</a>.
           </p>
 
-          <h2 id="cost">Cost</h2>
-          <p>One small-model call per session. That's it.</p>
-          <p>
-            <strong>With Ollama (free, local):</strong> $0 / month - runs entirely
-            on your machine.
-          </p>
-          <p><strong>With Anthropic Haiku 4.5:</strong></p>
-          <div class="provider-table">
-            <div class="row hd"><span>Usage</span><span>Cost / month</span></div>
-            <div class="row"><span>Light (1 session / day)</span><span>~$0.09</span></div>
-            <div class="row"><span>Medium (3 sessions / day)</span><span>~$0.27</span></div>
-            <div class="row"><span>Heavy (5+ sessions / day)</span><span>~$0.60</span></div>
-          </div>
-          <p>You provide your own API key. cc-habits does not collect or proxy keys.</p>
-
-          <h2 id="commands">Commands</h2>
-          <pre class="code"><code><strong><em>cc-habits init</em></strong>                        # install hooks, choose a provider
-<strong><em>cc-habits bootstrap</em></strong>                   # learn habits from past Claude Code sessions
-<strong><em>cc-habits view</em></strong>                        # show current habits + recent signals
-<strong><em>cc-habits diff</em></strong> [--since N]            # changes since the last write
-<strong><em>cc-habits explain</em></strong> "&lt;rule&gt;"            # show signals that produced a habit
-<strong><em>cc-habits lint</em></strong> &lt;file&gt; [--json]        # check a source file against your habits
-<strong><em>cc-habits export</em></strong> [path]               # print habits.md (or write to path)
-<strong><em>cc-habits import</em></strong> &lt;file&gt;               # merge a portable habits file
-<strong><em>cc-habits sync</em></strong> [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline
-<strong><em>cc-habits pending</em></strong> [--approve|--discard]  # review queued updates
-<strong><em>cc-habits tombstone</em></strong> "&lt;rule&gt;"          # block a rule permanently
-<strong><em>cc-habits tombstones</em></strong>                  # list tombstoned rules
-<strong><em>cc-habits reset</em></strong> --yes                 # wipe habits.md, log.jsonl, pending
-<strong><em>cc-habits --version</em></strong>                   # print installed version</code></pre>
-
-          <h2 id="guarantees">Safety guarantees</h2>
-          <ol class="docs-list">
-            <li>
-              <strong>Never fails a coding session.</strong> Every hook is
-              wrapped in <code>try/catch</code>. On error: logs to
-              <code>~/.cc-habits/error.log</code>, exits 0. The
-              <code>|| true</code> in the hook command is an extra layer.
-            </li>
-            <li>
-              <strong>No data leaves your machine</strong> except the extraction
-              API call. No telemetry, no analytics, no server.
-            </li>
-            <li>
-              <strong>habits.md is human-readable.</strong> Read, edit, or delete
-              it at any time. <code>cc-habits reset --yes</code> gives you a
-              clean slate.
-            </li>
-            <li>
-              <strong>Append-only log.</strong> Signals in <code>log.jsonl</code>
-              are never modified or deleted except by <code>cc-habits reset</code>.
-            </li>
-          </ol>
-
-          <hr class="hairline divider-major" />
 
           <!-- ============== SPEC SECTION ============== -->
           <p class="t-caption ink-dim">cc-habits  ·  spec</p>
