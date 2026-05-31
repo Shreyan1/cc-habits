@@ -31,7 +31,7 @@ describe('buildSessionBanner', () => {
     expect(out).toContain('2 habits active');
   });
 
-  it('never names a specific rule — stays generic', () => {
+  it('never names a specific rule, stays generic', () => {
     const out = buildSessionBanner(ACTIVE_HABITS_MD, 1);
     expect(out).not.toContain('try/catch');
     expect(out).not.toContain('return types');

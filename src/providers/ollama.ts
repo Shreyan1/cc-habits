@@ -1,6 +1,6 @@
 import { Provider, ProviderTimeoutError } from './types';
 
-// Local Ollama runtime — air-gapped option. No auth, no rate limits.
+// Local Ollama runtime, air-gapped option. No auth, no rate limits.
 export class OllamaProvider implements Provider {
   name = 'ollama';
 

@@ -1,4 +1,6 @@
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { AnthropicProvider } from './anthropic';
 import { OpenAIProvider } from './openai';
 import { GroqProvider } from './groq';
@@ -8,7 +10,7 @@ import { storagePaths } from '../storage';
 // Re-export the contract and error types so existing importers of './providers'
 // keep working. The definitions live in types.ts to avoid an import cycle.
 import type { Provider } from './types';
-export { Provider, ProviderRateLimitError, ProviderTimeoutError } from './types';
+export { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './types';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -27,9 +29,21 @@ export interface ProviderConfig {
 // so that CC_HABITS_DIR overrides both data files AND the provider config together.
 function readConfig(): ProviderConfig {
   const cfg: ProviderConfig = { provider: 'anthropic' };
-  if (!fs.existsSync(storagePaths.configFile)) return cfg;
+  let configPath = storagePaths.configFile;
+  if (!fs.existsSync(configPath)) {
+    if (!process.env['CC_HABITS_DIR']) {
+      const globalConfig = path.join(os.homedir(), '.cc-habits', 'config.yml');
+      if (fs.existsSync(globalConfig)) {
+        configPath = globalConfig;
+      } else {
+        return cfg;
+      }
+    } else {
+      return cfg;
+    }
+  }
   try {
-    const text = fs.readFileSync(storagePaths.configFile, 'utf-8');
+    const text = fs.readFileSync(configPath, 'utf-8');
     const read = (key: string): string | undefined => {
       const m = text.match(new RegExp(`${key}\\s*:\\s*["']?([^\\s"'\\n]+)["']?`));
       return m ? m[1] : undefined;

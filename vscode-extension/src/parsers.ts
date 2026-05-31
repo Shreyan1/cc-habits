@@ -1,4 +1,4 @@
-// Pure parser functions — no vscode dependency, fully testable in Node.js.
+// Pure parser functions, no vscode dependency, fully testable in Node.js.
 
 export interface HabitItem {
   rule: string;

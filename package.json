@@ -1,7 +1,7 @@
 {
   "name": "cc-habits",
-  "version": "0.4.0",
-  "description": "Your coding agents learn your habits, automatically — across Claude Code, Gemini CLI, Codex, Cursor, and more.",
+  "version": "0.5.0",
+  "description": "Your coding agents learn your habits, automatically, across Claude Code, Gemini CLI, Codex, Cursor, and more.",
   "license": "MIT",
   "author": "Shreyan Basu Ray",
   "keywords": [

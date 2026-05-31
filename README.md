@@ -40,7 +40,7 @@ Learn your habits once in the tool you happen to be using today; `cch sync` writ
 cc-habits is opinionated about *not* poisoning your agent's context. Five guardrails:
 
 1. **New habits don't activate until they've appeared in two distinct sessions.** A bad afternoon of deadline edits cannot graduate into your agent's context. Single-session habits live in a `## Learning (not yet active)` section, visible for review but explicitly marked to be ignored.
-2. **New habits are queued for your review.** At the end of each session, proposed new habits are added to a pending queue. The session recap tells you: "2 new habits proposed — run `cch pending` to review." You can `--discard` any you don't want before they graduate.
+2. **New habits are queued for your review.** At the end of each session, proposed new habits are added to a pending queue. The session recap tells you: "2 new habits proposed, run `cch pending` to review." You can `--discard` any you don't want before they graduate.
 3. **Manual deletes are remembered.** If you delete a rule from `habits.md`, it gets added to `.tombstones.json` and is never re-learned. Your judgment overrides the system.
 4. **Confidence decays over time.** A habit you stopped following loses 0.05/week of confidence after a week of inactivity. Stale rules get pruned automatically.
 5. **You can opt out of capture entirely.** Add a `.cc-habits-ignore` file to any repository and cc-habits will not capture signals or run extraction there. Useful for work code or private projects.
@@ -179,7 +179,7 @@ Event names differ per tool (for example Gemini uses AfterTool / AfterAgent / Be
 
 The `@import` gives the agent the full picture at session start; the **UserPromptSubmit** hook re-asserts the top habits on every turn, so they don't get summarized away when the context compacts mid-session.
 
-For tools without a hook mechanism (Cursor, Windsurf, Copilot), there's nothing to install — you run `cch sync` and your habits land in their rules files. And for *any* workflow at all, `cch git-capture` mines your commit history for patterns; `cc-habits init` can install a Git post-commit hook (locally or as a global template for all future repos) so this happens automatically every time you commit.
+For tools without a hook mechanism (Cursor, Windsurf, Copilot), there's nothing to install, you run `cch sync` and your habits land in their rules files. And for *any* workflow at all, `cch git-capture` mines your commit history for patterns; `cc-habits init` can install a Git post-commit hook (locally or as a global template for all future repos) so this happens automatically every time you commit.
 
 No configuration. No project setup. Works globally across every repository you open.
 
@@ -218,7 +218,7 @@ It merges a marked block into existing files, so your hand-written content is pr
 
 Set `CC_HABITS_MEMORIES=1` and cc-habits also learns what your agent gets **wrong**.
 
-At the end of each session, a second extraction pass looks for mistake patterns — cases where you rewrote or reverted what the agent produced. Candidates are written to `memories.md` alongside your habits. Unlike habits (which are injected broadly), memories are retrieved selectively: only the memories whose trigger terms match your current prompt are injected, capped at 3.
+At the end of each session, a second extraction pass looks for mistake patterns, cases where you rewrote or reverted what the agent produced. Candidates are written to `memories.md` alongside your habits. Unlike habits (which are injected broadly), memories are retrieved selectively: only the memories whose trigger terms match your current prompt are injected, capped at 3.
 
 ```bash
 cc-habits memories                        # view active memories + candidates
@@ -242,7 +242,7 @@ Habits and memories live separately, inject separately, and are deleted separate
 
 ### VS Code, Cursor, and Antigravity IDE
 
-cc-habits ships a VS Code extension that shows your habits, memories, and pending review directly in the IDE sidebar — no terminal needed. It also captures your edits live, so habits keep learning even in tools without shell hooks.
+cc-habits ships a VS Code extension that shows your habits, memories, and pending review directly in the IDE sidebar, no terminal needed. It also captures your edits live, so habits keep learning even in tools without shell hooks.
 
 ```bash
 cd vscode-extension
@@ -254,11 +254,11 @@ npm run build
 
 The panel gives you:
 
-- **Habits view** — all categories, confidence scores, learning/active status. Inline trash to tombstone any rule without leaving the IDE.
-- **Memories view** — active and candidate memories. Inline delete/tombstone.
-- **Pending Review** — approve or discard proposed habits with one click.
-- **Sync button** — pushes active habits to `AGENTS.md` / Cursor rules / Cline rules instantly.
-- **Auto-refresh** — the panel updates live whenever a session ends and writes new habits.
+- **Habits view**, all categories, confidence scores, learning/active status. Inline trash to tombstone any rule without leaving the IDE.
+- **Memories view**, active and candidate memories. Inline delete/tombstone.
+- **Pending Review**, approve or discard proposed habits with one click.
+- **Sync button**, pushes active habits to `AGENTS.md` / Cursor rules / Cline rules instantly.
+- **Auto-refresh**, the panel updates live whenever a session ends and writes new habits.
 
 Works in any VS Code fork: VS Code, Cursor, and Antigravity IDE (Google's agent-first IDE launched November 2025). The extension lives in `vscode-extension/` in this repo and is built from source; it is not yet on the VS Code Marketplace.
 
@@ -388,7 +388,7 @@ Each `Write` / `Edit` / `MultiEdit` during a coding session produces a diff sign
 
 ### API key storage
 
-Your key is stored in `~/.cc-habits/config.yml` (mode `0600`, not readable by other users). cc-habits passes it directly to the provider SDK — it is never logged, cached, or transmitted anywhere else.
+Your key is stored in `~/.cc-habits/config.yml` (mode `0600`, not readable by other users). cc-habits passes it directly to the provider SDK, it is never logged, cached, or transmitted anywhere else.
 
 ---
 
@@ -465,14 +465,14 @@ cc-habits --version                   # print installed version
 
 1. **Never fails a coding session.** Every hook is wrapped in `try/catch`. On error: logs to `~/.cc-habits/error.log`, exits 0. The `|| true` in the hook command is an extra layer.
 2. **No data leaves your machine** except the AI provider call you configured. No telemetry, no analytics, no operated server beyond the API itself.
-3. **Explicit consent for cloud providers.** `cc-habits init` shows a plain-language data-flow summary before asking you to configure any cloud provider. Ollama skips this — nothing leaves your machine.
-4. **Injection-hardened rules.** Because a learned habit is injected into every future session, untrusted code is a prompt-injection channel. Rules and category labels are sanitized at every boundary — write to habits.md, injection into agent context, `cch import`, and `cch sync`. The sanitizer defends against: role-marker injection (`SYSTEM:`, ChatML, Llama tokens), **zero-width-character splitting** (`SYS​TEM:`), **Unicode homoglyphs** (NFKC folds fullwidth `ＳＹＳＴＥＭ` to ASCII before matching), **container escape** (any `<tag>` token — including `</coding-habits>` — is stripped so a rule cannot break out of the injection wrapper), URLs, and control characters. Length is bounded *before* regex evaluation to prevent ReDoS. Synced files (AGENTS.md, Cursor, Cline) get the same treatment and are safe to commit.
+3. **Explicit consent for cloud providers.** `cc-habits init` shows a plain-language data-flow summary before asking you to configure any cloud provider. Ollama skips this, nothing leaves your machine.
+4. **Injection-hardened rules.** Because a learned habit is injected into every future session, untrusted code is a prompt-injection channel. Rules and category labels are sanitized at every boundary, write to habits.md, injection into agent context, `cch import`, and `cch sync`. The sanitizer defends against: role-marker injection (`SYSTEM:`, ChatML, Llama tokens), **zero-width-character splitting** (`SYS​TEM:`), **Unicode homoglyphs** (NFKC folds fullwidth `ＳＹＳＴＥＭ` to ASCII before matching), **container escape** (any `<tag>` token, including `</coding-habits>`, is stripped so a rule cannot break out of the injection wrapper), URLs, and control characters. Length is bounded *before* regex evaluation to prevent ReDoS. Synced files (AGENTS.md, Cursor, Cline) get the same treatment and are safe to commit.
 5. **Imported habits are sanitized.** `cch import` passes all incoming rule text through the same sanitizer, so a malicious shared habits file cannot embed instructions into your context.
 6. **habits.md is human-readable.** You can read, edit, or delete it at any time. `cc-habits reset --yes` gives you a clean slate.
-7. **Bounded log with automatic rotation.** `log.jsonl` is append-only and trimmed automatically when it exceeds 2 MB — keeping the 5,000 most-recent signals. `.history.jsonl` keeps the last 100 session snapshots; `error.log` keeps the last 1,000 lines. Your disk is never silently filled. Inspect at any time with `cc-habits log`; erase with `cc-habits reset`.
+7. **Bounded log with automatic rotation.** `log.jsonl` is append-only and trimmed automatically when it exceeds 2 MB, keeping the 5,000 most-recent signals. `.history.jsonl` keeps the last 100 session snapshots; `error.log` keeps the last 1,000 lines. Your disk is never silently filled. Inspect at any time with `cc-habits log`; erase with `cc-habits reset`.
 8. **Per-repo opt-out.** Add `.cc-habits-ignore` to any repository to stop capture entirely in that directory tree.
 9. **Terminal-safe output.** `cc-habits log` / `view` / `explain` / `pending` strip ANSI and control sequences from captured content before display, so a malicious diff cannot spoof or manipulate your terminal.
-10. **Validated provider responses.** The extractor never trusts the LLM's JSON blindly — each rule object is shape-validated and coerced to known fields, so a buggy or MITM'd provider endpoint cannot inject arbitrary structure.
+10. **Validated provider responses.** The extractor never trusts the LLM's JSON blindly, each rule object is shape-validated and coerced to known fields, so a buggy or MITM'd provider endpoint cannot inject arbitrary structure.
 11. **Symlink- and traversal-safe writes.** Every file write refuses to follow symlinks and sanitizes paths against `../` traversal and control characters. Storage files (including `config.yml` and your API key) are written `0600` (owner-only), and are retightened even if the file already existed with looser permissions.
 12. **Shell-free git capture.** `cch git-capture` (and the auto post-commit hook) run git via argument arrays, never a shell, and validate the commit range. A repository file with a hostile name cannot execute code during capture.
 13. **Reviewed by default.** New habits are quarantined and queued for your review. `CC_HABITS_AUTO=1` opts into silent auto-apply, and cc-habits prints a warning whenever it does so, so the bypass is never hidden.
@@ -482,7 +482,7 @@ cc-habits --version                   # print installed version
 ## FAQ
 
 **Does this work across all my coding tools?**
-Yes — that's the point. Habits are stored once in `~/.cc-habits/` and shared across every tool. Tools with hooks (Claude Code, Gemini CLI, Codex CLI) learn automatically; everything else learns from your Git commits or via `cch sync`. Hooks are registered at the user level, so they apply to every project you open.
+Yes, that's the point. Habits are stored once in `~/.cc-habits/` and shared across every tool. Tools with hooks (Claude Code, Gemini CLI, Codex CLI) learn automatically; everything else learns from your Git commits or via `cch sync`. Hooks are registered at the user level, so they apply to every project you open.
 
 **I already auto-generate a CLAUDE.md / AGENTS.md. Does this replace it?**
 No. It fills the gap. `cch init` adds a single `@import` line to your existing rules file and overwrites nothing. Your generated file stays; cc-habits keeps it current with what you actually do.

@@ -7,7 +7,7 @@ import {
   parseMemories, serialiseMemories, addMemoryTombstone, readMemoryTombstones,
   readHistory, appendHistory, logError, detectManualDeletes, applyMemoryUpdates,
   writePending, writeConfigFile,
-  type Memory,
+  type Memory, type Signal,
 } from './storage';
 import { applyUpdates, pendingToUpdates, applyDecay, toPending, type AppliedChange } from './confidence';
 import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath } from './install';
@@ -21,7 +21,7 @@ import { runMigration } from './migrate';
 import { captureFromCli } from './capture';
 import { runGitCapture, shouldTriggerGitLearn } from './git-collector';
 import { extractRules, extractMemoryCandidates } from './extractor';
-import { ProviderRateLimitError, ProviderTimeoutError } from './providers';
+import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
 import { memoriesEnabled, setMemoriesEnabled } from './config';
 import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools, isCliOnPath } from './detect';
@@ -37,7 +37,36 @@ function providerHint(e: unknown): string | undefined {
   if (e instanceof ProviderTimeoutError) {
     return 'provider request timed out, nothing changed this run. Check your network and retry.';
   }
+  if (e instanceof ProviderPayloadError) {
+    return 'extraction batch was too large for this provider (HTTP 413), nothing changed this run.\n' +
+      '  Tip: switch to Anthropic or OpenAI which accept larger payloads, or run `cch reset --yes` to clear the signal log.';
+  }
   return undefined;
+}
+
+// Cap a signal batch to at most 50 entries AND at most MAX_BATCH_BYTES of total
+// diff content. Groq and some other providers return 413 when the request body
+// exceeds their hard limit; a count cap alone is not enough when diffs are large
+// (e.g. committing big files). Returns both the final batch and a description
+// of how it was trimmed for the log message.
+const MAX_BATCH_SIGNALS = 50;
+const MAX_BATCH_BYTES   = 180_000; // ~180 KB, well under Groq's 200 KB request limit
+
+function capBatch(signals: Signal[]): { batch: Signal[]; desc: string } {
+  const countCapped = signals.slice(-MAX_BATCH_SIGNALS);
+  let byteTotal = 0;
+  let byteIdx = countCapped.length;
+  // Walk newest-first and drop from the front until we are under the byte budget.
+  for (let i = countCapped.length - 1; i >= 0; i--) {
+    byteTotal += (countCapped[i]!.diff ?? '').length;
+    if (byteTotal <= MAX_BATCH_BYTES) { byteIdx = i; break; }
+    if (i === 0) { byteIdx = countCapped.length; break; }
+  }
+  const batch = countCapped.slice(byteIdx);
+  const total = signals.length;
+  const sent  = batch.length;
+  if (sent === total) return { batch, desc: `${total}` };
+  return { batch, desc: `${sent} of ${total} (capped to fit provider limits)` };
 }
 
 // Config file path is derived from storagePaths so CC_HABITS_DIR overrides
@@ -143,7 +172,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
         }
       } else if (tool.id === 'cursor') {
-        process.stdout.write(`  ${dash} Cursor detected — edits will be captured automatically via the VS Code extension or Git commits.\n`);
+        process.stdout.write(`  ${dash} Cursor detected, edits will be captured automatically via the VS Code extension or Git commits.\n`);
       }
     }
   } else {
@@ -232,7 +261,7 @@ function showDataFlowNotice(): void {
   process.stdout.write(c(BOLD, '  How cc-habits uses your code\n'));
   process.stdout.write(c(DIM, '  ──────────────────────────────\n'));
   process.stdout.write('  • Captures the diff of files you edit during a Claude Code session.\n');
-  process.stdout.write('  • Redacts email / PAN / card numbers (best-effort, pattern-based — not exhaustive).\n');
+  process.stdout.write('  • Redacts email / PAN / card numbers (best-effort, pattern-based, not exhaustive).\n');
   process.stdout.write('  • Sends batched diffs to the AI provider you choose below, once per session, to learn patterns.\n');
   process.stdout.write('  • A local-only provider (Ollama) sends nothing off your machine.\n');
   process.stdout.write(c(DIM, '  Opt out anytime: add a .cc-habits-ignore file in a repo, set CC_HABITS_DISABLE=1,\n'));
@@ -251,10 +280,10 @@ async function showProviderMenu(tick: string, dash: string): Promise<void> {
   );
   process.stdout.write('\n');
   process.stdout.write(c(BOLD, '  How should cc-habits call the AI?\n\n'));
-  process.stdout.write('  [1] Anthropic API  ' + c(DIM, '(~$0.09/month — console.anthropic.com)') + '\n');
-  process.stdout.write('  [2] Ollama         ' + c(DIM, '(free, local — ollama.com/download)') + '\n');
-  process.stdout.write('  [3] OpenAI API     ' + c(DIM, '(your own key — platform.openai.com)') + '\n');
-  process.stdout.write('  [4] Groq API       ' + c(DIM, '(free tier — console.groq.com)') + '\n');
+  process.stdout.write('  [1] Anthropic API  ' + c(DIM, '(~$0.09/month, console.anthropic.com)') + '\n');
+  process.stdout.write('  [2] Ollama         ' + c(DIM, '(free, local, ollama.com/download)') + '\n');
+  process.stdout.write('  [3] OpenAI API     ' + c(DIM, '(your own key, platform.openai.com)') + '\n');
+  process.stdout.write('  [4] Groq API       ' + c(DIM, '(free tier, console.groq.com)') + '\n');
   process.stdout.write('  [5] Skip for now   ' + c(DIM, '(captures signals, skips extraction)') + '\n');
   process.stdout.write('\n');
 
@@ -273,13 +302,13 @@ async function configureProvider(provider: string, tick: string, dash: string): 
   const dir = path.dirname(CONFIG_FILE);
   fs.mkdirSync(dir, { recursive: true });
 
-  // Cloud providers send redacted diffs off-machine — require explicit consent
+  // Cloud providers send redacted diffs off-machine, require explicit consent
   // in an interactive session. Non-interactive (--provider in a script) is itself
   // an explicit opt-in, so we don't block it.
   if (provider !== 'ollama' && process.stdin.isTTY) {
     const ok = await promptYesNo(`  Send redacted diffs to ${provider} to learn habits? [y/N] `);
     if (!ok) {
-      process.stdout.write(c(DIM, '  Cancelled — no cloud provider configured. Try Ollama for fully local.\n'));
+      process.stdout.write(c(DIM, '  Cancelled, no cloud provider configured. Try Ollama for fully local.\n'));
       return;
     }
   }
@@ -303,7 +332,7 @@ async function configureProvider(provider: string, tick: string, dash: string): 
       process.stdout.write('  1. Install: ' + c(CYAN, 'https://ollama.com/download') + '\n');
       process.stdout.write('  2. Pull model: ' + c(BOLD, `ollama pull ${OLLAMA_DEFAULT_MODEL}`) + '\n');
       process.stdout.write('  3. Start: ' + c(BOLD, 'ollama serve') + '\n');
-      process.stdout.write(c(DIM, '  Config written — re-run cc-habits init once Ollama is running to verify.\n'));
+      process.stdout.write(c(DIM, '  Config written, re-run cc-habits init once Ollama is running to verify.\n'));
     }
     writeConfigFile(`provider: ollama\nollama_url: ${OLLAMA_DEFAULT_URL}\nollama_model: ${OLLAMA_DEFAULT_MODEL}\n`);
     process.stdout.write(`  ${tick} Ollama config saved (model: ${OLLAMA_DEFAULT_MODEL})\n`);
@@ -492,7 +521,7 @@ export function cmdMemoriesToggle(enabled: boolean): number {
 // Shown when there are no memories yet, tailored to whether learning is on.
 function printMemoriesEmptyState(enabled: boolean): void {
   if (enabled) {
-    process.stdout.write(c(DIM, '  No memories recorded yet — memory learning is ON.\n'));
+    process.stdout.write(c(DIM, '  No memories recorded yet, memory learning is ON.\n'));
     process.stdout.write(c(DIM, '  They appear after sessions where you correct the agent. Keep coding.\n'));
   } else {
     process.stdout.write(c(DIM, '  No memories recorded yet, and memory learning is OFF.\n'));
@@ -688,7 +717,7 @@ export function cmdSessionBanner(): number {
 // Emits a shell snippet that wraps `claude` and `gemini` so the pending banner
 // prints in the terminal before the tool launches. The user opts in by adding
 // `eval "$(cc-habits shell-init)"` to their ~/.zshrc or ~/.bashrc. We only print
-// the snippet — we never edit the user's rc file for them.
+// the snippet, we never edit the user's rc file for them.
 export function cmdShellInit(): number {
   // F5: embed the resolved absolute binary path so the wrapper does not depend on
   // PATH lookup of `cc-habits` (which a hijacked PATH entry could shadow). Fall
@@ -708,7 +737,7 @@ export function cmdShellInit(): number {
     ? 'command -v cc-habits >/dev/null 2>&1 && cc-habits session-banner 2>/dev/null || true'
     : `"${cch.replace(/"/g, '\\"')}" session-banner 2>/dev/null || true`;
 
-  const snippet = `# cc-habits shell integration — add to ~/.zshrc or ~/.bashrc:
+  const snippet = `# cc-habits shell integration, add to ~/.zshrc or ~/.bashrc:
 #   eval "$(cc-habits shell-init)"
 # Prints pending habit suggestions before launching claude/gemini, then runs
 # the real binary. The cc-habits path below is resolved at generation time to
@@ -954,7 +983,7 @@ export function cmdImport(inputPath: string): number {
 const VALID_SYNC_TARGETS: SyncTarget[] = ['agents', 'cursor', 'copilot', 'gemini', 'cline', 'aider', 'continue', 'jetbrains', 'windsurf'];
 
 export function cmdSync(rawTargets: string[], dir?: string): number {
-  // Default target is AGENTS.md — the cross-tool standard. `all` expands to every target.
+  // Default target is AGENTS.md, the cross-tool standard. `all` expands to every target.
   let targets: SyncTarget[];
   if (rawTargets.length === 0) {
     targets = ['agents'];
@@ -975,7 +1004,7 @@ export function cmdSync(rawTargets: string[], dir?: string): number {
   try {
     const result = syncTargets(targets, dir ? { baseDir: dir } : {});
     if (result.skipped) {
-      process.stdout.write(c(DIM, '  No active habits to sync yet. Keep coding — habits graduate after 2 sessions.\n'));
+      process.stdout.write(c(DIM, '  No active habits to sync yet. Keep coding, habits graduate after 2 sessions.\n'));
       return 0;
     }
     process.stdout.write('\n');
@@ -1057,17 +1086,16 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
     return 0;
   }
   
-  process.stdout.write(`  learning from ${filtered.length} signal${filtered.length === 1 ? '' : 's'}...\n`);
-  
+  const { batch: capped, desc: batchDesc } = capBatch(filtered);
+  process.stdout.write(`  learning from ${batchDesc} signal${filtered.length === 1 ? '' : 's'}...\n`);
+
   const habitsMd = readHabitsMd();
   const cats = parseHabits(habitsMd);
-  
+
   const deleted = detectManualDeletes(cats);
   for (const d of deleted) addTombstone(d);
-  
+
   const decayed = applyDecay(cats);
-  
-  const capped = filtered.slice(-50);
   
   const sessionId = opts.session || `learn-${new Date().toISOString().slice(0, 10)}`;
   let updates: Awaited<ReturnType<typeof extractRules>> = [];

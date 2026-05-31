@@ -7,7 +7,7 @@ const MAX_LOG_READ_BYTES = 50 * 1024 * 1024; // 50 MB
 
 // Rotation: trim append-only files before they reach the read guard.
 // Checked after every append so the file never silently fills the disk.
-const LOG_ROTATE_BYTES = 2 * 1024 * 1024; // 2 MB — trim trigger
+const LOG_ROTATE_BYTES = 2 * 1024 * 1024; // 2 MB, trim trigger
 const LOG_ROTATE_LINES = 5_000;            // signals kept after trim
 const HISTORY_ROTATE_LINES = 100;          // history snapshots kept after trim
 
@@ -37,11 +37,27 @@ export interface Habit {
 
 export type HabitsMap = Record<string, Habit[]>;
 
-// C2: CC_HABITS_DIR overrides the default ~/.cc-habits location. This is
-// the single source of truth — every other path is derived from it.
-function defaultRoot(): string {
-  return process.env['CC_HABITS_DIR'] ?? path.join(os.homedir(), '.cc-habits');
+export function defaultRoot(): string {
+  if (process.env['CC_HABITS_DIR']) {
+    return process.env['CC_HABITS_DIR'];
+  }
+  try {
+    let dir = process.cwd();
+    while (true) {
+      const candidate = path.join(dir, '.cc-habits');
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+        return candidate;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // fallback
+  }
+  return path.join(os.homedir(), '.cc-habits');
 }
+
 
 export const storagePaths = {
   habitsDir: defaultRoot(),
@@ -57,6 +73,9 @@ export const storagePaths = {
   pendingFile: path.join(defaultRoot(), '.pending.json'),
   historyFile: path.join(defaultRoot(), '.history.jsonl'),
   provenanceFile: path.join(defaultRoot(), '.provenance.json'),
+  // Throttle cache for the npm latest-version check, so we hit the registry at
+  // most once per TTL window rather than on every CLI invocation.
+  updateCheckFile: path.join(defaultRoot(), '.update-check.json'),
   // config.yml lives in the same directory as habits.md so that CC_HABITS_DIR
   // overrides both the data files AND the provider config in one env var.
   configFile: path.join(defaultRoot(), 'config.yml'),
@@ -126,7 +145,7 @@ function safeWrite(filePath: string, content: string): void {
   // Atomic write: write to a hidden temp file in the SAME directory, then rename.
   // This guarantees (a) no partial write is visible to concurrent readers, and
   // (b) even if a symlink is created between our lstat and the rename, renameSync
-  // replaces the directory entry itself — it does NOT follow symlinks on the target.
+  // replaces the directory entry itself, it does NOT follow symlinks on the target.
   const dir = path.dirname(filePath);
   const tmpPath = path.join(dir, `.cc-habits-tmp-${process.pid}-${Date.now()}`);
   try {
@@ -249,7 +268,7 @@ function normalizeRule(s: string): string {
 // that catches near-duplicate phrasings (e.g. swapping one word, reordering).
 // Deep synonym rewordings ("type hints on signatures" vs "explicit type
 // annotations for parameters and return types") share too little vocabulary to
-// catch lexically without false positives — those are handled upstream by
+// catch lexically without false positives, those are handled upstream by
 // feeding tombstones into the extraction prompt.
 const TOMBSTONE_STOPWORDS = new Set([
   'a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'and', 'or', 'with', 'use',
@@ -302,7 +321,7 @@ export function readTombstones(): string[] {
     const data = JSON.parse(fs.readFileSync(storagePaths.tombstonesFile, 'utf-8')) as unknown;
     if (Array.isArray(data)) return data.filter((x): x is string => typeof x === 'string');
   } catch {
-    // malformed — treat as empty
+    // malformed, treat as empty
   }
   return [];
 }
@@ -334,7 +353,7 @@ export function readMemoryTombstones(): string[] {
     const data = JSON.parse(fs.readFileSync(storagePaths.memoryTombstonesFile, 'utf-8')) as unknown;
     if (Array.isArray(data)) return data.filter((x): x is string => typeof x === 'string');
   } catch {
-    // malformed — treat as empty
+    // malformed, treat as empty
   }
   return [];
 }
@@ -373,7 +392,7 @@ export function writeSnapshot(cats: HabitsMap): void {
 }
 
 // Compare snapshot to current parsed habits.md. Any rule present in snapshot
-// but absent from current was manually deleted by the user — tombstone it.
+// but absent from current was manually deleted by the user, tombstone it.
 export function detectManualDeletes(current: HabitsMap): string[] {
   const snapshot = readSnapshot();
   if (snapshot === null) return [];

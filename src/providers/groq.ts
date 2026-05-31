@@ -1,6 +1,6 @@
 import { OpenAIProvider } from './openai';
 
-// Groq is OpenAI-compatible — only the endpoint and model differ.
+// Groq is OpenAI-compatible, only the endpoint and model differ.
 export class GroqProvider extends OpenAIProvider {
   name = 'groq';
 

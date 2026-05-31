@@ -38,7 +38,7 @@ function makeHooks(hookBin: string): { postToolUse: object; stop: object; userPr
       hooks: [{ type: 'command', command: `${safeBin} stop --adapter claude-code || true` }],
     },
     // UserPromptSubmit re-injects active habits into context each prompt (Patch 2).
-    // No matcher — this event always fires.
+    // No matcher, this event always fires.
     userPromptSubmit: {
       hooks: [{ type: 'command', command: `${safeBin} user-prompt-submit --adapter claude-code || true` }],
     },

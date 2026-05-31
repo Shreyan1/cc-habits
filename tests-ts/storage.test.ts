@@ -295,7 +295,7 @@ describe('storage', () => {
 
   it('isTombstoned catches fuzzy rewordings of a rejected rule', () => {
     addTombstone('Always use explicit TypeScript return type annotations on functions');
-    // Reworded variant sharing most significant tokens — must be caught.
+    // Reworded variant sharing most significant tokens, must be caught.
     expect(
       isTombstoned('Use explicit return type annotations for all TypeScript functions'),
     ).toBe(true);
@@ -305,7 +305,7 @@ describe('storage', () => {
     addTombstone('Always use explicit TypeScript return type annotations on functions');
     expect(isTombstoned('Prefer single quotes for string literals')).toBe(false);
     expect(isTombstoned('Use 2-space indentation')).toBe(false);
-    // Shares only one significant token ("typescript") — below the 2-token floor.
+    // Shares only one significant token ("typescript"), below the 2-token floor.
     expect(isTombstoned('Enable TypeScript strict mode')).toBe(false);
   });
 });

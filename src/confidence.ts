@@ -88,7 +88,7 @@ const MAX_CATEGORY_LENGTH = 40;
 // and the regexes never run on unbounded input (ReDoS).
 export function sanitizeRule(rule: string): string {
   let s = (rule ?? '').trim();
-  // Bound length first — denylist regexes must never see unbounded input.
+  // Bound length first, denylist regexes must never see unbounded input.
   if (s.length > MAX_RULE_LENGTH * 2) s = s.slice(0, MAX_RULE_LENGTH * 2);
   s = s.replace(ZERO_WIDTH, '');
   // NFKC folds fullwidth/compatibility homoglyphs (ＳＹＳＴＥＭ → SYSTEM) to ASCII.
@@ -178,7 +178,7 @@ export interface ApplyOptions {
   sessionId?: string;
   todayIso?: string;
   // Optional collector: if provided, every applied change is pushed here.
-  // Non-breaking — callers that don't need detail simply omit it.
+  // Non-breaking, callers that don't need detail simply omit it.
   changes?: AppliedChange[];
 }
 
@@ -281,7 +281,7 @@ export function toPending(updates: RuleUpdate[]): PendingUpdate[] {
       ts,
     }))
     .filter(u => u.rule)
-    // Never surface a tombstoned (or reworded-equivalent) rule for review — the
+    // Never surface a tombstoned (or reworded-equivalent) rule for review, the
     // user already rejected it, so it must not reappear in the pending queue.
     .filter(u => !isTombstoned(u.rule));
 }

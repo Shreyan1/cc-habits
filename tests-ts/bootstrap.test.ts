@@ -1,5 +1,5 @@
 /**
- * Tests for cc-habits bootstrap — retroactive learning from Claude Code session transcripts.
+ * Tests for cc-habits bootstrap, retroactive learning from Claude Code session transcripts.
  *
  * Covers:
  *   - Session discovery (project path encoding, file listing)
@@ -212,7 +212,7 @@ describe('bootstrap pipeline', () => {
     const markerPath = path.join(tmpDir, '.bootstrapped.json');
     fs.writeFileSync(markerPath, JSON.stringify(['already-done-session']), { mode: 0o600 });
 
-    // The bootstrap function checks this marker — sessions in the marker are skipped.
+    // The bootstrap function checks this marker, sessions in the marker are skipped.
     // We test the marker read directly since we can't easily mock discoverSessions path.
     const markerContent = JSON.parse(fs.readFileSync(markerPath, 'utf-8'));
     expect(markerContent).toContain('already-done-session');

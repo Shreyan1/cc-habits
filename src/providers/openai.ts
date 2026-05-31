@@ -1,4 +1,4 @@
-import { Provider, ProviderRateLimitError, ProviderTimeoutError } from './types';
+import { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './types';
 
 // Up to this many extra attempts after the first 429 before giving up.
 const MAX_RATE_LIMIT_RETRIES = 2;
@@ -65,6 +65,11 @@ export class OpenAIProvider implements Provider {
         await sleep(backoff);
         continue;
       }
+
+      // 413: payload too large, the caller applied the byte-budget cap but
+      // the batch still exceeded the provider's limit. Surface a typed error
+      // so callers can show a clear message instead of a raw "HTTP 413".
+      if (res.status === 413) throw new ProviderPayloadError(this.name);
 
       if (!res.ok) throw new Error(`${this.name}: HTTP ${res.status}`);
       const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };

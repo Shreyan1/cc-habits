@@ -19,3 +19,10 @@ export class ProviderTimeoutError extends Error {
     this.name = 'ProviderTimeoutError';
   }
 }
+
+export class ProviderPayloadError extends Error {
+  constructor(provider: string) {
+    super(`${provider}: request payload too large (HTTP 413). Batch was trimmed but still exceeded the limit.`);
+    this.name = 'ProviderPayloadError';
+  }
+}

@@ -49,7 +49,7 @@ export function runInteractiveMenu(items: MenuItem[] = MENU_ITEMS): Promise<Menu
     let selected = 0;
     const out = process.stderr;
 
-    out.write('\n  cc-habits — use ↑/↓ to choose, Enter to run, q to quit\n\n');
+    out.write('\n  cc-habits, use ↑/↓ to choose, Enter to run, q to quit\n\n');
     out.write(renderMenu(items, selected) + '\n');
 
     const redraw = (): void => {

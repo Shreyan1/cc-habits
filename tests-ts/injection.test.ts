@@ -1,5 +1,5 @@
 /**
- * Tests for cc-habits Patch 2 — UserPromptSubmit active-habit injection.
+ * Tests for cc-habits Patch 2, UserPromptSubmit active-habit injection.
  *
  * Static @import decays under context compaction (claude-code #19471, #9796); the
  * UserPromptSubmit hook re-injects the strongest active habits every prompt.

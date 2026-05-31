@@ -88,14 +88,14 @@ export async function extractRules(
     const updates = JSON.parse(cleaned) as unknown;
     if (Array.isArray(updates)) return updates.filter(isValidUpdate).map(coerceUpdate);
   } catch {
-    // malformed — treat as no updates
+    // malformed, treat as no updates
   }
   return [];
 }
 
 // The provider response is untrusted (a self-hosted/MITM'd or simply buggy endpoint
 // could return arbitrary JSON). Validate shape and coerce to exactly the known
-// fields — never spread provider-controlled objects into downstream logic.
+// fields, never spread provider-controlled objects into downstream logic.
 function isValidUpdate(u: unknown): boolean {
   if (typeof u !== 'object' || u === null) return false;
   const o = u as Record<string, unknown>;
@@ -121,7 +121,7 @@ INPUT:
 - Current memories: mistakes already recorded from past sessions.
 
 A memory is a specific, repeatable mistake an AI agent makes that the developer had to fix.
-Memories are NOT stylistic preferences — those belong in habits.md.
+Memories are NOT stylistic preferences, those belong in habits.md.
 
 Record a memory only when:
 - The correction substantially reverses or restructures what the agent wrote (not a minor tweak).
@@ -183,7 +183,7 @@ export async function extractMemoryCandidates(
     const candidates = JSON.parse(cleaned) as unknown;
     if (Array.isArray(candidates)) return candidates.filter(isValidCandidate).map(coerceCandidate);
   } catch {
-    // malformed — treat as no candidates
+    // malformed, treat as no candidates
   }
   return [];
 }

@@ -1,5 +1,5 @@
 /**
- * Tests for cc-habits sync — emitting learned habits into tool-agnostic preference
+ * Tests for cc-habits sync, emitting learned habits into tool-agnostic preference
  * files (AGENTS.md, Cursor .mdc, Cline) so any coding agent can read them.
  *
  * Covers:

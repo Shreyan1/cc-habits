@@ -79,8 +79,8 @@ describe('confidence', () => {
       reasoning: '',
     };
     applyUpdates(cats, [contradict]); // 0.40
-    applyUpdates(cats, [contradict]); // 0.30 — survives (>= threshold)
-    applyUpdates(cats, [contradict]); // 0.20 — pruned
+    applyUpdates(cats, [contradict]); // 0.30, survives (>= threshold)
+    applyUpdates(cats, [contradict]); // 0.20, pruned
     expect(cats['Python']).toBeUndefined();
   });
 

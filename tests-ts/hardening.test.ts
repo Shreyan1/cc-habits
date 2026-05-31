@@ -1,5 +1,5 @@
 /**
- * Adversarial hardening suite — each test corresponds to a vulnerability found
+ * Adversarial hardening suite, each test corresponds to a vulnerability found
  * during the aggressive whitehat audit and proves the fix holds.
  *
  *   H-1  Zero-width-char keyword bypass (SYS​TEM:)
@@ -169,7 +169,7 @@ describe('H-9: cc-habits log strips terminal control sequences', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-h9-'));
-    // Mutate storagePaths directly — it is frozen at import from CC_HABITS_DIR.
+    // Mutate storagePaths directly, it is frozen at import from CC_HABITS_DIR.
     storagePaths.logFile = path.join(tmpDir, 'log.jsonl');
     writes = [];
     spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {

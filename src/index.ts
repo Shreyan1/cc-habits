@@ -8,8 +8,9 @@ import { spawnSync } from 'child_process';
 import { runMigration } from './migrate';
 import { suggest, looksLikeEnvVar, nextSteps } from './suggestions';
 import { runInteractiveMenu } from './menu';
+import { maybeUpdateNotice } from './update-check';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 // Print follow-up suggestions to stderr so stdout pipes stay clean. Only when
 // the command succeeded and we are attached to an interactive terminal.
@@ -22,12 +23,25 @@ function printNextSteps(command: string, args: string[], code: number): void {
   for (const s of steps) process.stderr.write(`    ${s}\n`);
 }
 
-const HELP = `cc-habits ${VERSION} — A tool-agnostic coding memory layer for developer habits and AI agents.
+// Print the "update available" notice to stderr so stdout pipes stay clean.
+// Only on an interactive terminal, never for piped/--json output. The check is
+// throttled and time-boxed inside maybeUpdateNotice, and never throws.
+async function printUpdateNotice(args: string[]): Promise<void> {
+  if (!process.stderr.isTTY || args.includes('--json')) return;
+  try {
+    const notice = await maybeUpdateNotice(VERSION);
+    if (notice) process.stderr.write(`\n${notice}\n`);
+  } catch {
+    // update notice is cosmetic; never let it affect the command result
+  }
+}
+
+const HELP = `cc-habits ${VERSION}, A tool-agnostic coding memory layer for developer habits and AI agents.
   Tip: 'cch' is a short alias for 'cc-habits'.
 
 Usage:
   cc-habits tools                   List supported coding tools and which are detected here
-  cc-habits init                    Install hooks, create habits.md — interactive provider setup
+  cc-habits init                    Install hooks, create habits.md, interactive provider setup
   cc-habits init --provider ollama  Skip API key prompt, configure Ollama (free, local)
   cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
   cc-habits view                    Show current habits + recent signals
@@ -210,6 +224,7 @@ async function main(): Promise<void> {
   }
 
   printNextSteps(command, args, code);
+  await printUpdateNotice(args);
   process.exit(code);
 }
 

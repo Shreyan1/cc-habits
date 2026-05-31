@@ -12,8 +12,19 @@ import { activateCollector } from './collector';
 // Storage root ──────────────────────────────────────────────────────────────
 
 function habitsDir(): string {
-  return process.env['CC_HABITS_DIR'] ?? path.join(os.homedir(), '.cc-habits');
+  if (process.env['CC_HABITS_DIR']) {
+    return process.env['CC_HABITS_DIR'];
+  }
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    const localPath = path.join(folders[0].uri.fsPath, '.cc-habits');
+    if (fs.existsSync(localPath) && fs.statSync(localPath).isDirectory()) {
+      return localPath;
+    }
+  }
+  return path.join(os.homedir(), '.cc-habits');
 }
+
 
 function habitsFilePath(): string { return path.join(habitsDir(), 'habits.md'); }
 function memoriesFilePath(): string { return path.join(habitsDir(), 'memories.md'); }
@@ -134,7 +145,7 @@ class HabitsProvider implements vscode.TreeDataProvider<CcNode> {
     }
     const cats = parseHabitsFile(fs.readFileSync(f, 'utf-8'));
     if (cats.size === 0) {
-      return [new CcNode('No habits yet — use Claude Code for a session', 'empty', vscode.TreeItemCollapsibleState.None)];
+      return [new CcNode('No habits yet, use Claude Code for a session', 'empty', vscode.TreeItemCollapsibleState.None)];
     }
     return Array.from(cats.keys()).map(cat =>
       new CcNode(cat, 'habitCategory', vscode.TreeItemCollapsibleState.Expanded),
@@ -169,7 +180,7 @@ class MemoriesProvider implements vscode.TreeDataProvider<CcNode> {
   private _sections(): CcNode[] {
     const f = memoriesFilePath();
     if (!fs.existsSync(f)) {
-      return [new CcNode('No memories yet — set CC_HABITS_MEMORIES=1', 'empty', vscode.TreeItemCollapsibleState.None)];
+      return [new CcNode('No memories yet, set CC_HABITS_MEMORIES=1', 'empty', vscode.TreeItemCollapsibleState.None)];
     }
     const sections = parseMemoriesFile(fs.readFileSync(f, 'utf-8'));
     const allMemories = Array.from(sections.values()).flat();

@@ -12,7 +12,7 @@ import { normalizeInput, ALLOWED_ADAPTERS, type NormalizedHookInput } from './ad
 import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule, sanitizeCategory } from './confidence';
 import type { AppliedChange } from './confidence';
 import { extractRules, extractMemoryCandidates } from './extractor';
-import { ProviderRateLimitError, ProviderTimeoutError } from './providers';
+import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
 import { memoriesEnabled } from './config';
 import { readSyncTargets, syncTargets } from './sync';
 
@@ -175,13 +175,13 @@ export function captureDisabled(): boolean {
   if (v && v !== '0' && v !== 'false' && v !== 'off') return true;
   try {
     if (fs.existsSync(path.join(process.cwd(), '.cc-habits-ignore'))) return true;
-  } catch { /* cwd may be unreadable in odd environments — treat as not-disabled */ }
+  } catch { /* cwd may be unreadable in odd environments, treat as not-disabled */ }
   return false;
 }
 
 // Session-start banner (transparency) ──────────────────────────────────────
 // On the *first substantive edit* of a session, emit a single truthful line:
-// "cc-habits: N habits active — ..." This fires exactly once (edit #1) and
+// "cc-habits: N habits active, ..." This fires exactly once (edit #1) and
 // makes a claim we can fully back: habits ARE in context guiding this session.
 //
 // Why not a per-edit "applied" marker? Keyword overlap fires on almost every
@@ -193,7 +193,7 @@ export function buildSessionBanner(md: string, editCount: number): string | null
   const habits = selectInjectionHabits(md);
   if (habits.length === 0) return null;
   const n = habits.length;
-  return `cc-habits: ${n} habit${n === 1 ? '' : 's'} active this session — \`cch view\` to see them`;
+  return `cc-habits: ${n} habit${n === 1 ? '' : 's'} active this session, \`cch view\` to see them`;
 }
 
 // Set CC_HABITS_MARKER=0 (or false/off) to silence the session banner.
@@ -293,14 +293,21 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   // B4: decay stale habits before applying new updates.
   const decayed = applyDecay(cats);
 
-  // Cap to the most recent MAX_SIGNALS_PER_EXTRACTION signals to avoid provider
-  // 413 / context-limit errors on long sessions. Warn so the user knows it happened.
-  const capped = gated.length > MAX_SIGNALS_PER_EXTRACTION
-    ? gated.slice(-MAX_SIGNALS_PER_EXTRACTION)
-    : gated;
-  if (gated.length > MAX_SIGNALS_PER_EXTRACTION) {
+  // Cap to MAX_SIGNALS_PER_EXTRACTION signals AND a byte budget so large diffs
+  // (e.g. whole-file git commits) don't cause a provider 413 on top of the count cap.
+  const MAX_HOOK_BATCH_BYTES = 180_000; // ~180 KB, well under Groq's 200 KB request limit
+  const countCapped = gated.slice(-MAX_SIGNALS_PER_EXTRACTION);
+  let byteTotal = 0;
+  let byteIdx = countCapped.length;
+  for (let i = countCapped.length - 1; i >= 0; i--) {
+    byteTotal += (countCapped[i]!.diff ?? '').length;
+    if (byteTotal <= MAX_HOOK_BATCH_BYTES) { byteIdx = i; break; }
+    if (i === 0) { byteIdx = countCapped.length; break; }
+  }
+  const capped = countCapped.slice(byteIdx);
+  if (capped.length < gated.length) {
     process.stderr.write(
-      `cc-habits: ${gated.length} signals this session, using the most recent ${MAX_SIGNALS_PER_EXTRACTION}\n`,
+      `cc-habits: ${gated.length} signals this session, using the most recent ${capped.length}\n`,
     );
   }
 
@@ -310,11 +317,11 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
 
   // Queue new-habit creates for user review (pending notification path).
   // The habits ARE written to habits.md in the Learning quarantine section by
-  // applyUpdates above — the pending queue is an additional notification surface
+  // applyUpdates above, the pending queue is an additional notification surface
   // so users can tombstone proposed habits before they graduate. Skip queueing
   // when CC_HABITS_AUTO=1 (fully-silent auto-apply mode).
   // Clear stale pending from any previous session first, then write this session's
-  // new items — this ensures `cch pending` always reflects the latest session only.
+  // new items, this ensures `cch pending` always reflects the latest session only.
   const creates = updates.filter(u => (u.decision ?? '').toLowerCase() === 'create');
   const pendingCount = creates.length;
   if (!autoApplyEnabled() && creates.length > 0) {
@@ -329,7 +336,7 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
     if (warning) process.stderr.write(warning + '\n');
   }
 
-  // B2: record provenance — which signals contributed to each create/reinforce.
+  // B2: record provenance, which signals contributed to each create/reinforce.
   recordProvenance(updates, gated, sessionId);
 
   // B6: attach language tag to any habit touched this session.
@@ -382,7 +389,7 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
 // Session summary (transparency surface) ───────────────────────────────────//
 // Printed to stderr when a Claude Code session ends. The goal is trust through
 // transparency: show the user exactly which habits were learned, reinforced, or
-// contradicted this session — not just opaque counts. Plain text only (no ANSI):
+// contradicted this session, not just opaque counts. Plain text only (no ANSI):
 // the hook's stderr is piped, not a TTY, so colour codes would render as noise.
 
 export function formatStopSummary(result: StopResult): string {
@@ -427,7 +434,7 @@ export function formatStopSummary(result: StopResult): string {
 
   if ((result.memoryCandidatesCount ?? 0) > 0) {
     const n = result.memoryCandidatesCount!;
-    lines.push(`  + ${n} new memory candidate${n === 1 ? '' : 's'} added — run \`cch memories\` to review`);
+    lines.push(`  + ${n} new memory candidate${n === 1 ? '' : 's'} added, run \`cch memories\` to review`);
   }
 
   lines.push('  habits.md updated · run `cc-habits view` for the full picture');
@@ -459,7 +466,7 @@ function recordProvenance(updates: RuleUpdate[], signals: Signal[], sessionId: s
 // Active-habit injection (Patch 2: UserPromptSubmit) ───────────────────────//
 // Static @import of habits.md decays: context compaction summarises or drops it
 // (claude-code #19471, #9796). The UserPromptSubmit hook re-injects the top active
-// habits on every prompt so they survive compaction — "laws, not requests."
+// habits on every prompt so they survive compaction, "laws, not requests."
 
 const INJECT_TOP_N = 12;
 const INJECT_MIN_CONFIDENCE = 0.3;
@@ -526,7 +533,7 @@ function injectionEnabled(): boolean {
 
 // Memory relevance scoring ─────────────────────────────────────────────────
 // Simple keyword overlap: score a memory against the current prompt text.
-// No LLM call — fast enough for UserPromptSubmit where latency matters.
+// No LLM call, fast enough for UserPromptSubmit where latency matters.
 const MEMORY_INJECT_TOP_N = 3;
 const MEMORY_MIN_CONFIDENCE = 0.50;
 
@@ -737,7 +744,7 @@ export async function handleStop(): Promise<void> {
       process.stderr.write(formatStopSummary(result) + '\n');
     }
   } catch (e) {
-    if (e instanceof ProviderRateLimitError || e instanceof ProviderTimeoutError) {
+    if (e instanceof ProviderRateLimitError || e instanceof ProviderTimeoutError || e instanceof ProviderPayloadError) {
       process.stderr.write(`cc-habits: ${e.message}\n`);
     } else {
       const msg = String(e);
@@ -768,7 +775,7 @@ export function handleUserPromptSubmit(): void {
         const data = raw.trim() ? (JSON.parse(raw) as Record<string, unknown>) : {};
         const context = processUserPromptSubmit(data);
         // Plain stdout is added to Claude's context for UserPromptSubmit. Exit 0
-        // always — injection must never block or fail a prompt.
+        // always, injection must never block or fail a prompt.
         if (context) process.stdout.write(context + '\n');
       } catch (e) {
         logError(`user-prompt-submit: ${String(e)}`);

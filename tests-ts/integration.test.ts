@@ -320,7 +320,7 @@ describe('CLI init', () => {
     expect(importLines[0]).toContain('habits.md');
   });
 
-  it('is idempotent — running twice does not duplicate hooks', async () => {
+  it('is idempotent, running twice does not duplicate hooks', async () => {
     process.env['ANTHROPIC_API_KEY'] = 'test-key';
     await cmdInit();
     await cmdInit();
@@ -520,11 +520,11 @@ describe('CLI reset', () => {
     expect(fs.existsSync(storagePaths.habitsFile)).toBe(false);
     expect(fs.existsSync(storagePaths.memoriesFile)).toBe(false);
   });
-  it('is idempotent — no error if already deleted', () => { expect(cmdReset(true)).toBe(0); });
+  it('is idempotent, no error if already deleted', () => { expect(cmdReset(true)).toBe(0); });
 });
 
 // Three uncovered scenarios ────────────────────────────────────────────────
-describe('Scenario 1: nvm PATH — hook command uses absolute binary path', () => {
+describe('Scenario 1: nvm PATH, hook command uses absolute binary path', () => {
   it('registered command is resolvable and contains the binary name', async () => {
     process.env['ANTHROPIC_API_KEY'] = 'test-key';
     await cmdInit();
