@@ -82,6 +82,34 @@ describe('buildUpdateNotice', () => {
     expect(buildUpdateNotice('0.5.0', '0.5.0')).toBeNull();
     expect(buildUpdateNotice('0.6.0', '0.5.0')).toBeNull();
   });
+
+  // Security: a MITM or compromised npm registry could return a "latest"
+  // version string carrying terminal escape sequences. buildUpdateNotice prints
+  // it to stderr, so it must be stripped to plausible version characters first.
+  it('strips terminal escape sequences from a malicious latest version', () => {
+    const esc = String.fromCharCode(27); // ESC
+    const bel = String.fromCharCode(7);  // BEL
+    const evil = `9.9.9${esc}]0;pwned${bel}${esc}[2J`;
+    const notice = buildUpdateNotice('0.5.0', evil) ?? '';
+    // The security property: the escape-sequence machinery is gone. No ESC/BEL
+    // control bytes, and no CSI/OSC structural brackets, so nothing can drive
+    // the terminal. Inert letters surviving as plain text is harmless (real
+    // versions contain letters like "beta"/"rc").
+    expect(notice.includes(esc)).toBe(false);
+    expect(notice.includes(bel)).toBe(false);
+    expect(notice).not.toContain('[');
+    expect(notice).not.toContain(']');
+    expect(notice).toContain('9.9.9');
+  });
+
+  it('strips control chars and bounds the length of a hostile version string', () => {
+    const evil = '1.0.0' + String.fromCharCode(10, 13, 9) + 'rm -rf ~' + 'A'.repeat(200);
+    const notice = buildUpdateNotice('0.5.0', evil) ?? '';
+    expect(notice).not.toContain('rm -rf');
+    // The version token shown is capped (<= 32 chars), so the 200-char tail cannot flood the line.
+    const firstLine = notice.split('\n')[0];
+    expect(firstLine.length).toBeLessThan(80);
+  });
 });
 
 describe('getLatestVersion (throttle cache)', () => {
@@ -132,6 +160,14 @@ describe('getLatestVersion (throttle cache)', () => {
     expect(v).toBe('0.4.0'); // last known version preserved
     const cache = JSON.parse(fs.readFileSync(storagePaths.updateCheckFile, 'utf-8'));
     expect(cache.lastChecked).toBe(now); // stamped so we don't retry every command
+  });
+
+  it('ignores a non-version garbage registry response gracefully', async () => {
+    // A compromised/garbage registry payload must never crash or be trusted.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ version: { nested: 'object' } }), { status: 200 })) as unknown as typeof fetch;
+    const v = await getLatestVersion();
+    expect(v).toBeUndefined();
   });
 });
 

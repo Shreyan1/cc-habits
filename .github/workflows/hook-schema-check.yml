@@ -1,0 +1,76 @@
+name: hook-schema-check
+
+# Early-warning monitor for Claude Code hook schema drift (T1).
+#
+# Claude Code does not version its hook payload schema and can change fields
+# silently. This workflow runs weekly to catch that before it reaches users:
+#   1. docs-drift, assert the field/event names cc-habits depends on still
+#      appear in the live hooks reference. A rename (the thing that breaks us)
+#      fails the job and notifies the maintainer. Cosmetic page changes do not.
+#   2. contract-tests, run the fixture-based contract suite against the current
+#      code so a dependency or code change that breaks capture is caught too.
+
+on:
+  schedule:
+    # Mondays 09:00 UTC. Weekly is enough; the docs change rarely.
+    - cron: "0 9 * * 1"
+  workflow_dispatch: {}
+  # Also run when the hook code, schema module, or fixtures change.
+  push:
+    paths:
+      - "src/hook.ts"
+      - "src/hook-schema.ts"
+      - "src/adapters/**"
+      - "tests-ts/fixtures/**"
+      - "tests-ts/hook-schema.test.ts"
+      - ".github/workflows/hook-schema-check.yml"
+
+jobs:
+  docs-drift:
+    name: docs drift (field/event names present)
+    runs-on: ubuntu-latest
+    # Network-dependent, so only on schedule and manual runs, never on push.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Check critical hook field and event names still exist in the docs
+        run: |
+          set -euo pipefail
+          url="https://code.claude.com/docs/en/hooks"
+          html="$(curl -fsSL --retry 3 --retry-delay 5 "$url")"
+          missing=0
+          # Field names cc-habits reads from hook payloads.
+          for token in session_id tool_name tool_input hook_event_name prompt; do
+            if ! grep -q "$token" <<<"$html"; then
+              echo "::error::Hook field '$token' no longer found in $url. The Claude Code hook schema may have changed, update src/hook-schema.ts and the fixtures."
+              missing=1
+            fi
+          done
+          # Event names cc-habits registers hooks under.
+          for event in PostToolUse Stop UserPromptSubmit SessionStart; do
+            if ! grep -q "$event" <<<"$html"; then
+              echo "::error::Hook event '$event' no longer found in $url. Registration in src/install.ts may need updating."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          echo "All critical hook fields and events still present in the Claude Code docs."
+
+  contract-tests:
+    name: contract tests (fixtures)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Run hook-schema contract tests
+        run: npx vitest run tests-ts/hook-schema.test.ts

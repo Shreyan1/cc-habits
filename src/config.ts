@@ -56,3 +56,17 @@ export function memoriesEnabled(): boolean {
 export function setMemoriesEnabled(enabled: boolean): void {
   setConfigValue('memories_enabled', enabled ? 'true' : 'false');
 }
+
+// Consent tracking (L5) ────────────────────────────────────────────────────
+// Records explicit user consent at `cch init` time with a timestamp.
+// Consent is stored in config.yml as:  consent_given: <ISO-8601 timestamp>
+// The presence of a valid timestamp means the user acknowledged the data notice.
+
+export function consentGiven(): boolean {
+  const v = getConfigValue('consent_given');
+  return !!v && v.length > 0;
+}
+
+export function recordConsent(): void {
+  setConfigValue('consent_given', new Date().toISOString());
+}

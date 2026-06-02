@@ -10,7 +10,7 @@ import { suggest, looksLikeEnvVar, nextSteps } from './suggestions';
 import { runInteractiveMenu } from './menu';
 import { maybeUpdateNotice } from './update-check';
 
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 
 // Print follow-up suggestions to stderr so stdout pipes stay clean. Only when
 // the command succeeded and we are attached to an interactive terminal.

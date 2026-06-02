@@ -22,7 +22,7 @@ import { captureFromCli } from './capture';
 import { runGitCapture, shouldTriggerGitLearn } from './git-collector';
 import { extractRules, extractMemoryCandidates } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
-import { memoriesEnabled, setMemoriesEnabled } from './config';
+import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent } from './config';
 import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools, isCliOnPath } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
@@ -108,8 +108,34 @@ function confidenceBar(conf: number, width = 22): string {
 }
 
 // init ─────────────────────────────────────────────────────────────────────
+// Consent prompt text (L5). Shown exactly once at first `cch init`. Honest
+// about what leaves the machine and what does not.
+const CONSENT_NOTICE = `
+  cc-habits captures code diffs from your AI coding sessions and sends them to
+  your chosen LLM provider (Anthropic, OpenAI, Groq, or a local Ollama model)
+  to extract your coding habits.
+
+  What leaves your machine: code diffs (redacted for emails, card numbers, IDs).
+  What stays local:         habits.md, log.jsonl, memories.md, config.yml.
+  What cc-habits stores:    nothing. There are no cc-habits servers.
+
+  Review the full privacy policy: https://github.com/Shreyan1/cc-habits/blob/main/PRIVACY.md
+`;
+
 export async function cmdInit(providerFlag?: string): Promise<number> {
   process.stdout.write(c(BOLD, 'cc-habits: initialising...\n'));
+
+  // L5: consent gate — show once, skip if already recorded, abort on N.
+  if (!consentGiven()) {
+    process.stdout.write(CONSENT_NOTICE);
+    const agreed = await promptYesNoDefaultTrue('  Proceed with installation? [Y/n] ');
+    if (!agreed) {
+      process.stdout.write('  Installation cancelled. Nothing was changed.\n');
+      return 0;
+    }
+    recordConsent();
+    process.stdout.write('\n');
+  }
 
   initHabitsMd();
   initLog();

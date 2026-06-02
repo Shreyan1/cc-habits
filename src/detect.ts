@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 export interface ToolInfo {
   id: string;
@@ -11,8 +11,10 @@ export interface ToolInfo {
 
 export function isCliOnPath(cli: string): boolean {
   try {
-    const cmd = process.platform === 'win32' ? `where ${cli}` : `which ${cli}`;
-    execSync(cmd, { stdio: 'ignore' });
+    // execFileSync with an argument array, never a shell, so a CLI name can
+    // never be interpreted as a shell command even if it ever becomes dynamic.
+    const lookup = process.platform === 'win32' ? 'where' : 'which';
+    execFileSync(lookup, [cli], { stdio: 'ignore' });
     return true;
   } catch {
     return false;

@@ -183,6 +183,8 @@ For tools without a hook mechanism (Cursor, Windsurf, Copilot), there's nothing 
 
 No configuration. No project setup. Works globally across every repository you open.
 
+> **Subagents:** Claude Code does not fire `PostToolUse` hooks for tool calls made *inside* a subagent (the Task/Agent tool), see [anthropics/claude-code#34692](https://github.com/anthropics/claude-code/issues/34692) (closed as not-planned). So edits a subagent makes are not captured live. They are still learned the moment you **commit** them, via the `cch git-capture` path, which is exactly Anthropic's own recommended workaround. If you lean heavily on subagents, install the Git post-commit hook during `cc-habits init` so nothing is missed.
+
 ---
 
 ## Carry your habits between tools

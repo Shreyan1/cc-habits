@@ -179,7 +179,7 @@ export function addImportToClaudeMd(): boolean {
   return true;
 }
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 export function installLocalGitHook(): boolean {
   try {
@@ -191,7 +191,7 @@ export function installLocalGitHook(): boolean {
       hooksDir = path.join('.git', 'hooks');
     } else {
       try {
-        const gitDir = execSync('git rev-parse --git-dir', { encoding: 'utf-8' }).trim();
+        const gitDir = execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf-8' }).trim();
         hooksDir = path.join(gitDir, 'hooks');
       } catch {
         return false;
@@ -235,7 +235,10 @@ export function installGlobalGitTemplateHook(): boolean {
       fs.writeFileSync(hookFile, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
     }
 
-    execSync(`git config --global init.templateDir "${templateDir.replace(/"/g, '\\"')}"`);
+    // execFileSync with an argument array, never a shell string, so a home dir
+    // containing shell metacharacters ($(...), backticks, ...) cannot trigger
+    // command substitution. Replaces the previous double-quoted execSync.
+    execFileSync('git', ['config', '--global', 'init.templateDir', templateDir]);
     return true;
   } catch {
     return false;

@@ -116,12 +116,21 @@ export async function getLatestVersion(now: number = Date.now()): Promise<string
   return undefined;
 }
 
+// Strip anything that is not a plausible semver character before a version is
+// printed to the terminal. latestVersion comes from the npm registry response,
+// which a MITM or a compromised registry could poison with terminal escape
+// sequences; printing it raw would be terminal-escape injection. This mirrors
+// the term() stripping the CLI applies to every other untrusted display string.
+function safeVersion(v: string): string {
+  return (v ?? '').replace(/[^0-9A-Za-z.+-]/g, '').slice(0, 32);
+}
+
 // Build the upgrade notice shown when a newer version is available. Returns null
 // when the installed version is already current (or newer, e.g. a dev build).
 export function buildUpdateNotice(currentVersion: string, latestVersion: string): string | null {
   if (!isNewerVersion(latestVersion, currentVersion)) return null;
   return [
-    `cc-habits: update available ${currentVersion} -> ${latestVersion}`,
+    `cc-habits: update available ${safeVersion(currentVersion)} -> ${safeVersion(latestVersion)}`,
     '  Upgrade:  npm install -g cc-habits@latest',
     '',
     '  Top features:',

@@ -1,0 +1,15 @@
+{
+  "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "transcript_path": "/Users/dev/.claude/projects/-Users-dev-project/f47ac10b.jsonl",
+  "cwd": "/Users/dev/project",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "src/example.ts",
+    "content": "export const greeting: string = 'hello';\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n"
+  },
+  "tool_result": {
+    "success": true
+  }
+}

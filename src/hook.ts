@@ -15,6 +15,7 @@ import { extractRules, extractMemoryCandidates } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
 import { memoriesEnabled } from './config';
 import { readSyncTargets, syncTargets } from './sync';
+import { validatePayload, logSchemaWarning, logUnknownEvent, KNOWN_UNSUPPORTED_EVENTS } from './hook-schema';
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit']);
 const MIN_SIGNALS = 3;
@@ -707,6 +708,11 @@ export function handlePostToolUse(adapter = 'claude-code'): void {
     if (!oversized) {
       try {
         const rawJson = JSON.parse(raw);
+        // T1: non-blocking drift check. PostToolUse is the highest-frequency
+        // hook, a renamed tool_name/tool_input would silently kill all capture,
+        // so log the drift but still proceed (processPostToolUse no-ops safely).
+        const check = validatePayload('post-tool-use', rawJson as Record<string, unknown>, adapter);
+        if (!check.ok) logSchemaWarning('post-tool-use', check.missing);
         const normalized = normalizeInput(rawJson, adapter);
         processPostToolUse(normalized);
       } catch (e) {
@@ -738,6 +744,14 @@ export async function handleStop(): Promise<void> {
 
   try {
     const data = JSON.parse(raw) as Record<string, unknown>;
+    // T1: contract check. A missing session_id would make readSignals fall back
+    // to ALL sessions, so skip extraction and log the drift rather than guess.
+    const check = validatePayload('stop', data);
+    if (!check.ok) {
+      logSchemaWarning('stop', check.missing);
+      process.exit(0);
+      return;
+    }
     const sessionId = String(data['session_id'] ?? data['sessionId'] ?? data['session'] ?? '');
     const result = await processStop(sessionId);
     if (result !== null) {
@@ -808,7 +822,18 @@ export function hookMain(): void {
       else if (event === 'stop') await handleStop();
       else if (event === 'user-prompt-submit') handleUserPromptSubmit();
       else if (event === 'session-start') handleSessionStart(adapter);
-      else process.exit(0);
+      else if (KNOWN_UNSUPPORTED_EVENTS.has(event)) {
+        // Deliberate no-op (e.g. subagent-stop). See hook-schema.ts for why:
+        // Claude Code does not fire PostToolUse for subagent tool calls, so there
+        // is nothing to extract here and the parent Stop already covers the
+        // shared session. Subagent edits are captured via git-capture instead.
+        process.exit(0);
+      } else {
+        // An event we neither handle nor know about. Log it as an early warning
+        // that Claude Code may have introduced or renamed a hook event.
+        logUnknownEvent(event);
+        process.exit(0);
+      }
     } catch (e) {
       logError(`hook ${event}: ${String(e)}`);
       process.exit(0);
