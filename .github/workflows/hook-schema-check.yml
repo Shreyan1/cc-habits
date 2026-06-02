@@ -25,6 +25,9 @@ on:
       - "tests-ts/hook-schema.test.ts"
       - ".github/workflows/hook-schema-check.yml"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   docs-drift:
     name: docs drift (field/event names present)
