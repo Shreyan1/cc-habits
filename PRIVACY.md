@@ -60,13 +60,20 @@ The npm latest-version check (new in v0.5.0) queries `registry.npmjs.org/cc-habi
 
 ## Redaction before any outbound call
 
-Before signals reach a cloud provider, the following patterns are replaced with sentinel tokens:
+Before signals reach a cloud provider, the following patterns are replaced with sentinel tokens. The logic lives in `src/redact.ts` and is exercised by a dedicated test suite.
 
-| Pattern | Replacement |
-|---|---|
-| Email addresses (RFC 5322 basic) | `<REDACTED:email>` |
-| Indian PAN (5 letters + 4 digits + 1 letter) | `<REDACTED:pan>` |
-| Credit card numbers (12–19 digits passing Luhn) | `<REDACTED:card>` |
+| Pattern | Replacement | Notes |
+|---|---|---|
+| Email addresses (RFC 5322 basic) | `<REDACTED:email>` | |
+| Indian PAN (5 letters + 4 digits + 1 letter) | `<REDACTED:pan>` | Case-insensitive |
+| Credit card numbers (12–19 digits passing Luhn) | `<REDACTED:card>` | |
+| PEM private key blocks (`BEGIN ... PRIVATE KEY`) | `<REDACTED:private-key>` | RSA, EC, PKCS8 |
+| AWS IAM access key IDs (`AKIA...`, `ASIA...`) | `<REDACTED:aws-key>` | Exact 20-char format |
+| Known API key prefixes (Anthropic `sk-ant-`, OpenAI `sk-proj-`, Groq `gsk_`, GitHub `ghp_`/`ghs_`/`github_pat_`, Slack `xoxb-`/`xoxp-`) | `<REDACTED:api-key>` | Minimum suffix length to avoid placeholder false positives |
+| JWT tokens (`eyJ...header.payload.signature`) | `<REDACTED:jwt>` | Three base64url segments |
+| Database connection strings with embedded passwords (`scheme://user:pass@host`) | `<REDACTED:db-url>` | Requires user:pass@ form |
+| Indian Aadhaar numbers (spaced/hyphenated `XXXX XXXX XXXX` format, first digit 2–9) | `<REDACTED:aadhaar>` | Compact 12-digit form not redacted (too high false-positive rate) |
+| US Social Security Numbers (`XXX-XX-XXXX` canonical form) | `<REDACTED:ssn>` | Invalid ranges (000, 666, 9xx, 00, 0000) excluded |
 
 This is **best-effort, not exhaustive.** It does not catch every secret, internal hostname, or proprietary identifier. If you handle other sensitive data, audit `log.jsonl` periodically with `cch log` and consider stricter retention. The extractor prompt also instructs the model never to output `<REDACTED:...>` content.
 
@@ -147,4 +154,4 @@ If you believe cc-habits has leaked data or has a vulnerability with privacy imp
 
 ---
 
-*Last updated: v0.5.1, 2026-05-31.*
+*Last updated: v0.5.2, 2026-06-03.*

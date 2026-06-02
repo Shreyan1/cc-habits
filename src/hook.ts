@@ -28,32 +28,10 @@ const MAX_SIGNALS_PER_EXTRACTION = 50;
 // 4 MB is generous even for a large Write payload; anything bigger is anomalous.
 const MAX_STDIN_BYTES = 4 * 1024 * 1024; // 4 MB
 
-// PHI redaction ────────────────────────────────────────────────────────────
-const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
-const PAN_RE = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi;
-const CARD_CANDIDATE_RE = /\b(?:\d[\s\-]?){12,19}\b/g;
-
-function luhnCheck(s: string): boolean {
-  const digits = s.replace(/[\s\-]/g, '');
-  if (!/^\d+$/.test(digits) || digits.length < 12) return false;
-  let total = 0;
-  for (let i = 0; i < digits.length; i++) {
-    let n = parseInt(digits[digits.length - 1 - i], 10);
-    if (i % 2 === 1) {
-      n *= 2;
-      if (n > 9) n -= 9;
-    }
-    total += n;
-  }
-  return total % 10 === 0;
-}
-
-export function redact(text: string): string {
-  text = text.replace(EMAIL_RE, '<REDACTED:email>');
-  text = text.replace(PAN_RE, '<REDACTED:pan>');
-  text = text.replace(CARD_CANDIDATE_RE, m => (luhnCheck(m) ? '<REDACTED:card>' : m));
-  return text;
-}
+// PII redaction is in src/redact.ts. Imported for internal use and re-exported
+// so existing callers (capture.ts, bootstrap.ts, tests) work without changes.
+import { redact } from './redact';
+export { redact };
 
 // Noise gating ─────────────────────────────────────────────────────────────
 export function isNoise(diff: string): boolean {
