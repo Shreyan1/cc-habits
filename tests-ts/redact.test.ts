@@ -106,7 +106,9 @@ describe('known API key prefixes', () => {
   it('redacts Slack bot token (xoxb- prefix)', () => {
     // Construct the value at runtime so GitHub Secret Scanning does not flag
     // the test file itself as containing a real token.
-    const slackToken = ['xoxb', 'AAAAAAAAAAA', 'BBBBBBBBBBB', 'cccccccccccccccccccccccc'].join('-');
+    // Middle segments must be numeric per the Slack format; last is alphanumeric.
+    // Values are deliberately invalid (AAAAA is not a real workspace ID).
+    const slackToken = ['xoxb', '00000000000', '11111111111', 'cccccccccccccccccccccccc'].join('-');
     const r = redact(`token = "${slackToken}"`);
     expect(r).toContain('<REDACTED:api-key>');
   });
