@@ -74,8 +74,13 @@ Before signals reach a cloud provider, the following patterns are replaced with 
 | Database connection strings with embedded passwords (`scheme://user:pass@host`) | `<REDACTED:db-url>` | Requires user:pass@ form |
 | Indian Aadhaar numbers (spaced/hyphenated `XXXX XXXX XXXX` format, first digit 2–9) | `<REDACTED:aadhaar>` | Compact 12-digit form not redacted (too high false-positive rate) |
 | US Social Security Numbers (`XXX-XX-XXXX` canonical form) | `<REDACTED:ssn>` | Invalid ranges (000, 666, 9xx, 00, 0000) excluded |
+| UK NHS numbers | `<REDACTED:nhs>` | Gated by the Modulus-11 check digit (near-zero false positives) |
+| UK National Insurance numbers (`AB123456C`) | `<REDACTED:uk-ni>` | Invalid prefixes (D/F/I/Q/U/V, BG/GB/NK/KN/TN/NT/ZZ) excluded |
+| IBAN bank account numbers | `<REDACTED:iban>` | Gated by the Mod-97 checksum |
+| US phone numbers (canonical separated / `+1` forms) | `<REDACTED:phone>` | Bare 10-digit numbers not redacted (too high FP) |
+| Sensitive keyed values (`patient_name`, `dob`, `diagnosis`, `mrn`, `address`, `religion`, `ethnicity`, `salary`, `password`, ~50 keys) | `<REDACTED:pii>` | Redacts the value when its key is a known sensitive field, covers HIPAA / GDPR Article 9 categories in `key = value` code |
 
-This is **best-effort, not exhaustive.** It does not catch every secret, internal hostname, or proprietary identifier. If you handle other sensitive data, audit `log.jsonl` periodically with `cch log` and consider stricter retention. The extractor prompt also instructs the model never to output `<REDACTED:...>` content.
+This is **best-effort, not exhaustive.** See [RESPONSIBLE_AI.md](RESPONSIBLE_AI.md) for the full covered / not-covered matrix, the HIPAA / GDPR / UK posture, and the deployment modes (Ollama is the regulated-data option). It does not catch every secret, internal hostname, or proprietary identifier. If you handle other sensitive data, audit `log.jsonl` periodically with `cch log` and consider stricter retention. The extractor prompt also instructs the model never to output `<REDACTED:...>` content.
 
 In addition, the extracted rules themselves are sanitized before being written to `habits.md`, injected into any agent's context, imported, or synced. The sanitizer strips control characters, URLs, prompt-injection keywords (`SYSTEM:`, ChatML and Llama role tokens), zero-width splitting, Unicode homoglyphs (NFKC-folded), and any `<tag>` token (including `</coding-habits>`) so a compromised signal cannot poison your context. Length is bounded before regex evaluation to prevent ReDoS.
 
@@ -154,4 +159,4 @@ If you believe cc-habits has leaked data or has a vulnerability with privacy imp
 
 ---
 
-*Last updated: v0.5.2, 2026-06-03.*
+*Last updated: v0.5.3, 2026-06-03.*

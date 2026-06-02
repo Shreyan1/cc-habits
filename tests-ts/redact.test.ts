@@ -221,6 +221,143 @@ describe('US Social Security Numbers', () => {
   });
 });
 
+// ── UK NHS number (Modulus-11 checksum) ──────────────────────────────────────
+
+describe('UK NHS number', () => {
+  it('redacts a checksum-valid NHS number (spaced)', () => {
+    const r = redact('nhs = "943 476 5919"');
+    expect(r).toContain('<REDACTED:nhs>');
+    expect(r).not.toContain('943 476 5919');
+  });
+
+  it('redacts a checksum-valid NHS number (compact)', () => {
+    expect(redact('id 4505577104 here')).toContain('<REDACTED:nhs>');
+  });
+
+  it('does not redact a 10-digit number that fails the checksum', () => {
+    expect(redact('order 9434765910 shipped')).not.toContain('<REDACTED:nhs>');
+  });
+});
+
+// ── UK National Insurance number ─────────────────────────────────────────────
+
+describe('UK National Insurance number', () => {
+  it('redacts a valid NINO', () => {
+    const r = redact('ni = "AB123456C"');
+    expect(r).toContain('<REDACTED:uk-ni>');
+    expect(r).not.toContain('AB123456C');
+  });
+
+  it('redacts a spaced NINO', () => {
+    expect(redact('AB 12 34 56 C')).toContain('<REDACTED:uk-ni>');
+  });
+
+  it('does not redact an excluded prefix (GB)', () => {
+    expect(redact('GB123456C')).not.toContain('<REDACTED:uk-ni>');
+  });
+});
+
+// ── IBAN (Mod-97 checksum) ────────────────────────────────────────────────────
+
+describe('IBAN bank account numbers', () => {
+  it('redacts a checksum-valid UK IBAN', () => {
+    const r = redact('iban = "GB82WEST12345698765432"');
+    expect(r).toContain('<REDACTED:iban>');
+    expect(r).not.toContain('GB82WEST12345698765432');
+  });
+
+  it('redacts a checksum-valid German IBAN', () => {
+    expect(redact('DE89370400440532013000')).toContain('<REDACTED:iban>');
+  });
+
+  it('does not redact a checksum-invalid IBAN-shaped string', () => {
+    expect(redact('GB82WEST12345698765433')).not.toContain('<REDACTED:iban>');
+  });
+});
+
+// ── US phone numbers ──────────────────────────────────────────────────────────
+
+describe('US phone numbers', () => {
+  it('redacts a parenthesized phone number', () => {
+    const r = redact('call (415) 555-0132 now');
+    expect(r).toContain('<REDACTED:phone>');
+    expect(r).not.toContain('555-0132');
+  });
+
+  it('redacts a dashed phone number', () => {
+    expect(redact('phone: 415-555-0132')).toContain('<REDACTED:phone>');
+  });
+
+  it('redacts a +1 prefixed phone number', () => {
+    expect(redact('+1 415 555 0132')).toContain('<REDACTED:phone>');
+  });
+
+  it('does not redact a bare 10-digit number (too high FP)', () => {
+    expect(redact('value = 4155550132')).not.toContain('<REDACTED:phone>');
+  });
+});
+
+// ── context-gated keyed-value redaction ──────────────────────────────────────
+
+describe('keyed-value redaction (HIPAA / GDPR unstructured-in-code)', () => {
+  it('redacts a patient name value (name detection without an ML model)', () => {
+    const r = redact('patient_name = "John Q. Smith"');
+    expect(r).toContain('<REDACTED:pii>');
+    expect(r).not.toContain('John Q. Smith');
+    expect(r).toContain('patient_name'); // key preserved
+  });
+
+  it('redacts a date of birth value', () => {
+    const r = redact('dob: "1985-07-21"');
+    expect(r).toContain('<REDACTED:pii>');
+    expect(r).not.toContain('1985-07-21');
+  });
+
+  it('redacts a diagnosis value (medical condition)', () => {
+    const r = redact('diagnosis = "Type 2 Diabetes Mellitus"');
+    expect(r).toContain('<REDACTED:pii>');
+    expect(r).not.toContain('Diabetes');
+  });
+
+  it('redacts a generic password value', () => {
+    const r = redact('password = "hunter2isnotsecure"');
+    expect(r).toContain('<REDACTED:pii>');
+    expect(r).not.toContain('hunter2');
+  });
+
+  it('redacts a GDPR Article 9 special category (religion)', () => {
+    expect(redact('religion: "Hindu"')).toContain('<REDACTED:pii>');
+  });
+
+  it('preserves the key and quote style', () => {
+    expect(redact("first_name = 'Alice'")).toContain("first_name = '<REDACTED:pii>'");
+    expect(redact('last_name = "Bob"')).toContain('last_name = "<REDACTED:pii>"');
+  });
+
+  it('does NOT redact a benign bare "name" key (avoids over-trigger)', () => {
+    const r = redact('const name = "submitButton";');
+    expect(r).not.toContain('<REDACTED:pii>');
+    expect(r).toContain('submitButton');
+  });
+
+  it('does NOT redact a benign bare "id" key', () => {
+    expect(redact('id = 42')).not.toContain('<REDACTED:pii>');
+  });
+
+  it('does not double-redact a value already redacted by a structured pattern', () => {
+    // card structural redaction runs first; keyed pass must skip it
+    const r = redact('account_number = "4111111111111111"');
+    expect(r).toContain('<REDACTED:card>');
+    expect(r).not.toContain('<REDACTED:card><REDACTED');
+  });
+
+  it('is idempotent across keyed values', () => {
+    const input = 'patient_name = "Jane Doe"\ndob = "1990-01-01"';
+    const once = redact(input);
+    expect(redact(once)).toBe(once);
+  });
+});
+
 // ── combined / real-world diff shape ─────────────────────────────────────────
 
 describe('combined redaction in a realistic diff', () => {
