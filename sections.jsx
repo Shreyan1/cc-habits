@@ -234,6 +234,12 @@ const PERF_NETWORK = [
   ["Stop", "once / session", "1 small-model call"]
 ];
 
+const PERF_REDACTION = [
+  ["Typical diff, 4 KB cap", "0.06 ms", "0.09 ms"],
+  ["Adversarial, 4 KB cap", "0.08 ms", "0.22 ms"],
+  ["Adversarial, 64 KB uncapped", "1.20 ms", "1.73 ms"]
+];
+
 function Performance() {
   const copy = useCopy();
   const rowStyle = {
@@ -281,6 +287,33 @@ function Performance() {
               Signals capped at 50 + 180 KB to bound that one call.
             </div>
           </TerminalPanel>
+        </div>
+
+        <div style={{ marginTop: "2.5rem", maxWidth: "44rem" }}>
+          <p className="t-caption ink-dim" style={{ marginBottom: "0.75rem" }}>
+            redaction  ·  linear-time, bounded by a 4 KB input cap
+          </p>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", color: "var(--ink-muted-on-dark)", fontWeight: 500 }}>input</th>
+                <th style={{ textAlign: "right", padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", color: "var(--ink-muted-on-dark)", fontWeight: 500 }}>p50</th>
+                <th style={{ textAlign: "right", padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", color: "var(--ink-muted-on-dark)", fontWeight: 500 }}>p99</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PERF_REDACTION.map((r, i) =>
+                <tr key={i}>
+                  <td style={{ padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)" }}>{r[0]}</td>
+                  <td style={{ padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", textAlign: "right", color: "var(--accent)" }}>{r[1]}</td>
+                  <td style={{ padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", textAlign: "right", color: "var(--accent)" }}>{r[2]}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          <p className="t-caption ink-dim" style={{ marginTop: "0.75rem" }}>
+            16x the input is ~15x the time. Linear, with no catastrophic backtracking, so the cap keeps every redaction under a millisecond.
+          </p>
         </div>
       </div>
     </section>
