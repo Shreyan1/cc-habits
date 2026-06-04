@@ -34,18 +34,16 @@ const COPY = {
   hiwTitle: "A few hooks. One markdown file. Zero config.",
   hiwSub: "cc-habits plugs into your tool's lifecycle hooks. Capture fires on every edit, inject on every prompt, the same way in each tool, with no per-project setup.",
   hiwFooter: "The capture and inject hooks run locally in milliseconds. The session-end hook makes a single small-model call, and a session-start hook surfaces anything waiting for your review. You choose the provider.",
-  learnsCaption: "02  ·  what it learns  ·  habits",
-  learnsTitle: "Your style, in plain markdown.",
-  learnsBody: "habits.md is human-readable markdown. Read it, edit it, delete a rule, or commit it to git. The format is documented as an open spec, so you own your data.",
-  memoriesCaption: "03  ·  what it remembers  ·  memories",
-  memoriesTitle: "Mistakes, so they don't repeat.",
-  memoriesBody: <span>Habits are only half the memory. Turn the other half on with <strong><em>cch memories --enable</em></strong>: cc-habits notices when you fix the same class of bug twice and writes it to <code>memories.md</code>, a trigger-matched caution your agent sees only when it's about to do that thing again. Habits shape how code is written; memories stop the agent repeating what burned you before. Same plain-text, same review queue, same tombstones.</span>,
-  guardCaption: "04  ·  accuracy",
+  capturesCaption: "02  ·  what it captures",
+  capturesTitle: "Two kinds of memory, both in plain text.",
+  capturesSub: "Habits are how you write code. Memories are the mistakes you don't want to repeat. cc-habits learns both from the edits you already make, and writes them to files you can read, edit, and own.",
+  capturesBody: <span>Both are human-readable markdown you can read, edit, delete, or commit to git, documented as an open spec. Memories are opt-in, turned on with <strong><em>cch memories --enable</em></strong>. Same review queue, same tombstones, same files you own.</span>,
+  guardCaption: "03  ·  accuracy",
   guardTitle: "Four guardrails so it won't poison your context.",
-  perfCaption: "05  ·  performance  ·  measured, not claimed",
+  perfCaption: "04  ·  performance  ·  measured, not claimed",
   perfTitle: "We profiled it. Here are the real numbers.",
   perfBody: "Every number here comes from benchmarking the actual hook binary, not a guess. The capture hook does its work in about five milliseconds. Nearly all of the rest is the Node runtime starting up, the same tax any CLI pays, and none of it blocks your session.",
-  portableCaption: "06  ·  portable  ·  the standard that travels with you",
+  portableCaption: "05  ·  portable  ·  the standard that travels with you",
   portableTitle: "Your habits aren't locked to one tool.",
   portableBody: [
     <span><strong><em>cch sync</em></strong> automatically translates your active habits into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and <code>.clinerules</code>.</span>,
@@ -53,10 +51,10 @@ const COPY = {
     "Learn your habits in whatever tool you're using today; use them across Claude Code, Gemini CLI, Codex, Kimi, Cursor, and Cline without re-learning.",
     <span>Your habits become a portable asset you own, written in an open format, not a setting trapped inside one vendor. The same file travels with you across tools today, and across a team next: a convention learned once can spread to everyone, so the layer gets more valuable the more it is used.</span>
   ],
-  installCaption: "07  ·  install",
+  installCaption: "06  ·  install",
   installTitle: "Two commands. You're done.",
   installBody: <span><strong><em>cch init</em></strong> detects your tools and walks you through picking a provider: Anthropic for the cheapest run, Ollama for a free local run, or OpenAI/Groq keys. It even offers to bootstrap habits from your past sessions instantly.</span>,
-  faqCaption: "08  ·  faq",
+  faqCaption: "07  ·  faq",
   faqTitle: "Common questions.",
   ctaTitle: "Make every agent write like you.",
 };
@@ -265,8 +263,7 @@ function App() {
         <LogoMarquee />
         <TheProblem />
         <HowItWorks />
-        <WhatItLearns />
-        <Memories />
+        <WhatItCaptures />
         <Guardrails />
         <Performance />
         <UseAnywhere />

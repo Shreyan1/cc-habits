@@ -53,55 +53,44 @@ function TheProblem() {
   );
 }
 
-function WhatItLearns() {
+function WhatItCaptures() {
   const copy = useCopy();
+  const subLabel = { margin: "0 0 1.25rem", letterSpacing: "0.04em" };
   return (
-    <section id="what-it-learns" className="section section--dark">
+    <section id="what-it-captures" className="section section--dark">
       <div className="container">
         <div className="section-head">
-          <p className="t-caption ink-dim">{copy.learnsCaption}</p>
-          <h2 className="t-display-2">{copy.learnsTitle}</h2>
+          <p className="t-caption ink-dim">{copy.capturesCaption}</p>
+          <h2 className="t-display-2">{copy.capturesTitle}</h2>
         </div>
 
-        <div className="habits-grid">
-          <HabitCard
-            header="## Python"
-            rule="Add type hints to all function parameters and return types."
-            pos={7}
-            neg={0}
-            since="2026-02-12"
-            confidence={0.75} />
-          
-          <HabitCard
-            header="## Error Handling"
-            rule="Wrap external I/O in try/except and re-raise as RuntimeError."
-            pos={4}
-            neg={1}
-            since="2026-03-04"
-            confidence={0.55} />
-          
-          <HabitCard
-            header="## Naming"
-            rule="snake_case for module-level functions, PascalCase for types."
-            pos={6}
-            neg={0}
-            since="2026-01-28"
-            confidence={0.65} />
-        </div>
-
-        <p
-          className="t-body mt-8"
-          style={{ maxWidth: "62ch", color: "var(--ink-muted-on-dark)" }}>
-          {copy.learnsBody}
+        <p className="t-body" style={{ maxWidth: "62ch", margin: "0 0 2.75rem", color: "var(--ink-muted-on-dark)" }}>
+          {copy.capturesSub}
         </p>
 
-        <div className="mt-4">
-          <ButtonGhost
-            as="a"
-            href="docs.html#spec"
-            target="_blank"
-            rel="noreferrer">
+        <p className="t-caption ink-dim" style={subLabel}>habits  ·  how you write code</p>
+        <div className="habits-grid">
+          <HabitCard header="## Python" rule="Add type hints to all function parameters and return types." pos={7} neg={0} since="2026-02-12" confidence={0.75} />
+          <HabitCard header="## Error Handling" rule="Wrap external I/O in try/except and re-raise as RuntimeError." pos={4} neg={1} since="2026-03-04" confidence={0.55} />
+          <HabitCard header="## Naming" rule="snake_case for module-level functions, PascalCase for types." pos={6} neg={0} since="2026-01-28" confidence={0.65} />
+        </div>
+
+        <p className="t-caption ink-dim" style={{ ...subLabel, marginTop: "3.25rem" }}>memories  ·  what to avoid</p>
+        <div className="habits-grid">
+          <MemoryCard header="## Async" when="calling an async function" caution="Used the promise as a value, forgot to await." correction="await the call, or return the promise." />
+          <MemoryCard header="## SQL" when="building a query from input" caution="Interpolated a variable straight into the SQL string." correction="use a parameterized query." />
+          <MemoryCard header="## Resources" when="opening a file or socket" caution="Left the handle open on the error path." correction="close it in finally, or use a context manager." />
+        </div>
+
+        <p className="t-body mt-8" style={{ maxWidth: "64ch", color: "var(--ink-muted-on-dark)" }}>
+          {copy.capturesBody}
+        </p>
+        <div className="mt-4" style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          <ButtonGhost as="a" href="docs.html#spec" target="_blank" rel="noreferrer">
             View the spec <span className="arr" aria-hidden="true">→</span>
+          </ButtonGhost>
+          <ButtonGhost as="a" href="docs.html#memories" target="_blank" rel="noreferrer">
+            How memories work <span className="arr" aria-hidden="true">→</span>
           </ButtonGhost>
         </div>
       </div>
@@ -118,56 +107,6 @@ function MemoryCard({ header, when, caution, correction }) {
         {correction ? <p className="memory__fix">→ {correction}</p> : null}
       </div>
     </TerminalPanel>
-  );
-}
-
-function Memories() {
-  const copy = useCopy();
-  return (
-    <section id="memories" className="section">
-      <div className="container">
-        <div className="section-head">
-          <p className="t-caption ink-dim">{copy.memoriesCaption}</p>
-          <h2 className="t-display-2">{copy.memoriesTitle}</h2>
-        </div>
-
-        <div className="habits-grid">
-          <MemoryCard
-            header="## Async"
-            when="calling an async function"
-            caution="Used the promise as a value, forgot to await."
-            correction="await the call, or return the promise." />
-
-          <MemoryCard
-            header="## SQL"
-            when="building a query from input"
-            caution="Interpolated a variable straight into the SQL string."
-            correction="use a parameterized query." />
-
-          <MemoryCard
-            header="## Resources"
-            when="opening a file or socket"
-            caution="Left the handle open on the error path."
-            correction="close it in finally, or use a context manager." />
-        </div>
-
-        <p
-          className="t-body mt-8"
-          style={{ maxWidth: "64ch", color: "var(--ink-muted)" }}>
-          {copy.memoriesBody}
-        </p>
-
-        <div className="mt-4">
-          <ButtonGhost
-            as="a"
-            href="docs.html#memories"
-            target="_blank"
-            rel="noreferrer">
-            How memories work <span className="arr" aria-hidden="true">→</span>
-          </ButtonGhost>
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -544,8 +483,7 @@ function FinalCta() {
 
 Object.assign(window, {
   TheProblem,
-  WhatItLearns,
-  Memories,
+  WhatItCaptures,
   Guardrails,
   Performance,
   UseAnywhere,
