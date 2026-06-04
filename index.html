@@ -1013,7 +1013,7 @@ function Hero() {
       <div className="container hero__inner">
         <div className="hero__brand">
           <Wordmark size="1.45rem" className="hero__logo" blink />
-          <span className="hero__badge">v0.4.0</span>
+          <span className="hero__badge">v0.5.3</span>
           <span className="hero__badge">open source</span>
         </div>
 
@@ -1490,7 +1490,7 @@ function Install() {
               {"> picked anthropic/haiku as extractor"}
             </div>
             <div style={{ color: "var(--ink-muted)", fontSize: "0.8125rem" }}>
-              {"> wrote ~/.claude/hooks.json"}
+              {"> wrote ~/.claude/settings.json"}
             </div>
             <div style={{ color: "var(--ink-muted)", fontSize: "0.8125rem" }}>
               {"> imported 4 past sessions"}
@@ -1669,7 +1669,7 @@ window.useTweakSet = useTweakSet;
 
 const COPY = {
   heroHeadline: "Every coding agent, writing like you.",
-  heroCaption: "cc-habits  ·  v0.4.0  ·  open source",
+  heroCaption: "cc-habits  ·  v0.5.3  ·  open source",
   heroTagline: "It learns your style from the edits you already make, and feeds it back into every session, automatically.",
   heroSub:
     "A local-first CLI that writes your style to a plain habits.md every agent reads every session, across Claude Code, Gemini CLI, Codex, and Kimi. Every hook runs in under 50ms and never blocks your terminal. No lock-in.",
@@ -1698,6 +1698,7 @@ const COPY = {
   portableTitle: "Your habits aren't locked to one tool.",
   portableBody: [
     <span><strong><em>cch sync</em></strong> automatically translates your active habits into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and <code>.clinerules</code>.</span>,
+    <span>Take them anywhere: <strong><em>cch export</em></strong> writes a single portable profile and <strong><em>cch import</em></strong> pulls one back in from a file or an <code>https://</code> URL, so a setup moves to a new machine, or to a teammate, in one command.</span>,
     "Learn your habits in whatever tool you're using today; use them across Claude Code, Gemini CLI, Codex, Kimi, Cursor, and Cline without re-learning.",
     <span>Your habits become a portable asset you own, written in an open format, not a setting trapped inside one vendor. The same file travels with you across tools today, and across a team next: a convention learned once can spread to everyone, so the layer gets more valuable the more it is used.</span>
   ],
