@@ -246,14 +246,16 @@ describe('v0.3.0 universal: install hooks security and interpolation', () => {
     expect(data.hooks.PostToolUse).toBeUndefined();
   });
 
-  it('registerCodexHooks writes correct toml hooks with --adapter', () => {
+  it('registerCodexHooks writes correct json hooks with --adapter', () => {
     const configToml = path.join(tmpDir, 'config.toml');
+    const hooksJson = path.join(tmpDir, 'hooks.json');
     const res = registerCodexHooks(configToml, '/bin/cc-habits-hook');
     expect(res.postAdded).toBe(true);
 
-    const content = fs.readFileSync(configToml, 'utf-8');
-    expect(content).toContain('[hooks]');
-    expect(content).toContain('post-tool-use --adapter codex');
+    const content = fs.readFileSync(hooksJson, 'utf-8');
+    const data = JSON.parse(content);
+    expect(data.hooks.PostToolUse[0].hooks[0].command).toContain('post-tool-use --adapter codex');
+    expect(data.hooks.Stop[0].hooks[0].command).toContain('stop --adapter codex');
   });
 
   it('registerClineHooks writes hooks shell scripts correctly', () => {

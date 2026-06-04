@@ -347,37 +347,49 @@ export function registerCodexHooks(targetFile: string, hookBin: string): HookReg
   const postCmd = `${safeBin} post-tool-use --adapter codex || true`;
   const stopCmd = `${safeBin} stop --adapter codex || true`;
 
-  let content = '';
-  if (fs.existsSync(targetFile)) {
-    content = fs.readFileSync(targetFile, 'utf-8');
+  const jsonFile = path.join(path.dirname(targetFile), 'hooks.json');
+  let settings: Record<string, any> = {};
+
+  if (fs.existsSync(jsonFile)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(jsonFile, 'utf-8'));
+    } catch {
+      // safe fallback
+    }
   }
+
+  if (!settings['hooks']) settings['hooks'] = {};
+  const hooks = settings['hooks'] as Record<string, unknown[]>;
+  if (!hooks['PostToolUse']) hooks['PostToolUse'] = [];
+  if (!hooks['Stop']) hooks['Stop'] = [];
 
   let postAdded = false;
   let stopAdded = false;
 
-  if (!content.includes(postCmd)) {
-    if (!content.includes('[hooks]')) {
-      content += `\n[hooks]\n`;
-    }
-    content += `PostToolUse = ${tomlString(postCmd)}\n`;
+  const postHook = {
+    hooks: [{ type: 'command', command: postCmd }],
+  };
+  const stopHook = {
+    hooks: [{ type: 'command', command: stopCmd }],
+  };
+
+  if (!hookAlreadyRegistered(hooks['PostToolUse'], postCmd)) {
+    hooks['PostToolUse'].push(postHook);
     postAdded = true;
   }
-  if (!content.includes(stopCmd)) {
-    if (!content.includes('[hooks]')) {
-      content += `\n[hooks]\n`;
-    }
-    content += `Stop = ${tomlString(stopCmd)}\n`;
+  if (!hookAlreadyRegistered(hooks['Stop'], stopCmd)) {
+    hooks['Stop'].push(stopHook);
     stopAdded = true;
   }
 
-  if (fs.existsSync(targetFile) && fs.lstatSync(targetFile).isSymbolicLink()) {
-    throw new Error(`refusing to write through symlink: ${targetFile}`);
+  if (fs.existsSync(jsonFile) && fs.lstatSync(jsonFile).isSymbolicLink()) {
+    throw new Error(`refusing to write through symlink: ${jsonFile}`);
   }
-  const tmpPath = `${targetFile}.tmp.${process.pid}`;
+  const tmpPath = `${jsonFile}.tmp.${process.pid}`;
   try {
-    fs.mkdirSync(path.dirname(targetFile), { recursive: true });
-    fs.writeFileSync(tmpPath, content, 'utf-8');
-    fs.renameSync(tmpPath, targetFile);
+    fs.mkdirSync(path.dirname(jsonFile), { recursive: true });
+    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+    fs.renameSync(tmpPath, jsonFile);
   } catch (e) {
     try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
     throw e;
