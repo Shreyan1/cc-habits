@@ -131,9 +131,15 @@ describe('storage', () => {
       session_id: 'rot', type: 'edit', file: 'app.ts',
       diff: '+' + 'x'.repeat(250),
     };
-    for (let i = 0; i < 8_000; i++) {
-      appendSignal({ ...base, ts: `2026-05-22T00:00:${String(i % 60).padStart(2, '0')}Z` });
+    const linesToPreWrite: string[] = [];
+    for (let i = 0; i < 7_999; i++) {
+      linesToPreWrite.push(JSON.stringify({ ...base, ts: `2026-05-22T00:00:${String(i % 60).padStart(2, '0')}Z` }));
     }
+    fs.writeFileSync(storagePaths.logFile, linesToPreWrite.join('\n') + '\n');
+
+    // Trigger rotation by appending the 8,000th signal
+    appendSignal({ ...base, ts: '2026-05-22T00:00:59Z' });
+
     const stat = fs.statSync(storagePaths.logFile);
     // After rotation the file must be well below the 2 MB trigger.
     expect(stat.size).toBeLessThan(2 * 1024 * 1024);
