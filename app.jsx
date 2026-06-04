@@ -46,10 +46,8 @@ const COPY = {
   portableCaption: "05  ·  portable  ·  the standard that travels with you",
   portableTitle: "Your habits aren't locked to one tool.",
   portableBody: [
-    <span><strong><em>cch sync</em></strong> automatically translates your active habits into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and <code>.clinerules</code>.</span>,
-    <span>Take them anywhere: <strong><em>cch export</em></strong> writes a single portable profile and <strong><em>cch import</em></strong> pulls one back in from a file or an <code>https://</code> URL, so a setup moves to a new machine, or to a teammate, in one command.</span>,
-    "Learn your habits in whatever tool you're using today; use them across Claude Code, Gemini CLI, Codex, Kimi, Cursor, and Cline without re-learning.",
-    <span>Your habits become a portable asset you own, written in an open format, not a setting trapped inside one vendor. The same file travels with you across tools today, and across a team next: a convention learned once can spread to everyone, so the layer gets more valuable the more it is used.</span>
+    <span><strong><em>cch sync</em></strong> writes your active habits into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and <code>.clinerules</code>, and <strong><em>cch export/import</em></strong> moves a whole profile to a new machine or a teammate from a file or an <code>https://</code> URL.</span>,
+    <span>Your habits are a portable asset you own, in an open format, not a setting trapped inside one vendor. A convention learned once can spread to a whole team, so the layer gets more valuable the more it is used.</span>
   ],
   installCaption: "06  ·  install",
   installTitle: "Two commands. You're done.",
