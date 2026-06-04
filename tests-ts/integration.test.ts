@@ -11,6 +11,7 @@ import { installPaths } from '../src/install';
 import { processPostToolUse, processStop, isNoise, redact } from '../src/hook';
 import { cmdInit, cmdView, cmdReset, cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones } from '../src/cli';
 import * as extractor from '../src/extractor';
+import * as detect from '../src/detect';
 
 vi.mock('../src/extractor');
 
@@ -61,6 +62,7 @@ beforeEach(() => {
   initLog();
   vi.mocked(extractor.extractRules).mockResolvedValue([]);
   vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([]);
+  vi.spyOn(detect, 'isCliOnPath').mockReturnValue(false);
 });
 
 afterEach(() => {

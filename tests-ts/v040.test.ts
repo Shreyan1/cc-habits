@@ -13,6 +13,7 @@ import { normalizeInput, ALLOWED_ADAPTERS } from '../src/adapters';
 import { SUPPORTED_TOOLS, HOOK_ADAPTERS } from '../src/supported';
 import { nextIndex, renderMenu, MENU_ITEMS } from '../src/menu';
 import * as extractor from '../src/extractor';
+import * as detect from '../src/detect';
 
 vi.mock('../src/extractor');
 
@@ -38,6 +39,7 @@ beforeEach(() => {
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
   
   vi.mocked(extractor.extractRules).mockResolvedValue([]);
+  vi.spyOn(detect, 'isCliOnPath').mockReturnValue(false);
 });
 
 afterEach(() => {
