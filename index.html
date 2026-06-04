@@ -1416,6 +1416,75 @@ function Guardrails() {
   );
 }
 
+/* ============================================================
+   04 - Performance (measured, not claimed)
+   ============================================================ */
+const PERF_ROWS = [
+  ["Node startup", "interpreter boot, not our code", "~40 ms"],
+  ["Module load", "cc-habits bundle evaluates", "~27 ms"],
+  ["Capture work", "parse, redact, append signal", "~5 ms"],
+  ["Full hook", "end to end, per edit", "~72 ms"]
+];
+
+const PERF_NETWORK = [
+  ["PostToolUse", "every edit", "no network"],
+  ["UserPromptSubmit", "every prompt", "no network"],
+  ["Stop", "once / session", "1 small-model call"]
+];
+
+function Performance() {
+  const copy = useCopy();
+  const rowStyle = {
+    display: "flex", justifyContent: "space-between", alignItems: "baseline",
+    flexWrap: "wrap", gap: "0.25rem 1rem", padding: "0.625rem 0",
+    borderBottom: "0.5px solid rgba(255,255,255,.14)",
+    fontSize: "0.875rem", fontFamily: "var(--font-mono)"
+  };
+  return (
+    <section id="performance" className="section section--dark">
+      <div className="container">
+        <div className="section-head">
+          <p className="t-caption ink-dim">{copy.perfCaption}</p>
+          <h2 className="t-display-2">{copy.perfTitle}</h2>
+        </div>
+
+        <div className="portable__grid">
+          <div className="portable__copy">
+            <p className="t-body">{copy.perfBody}</p>
+
+            <div style={{ marginTop: "1.5rem", borderTop: "0.5px solid rgba(255,255,255,.14)" }}>
+              {PERF_ROWS.map((r, i) =>
+                <div key={i} style={rowStyle}>
+                  <span style={{ flex: "1 1 7rem" }}>{r[0]}</span>
+                  <span style={{ color: "var(--ink-muted-on-dark)", flex: "2 1 10rem" }}>{r[1]}</span>
+                  <span style={{ color: "var(--accent)" }}>{r[2]}</span>
+                </div>
+              )}
+            </div>
+
+            <p className="t-caption ink-dim" style={{ marginTop: "1rem" }}>
+              Measured on the real hook binary. Node 26, Apple Silicon, n=60 per event, isolated store. p99 ~92 ms.
+            </p>
+          </div>
+
+          <TerminalPanel header="network calls per session">
+            {PERF_NETWORK.map((r, i) =>
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem 1rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+                <span>{r[0]}</span>
+                <span style={{ color: "var(--ink-muted-on-dark)" }}>{r[1]}</span>
+                <span style={{ color: r[2] === "no network" ? "var(--accent)" : "inherit" }}>{r[2]}</span>
+              </div>
+            )}
+            <div style={{ marginTop: "0.75rem", color: "var(--ink-muted-on-dark)", fontSize: "0.8125rem" }}>
+              Signals capped at 50 + 180 KB to bound that one call.
+            </div>
+          </TerminalPanel>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function UseAnywhere() {
   const copy = useCopy();
   return (
@@ -1643,6 +1712,7 @@ Object.assign(window, {
   WhatItLearns,
   Memories,
   Guardrails,
+  Performance,
   UseAnywhere,
   Install,
   Faq,
@@ -1694,7 +1764,10 @@ const COPY = {
   memoriesBody: <span>Habits are only half the memory. Turn the other half on with <strong><em>cch memories --enable</em></strong>: cc-habits notices when you fix the same class of bug twice and writes it to <code>memories.md</code>, a trigger-matched caution your agent sees only when it's about to do that thing again. Habits shape how code is written; memories stop the agent repeating what burned you before. Same plain-text, same review queue, same tombstones.</span>,
   guardCaption: "03  ·  accuracy",
   guardTitle: "Four guardrails so it won't poison your context.",
-  portableCaption: "04  ·  portable  ·  the standard that travels with you",
+  perfCaption: "04  ·  performance  ·  measured, not claimed",
+  perfTitle: "We profiled it. Here are the real numbers.",
+  perfBody: "Every number here comes from benchmarking the actual hook binary, not a guess. The capture hook does its work in about five milliseconds. Nearly all of the rest is the Node runtime starting up, the same tax any CLI pays, and none of it blocks your session.",
+  portableCaption: "05  ·  portable  ·  the standard that travels with you",
   portableTitle: "Your habits aren't locked to one tool.",
   portableBody: [
     <span><strong><em>cch sync</em></strong> automatically translates your active habits into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and <code>.clinerules</code>.</span>,
@@ -1702,10 +1775,10 @@ const COPY = {
     "Learn your habits in whatever tool you're using today; use them across Claude Code, Gemini CLI, Codex, Kimi, Cursor, and Cline without re-learning.",
     <span>Your habits become a portable asset you own, written in an open format, not a setting trapped inside one vendor. The same file travels with you across tools today, and across a team next: a convention learned once can spread to everyone, so the layer gets more valuable the more it is used.</span>
   ],
-  installCaption: "05  ·  install",
+  installCaption: "06  ·  install",
   installTitle: "Two commands. You're done.",
   installBody: <span><strong><em>cch init</em></strong> detects your tools and walks you through picking a provider: Anthropic for the cheapest run, Ollama for a free local run, or OpenAI/Groq keys. It even offers to bootstrap habits from your past sessions instantly.</span>,
-  faqCaption: "06  ·  faq",
+  faqCaption: "07  ·  faq",
   faqTitle: "Common questions.",
   ctaTitle: "Make every agent write like you.",
 };
@@ -1917,6 +1990,7 @@ function App() {
         <WhatItLearns />
         <Memories />
         <Guardrails />
+        <Performance />
         <UseAnywhere />
         <Install />
         <Faq />
