@@ -22,7 +22,7 @@ import { captureFromCli } from './capture';
 import { runGitCapture, shouldTriggerGitLearn } from './git-collector';
 import { extractRules, extractMemoryCandidates } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
-import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent } from './config';
+import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent, setGloballyDisabled } from './config';
 import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools, isCliOnPath } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
@@ -815,9 +815,8 @@ export function cmdTools(): number {
 
 // tombstone (A2 explicit command) ──────────────────────────────────────────
 export function cmdTombstone(rule: string): number {
-  if (!rule) {
-    process.stderr.write('cc-habits tombstone: requires a rule string.\n  Usage: cc-habits tombstone "Use strict mode"\n');
-    return 1;
+  if (!rule || !rule.trim()) {
+    return cmdTombstones();
   }
   addTombstone(rule);
   process.stdout.write(`  tombstoned: ${rule}\n`);
@@ -1353,4 +1352,18 @@ function promptSecret(question: string): Promise<string> {
 
     process.stdin.on('data', onData);
   });
+}
+
+export function cmdOn(): number {
+  setGloballyDisabled(false);
+  process.stdout.write(c(GREEN, '  ✓ cc-habits enabled.\n'));
+  process.stdout.write(c(DIM, '  Capture and injection are now active.\n'));
+  return 0;
+}
+ 
+export function cmdOff(): number {
+  setGloballyDisabled(true);
+  process.stdout.write(c(DIM, '  cc-habits disabled.\n'));
+  process.stdout.write(c(DIM, '  Capture and injection are now paused.\n'));
+  return 0;
 }

@@ -21,7 +21,9 @@ let tmpDir: string;
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-v031-'));
   storagePaths.habitsDir = tmpDir;
+  storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
+  storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   delete process.env['CC_HABITS_MEMORIES'];
 });
 
@@ -123,6 +125,10 @@ describe('looksLikeEnvVar', () => {
 // Next-step hints ─────────────────────────────────────────────────────────────
 describe('nextSteps mapping', () => {
   it('suggests review and sync after view', () => {
+    fs.writeFileSync(
+      storagePaths.pendingFile,
+      JSON.stringify([{ category: 'Style', rule: 'Test rule', decision: 'create', ts: '2026-06-05' }])
+    );
     const steps = nextSteps('view', []);
     expect(steps?.some(s => s.includes('pending'))).toBe(true);
     expect(steps?.some(s => s.includes('sync'))).toBe(true);

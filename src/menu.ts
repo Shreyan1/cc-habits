@@ -20,6 +20,8 @@ export const MENU_ITEMS: MenuItem[] = [
   { label: 'log',            args: ['log'],       hint: 'Show the capture log' },
   { label: 'diff',           args: ['diff'],      hint: 'Show changes between the last two writes' },
   { label: 'init',           args: ['init'],      hint: 'Install hooks and set up a provider' },
+  { label: 'on',             args: ['on'],        hint: 'Enable cc-habits' },
+  { label: 'off',            args: ['off'],       hint: 'Disable cc-habits' },
   { label: 'faq',            args: ['faq'],       hint: 'Search the FAQ or raise a GitHub issue' },
   { label: 'help (full text)', args: ['--help'],  hint: 'Print the full command reference' },
 ];

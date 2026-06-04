@@ -57,6 +57,14 @@ export function setMemoriesEnabled(enabled: boolean): void {
   setConfigValue('memories_enabled', enabled ? 'true' : 'false');
 }
 
+export function isGloballyDisabled(): boolean {
+  return getConfigFlag('disabled');
+}
+
+export function setGloballyDisabled(disabled: boolean): void {
+  setConfigValue('disabled', disabled ? 'true' : 'false');
+}
+
 // Consent tracking (L5) ────────────────────────────────────────────────────
 // Records explicit user consent at `cch init` time with a timestamp.
 // Consent is stored in config.yml as:  consent_given: <ISO-8601 timestamp>

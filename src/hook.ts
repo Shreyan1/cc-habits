@@ -13,7 +13,7 @@ import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule, sa
 import type { AppliedChange } from './confidence';
 import { extractRules, extractMemoryCandidates } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
-import { memoriesEnabled } from './config';
+import { memoriesEnabled, isGloballyDisabled } from './config';
 import { readSyncTargets, syncTargets } from './sync';
 import { validatePayload, logSchemaWarning, logUnknownEvent, KNOWN_UNSUPPORTED_EVENTS } from './hook-schema';
 
@@ -150,6 +150,7 @@ export function buildDiffFromNormalized(input: NormalizedHookInput): string {
 // When either is set, the PostToolUse and Stop hooks become no-ops: nothing is
 // captured, nothing is sent, no marker is printed.
 export function captureDisabled(): boolean {
+  if (isGloballyDisabled()) return true;
   const v = (process.env['CC_HABITS_DISABLE'] ?? '').toLowerCase();
   if (v && v !== '0' && v !== 'false' && v !== 'off') return true;
   try {
@@ -506,6 +507,7 @@ export function buildInjectionContext(md: string): string | null {
 
 // Set CC_HABITS_INJECT=0 (or false/off) to disable prompt-time injection.
 function injectionEnabled(): boolean {
+  if (isGloballyDisabled()) return false;
   const v = (process.env['CC_HABITS_INJECT'] ?? '').toLowerCase();
   return v !== '0' && v !== 'false' && v !== 'off';
 }
@@ -604,6 +606,7 @@ const MAX_SESSION_START_CONTEXT = 4000;
 // the developer about pending suggestions they would otherwise forget to review.
 // Returns null when there is nothing actionable so the session stays quiet.
 export function processSessionStart(): string | null {
+  if (isGloballyDisabled()) return null;
   let pending: ReturnType<typeof readPending>;
   try {
     pending = readPending();

@@ -2,7 +2,8 @@ import {
   cmdInit, cmdView, cmdLog, cmdReset, cmdPending, cmdTombstone, cmdTombstones,
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
   cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdMemoriesToggle,
-  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdShellInit, cmdSessionBanner, cmdTools, VERSION
+  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdShellInit, cmdSessionBanner, cmdTools, VERSION,
+  cmdOn, cmdOff
 } from './cli';
 import { cmdFaq } from './faq';
 import { spawnSync } from 'child_process';
@@ -59,8 +60,9 @@ Usage:
   cc-habits export [path]           Export habits profile (add --include-memories for full bundle)
   cc-habits import <file|url>       Import habits from a file or https:// URL (auto-detects full bundle)
   cc-habits sync [targets] [--dir]  Write habits to AGENTS.md / Cursor / Cline (default: agents)
-  cc-habits tombstone "<rule>"      Mark a rule so it is never re-learned
-  cc-habits tombstones              List tombstoned rules
+  cc-habits tombstone [rule]        Block a habit rule (or list blocked rules when rule omitted)
+  cc-habits on                      Enable cc-habits (resume capture and prompt injection)
+  cc-habits off                     Disable cc-habits (pause capture and prompt injection)
   cc-habits reset --yes             Delete habits.md, log.jsonl, pending, snapshot
   cc-habits migrate [--force]       Migrate storage from old ~/.claude/habits/ to ~/.cc-habits/
   cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
@@ -157,6 +159,10 @@ async function main(): Promise<void> {
     code = cmdTombstone(args[1] ?? '');
   } else if (command === 'tombstones') {
     code = cmdTombstones();
+  } else if (command === 'on') {
+    code = cmdOn();
+  } else if (command === 'off') {
+    code = cmdOff();
   } else if (command === 'diff') {
     let since: number | undefined;
     const sinceIdx = args.indexOf('--since');
