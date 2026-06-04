@@ -1,23 +1,9 @@
-/* global React */
+// ============================================================
+// components.jsx
+// ============================================================
+
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-/* ============================================================
-   mulberry32 - deterministic PRNG (lib/seedRandom.ts)
-   ============================================================ */
-function mulberry32(seed) {
-  let s = seed >>> 0;
-  return function () {
-    s = (s + 0x6D2B79F5) >>> 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/* ============================================================
-   Wordmark
-   ============================================================ */
 const BRIEF_COLS = 26;
 const BRIEF_ROWS = 24;
 const BRIEF_GRID = [
@@ -91,6 +77,17 @@ function PixBriefBlink({ unit = 12, ink = "#102600", accent = "#00B7FF", style }
   );
 }
 
+function mulberry32(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 function Wordmark({ size = "1.25rem", showCursor = false, className = "", blink = false }) {
   return (
     <span
@@ -120,9 +117,6 @@ function Wordmark({ size = "1.25rem", showCursor = false, className = "", blink 
   );
 }
 
-/* ============================================================
-   Buttons
-   ============================================================ */
 function ButtonPrimary({ children, onClick, className = "", as = "button", href, ...rest }) {
   const cls = `btn btn--primary ${className}`;
   if (as === "a") {
@@ -155,7 +149,6 @@ function ButtonGhost({ children, onClick, className = "", as = "button", href, .
   );
 }
 
-/* CopyButton - used by NavBar + Hero CTA */
 function CopyCTA({
   text = "npm install -g cc-habits@latest",
   label,
@@ -163,20 +156,18 @@ function CopyCTA({
   variant = "primary",
   withArrow = true,
 }) {
-  const [state, setState] = useState("idle"); // idle | copied | error | flash
+  const [state, setState] = useState("idle");
   const timer = useRef(null);
 
   const handleCopy = useCallback(async () => {
     let ok = false;
-    // Try modern Async Clipboard API (works in https + same-origin)
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
         ok = true;
       }
-    } catch (e) { /* fall through to legacy fallback */ }
+    } catch (e) {}
 
-    // Fallback for sandboxed iframes / file:// / older browsers
     if (!ok) {
       try {
         const ta = document.createElement("textarea");
@@ -232,12 +223,6 @@ function CopyCTA({
   );
 }
 
-/* ============================================================
-   NavBar
-   ============================================================ */
-/* ============================================================
-   DayNightToggle - animated sun/moon swap, integrates with tweaks
-   ============================================================ */
 function DayNightToggle() {
   const t = window.useTweakValues ? window.useTweakValues() : { palette: "acid" };
   const setTweak = window.useTweakSet ? window.useTweakSet() : () => {};
@@ -271,25 +256,13 @@ function DayNightToggle() {
   );
 }
 
-/* ============================================================
-   NavBar
-   ============================================================ */
 function NavBar() {
   const [scrolled, setScrolled] = useState(false);
-  const [stars, setStars] = useState(null);
-
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 80);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  useEffect(() => {
-    fetch("https://api.github.com/repos/Shreyan1/cc-habits")
-      .then((r) => r.json())
-      .then((d) => { if (typeof d.stargazers_count === "number") setStars(d.stargazers_count); })
-      .catch(() => {});
   }, []);
 
   return (
@@ -306,7 +279,7 @@ function NavBar() {
             href="https://github.com/Shreyan1/cc-habits"
             target="_blank"
             rel="noreferrer">
-            GitHub{stars !== null ? ` ★ ${stars}` : ""}
+            GitHub
           </a>
           <a
             className="nav__link"
@@ -325,9 +298,6 @@ function NavBar() {
   );
 }
 
-/* ============================================================
-   TerminalPanel
-   ============================================================ */
 function TerminalPanel({ header, children, className = "", style }) {
   return (
     <div className={`terminal ${className}`} style={style}>
@@ -337,26 +307,8 @@ function TerminalPanel({ header, children, className = "", style }) {
   );
 }
 
-/* ============================================================
-   ConfidenceBar
-   ============================================================ */
 function ConfidenceBar({ value = 0, state = "active", showLabel = true }) {
   const pct = Math.round(value * 100);
-  const fillRef = useRef(null);
-  const [revealed, setRevealed] = useState(false);
-
-  useEffect(() => {
-    const el = fillRef.current;
-    if (!el) return;
-    if (!("IntersectionObserver" in window)) { setRevealed(true); return; }
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setRevealed(true); return; }
-    const io = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) { setRevealed(true); io.disconnect(); }
-    }, { threshold: 0.2 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
   const fillClass =
     state === "learning"
       ? "cbar__fill--learning"
@@ -365,10 +317,10 @@ function ConfidenceBar({ value = 0, state = "active", showLabel = true }) {
       : "";
   return (
     <div className="habit__bar-row">
-      <div ref={fillRef} className="cbar" aria-hidden="true">
+      <div className="cbar" aria-hidden="true">
         <div
           className={`cbar__fill ${fillClass}`}
-          style={{ "--cbar-fill": revealed ? `${Math.max(0, Math.min(1, value)) * 100}%` : "0%" }}
+          style={{ "--cbar-fill": `${Math.max(0, Math.min(1, value)) * 100}%` }}
         />
       </div>
       {showLabel ? <span className="cbar__label">{pct}%</span> : null}
@@ -376,9 +328,6 @@ function ConfidenceBar({ value = 0, state = "active", showLabel = true }) {
   );
 }
 
-/* ============================================================
-   HabitCard
-   ============================================================ */
 function HabitCard({
   header,
   rule,
@@ -403,9 +352,6 @@ function HabitCard({
   );
 }
 
-/* ============================================================
-   Footer
-   ============================================================ */
 function Footer() {
   return (
     <footer className="footer">
@@ -453,17 +399,13 @@ function Footer() {
         </div>
         <div className="footer__bottom">
           <span>© 2026 cc-habits</span>
-          <span>&lt;!-- cc-habits format v0.2 --&gt;</span>
+          <span>&lt;!-- cc-habits format v0.3 --&gt;</span>
         </div>
       </div>
     </footer>
   );
 }
 
-/* ============================================================
-   Helpers - split text into per-word/per-char spans
-   Words wrap at word boundaries; chars animate inside each word.
-   ============================================================ */
 function SplitText({ text, play = true, stagger = 60, className = "", as: As = "span" }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -478,14 +420,11 @@ function SplitText({ text, play = true, stagger = 60, className = "", as: As = "
     });
   }, [play, stagger, text]);
 
-  // Split into words; wrap each word as inline-block so browser breaks at spaces
   const words = useMemo(() => {
-    // tokenise preserving spaces as separate tokens
     const tokens = text.split(/(\s+)/);
     let globalIdx = 0;
     return tokens.map((token, ti) => {
       if (/^\s+$/.test(token)) {
-        // render whitespace as a plain text node (allows natural word-wrap)
         return <span key={`sp-${ti}`} style={{ display: "inline" }}>{token}</span>;
       }
       const wordSpans = [...token].map((ch) => {
@@ -511,9 +450,6 @@ function SplitText({ text, play = true, stagger = 60, className = "", as: As = "
   );
 }
 
-/* ============================================================
-   Share globally - Babel scripts each get isolated scope
-   ============================================================ */
 Object.assign(window, {
   mulberry32,
   Wordmark,
@@ -526,4 +462,5 @@ Object.assign(window, {
   HabitCard,
   Footer,
   SplitText,
+  PixBriefBlink,
 });

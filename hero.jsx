@@ -1,12 +1,15 @@
-/* global React, Wordmark, CopyCTA, ButtonGhost, SplitText, COPY */
-const { useEffect, useState } = React;
+// ============================================================
+// hero.jsx
+// ============================================================
+
+const { useEffect: useEffectHero, useState: useStateHero } = React;
 
 function Hero() {
   const t = window.useTweakValues();
   const copy = COPY;
-  const [playWordmark, setPlayWordmark] = useState(false);
+  const [playWordmark, setPlayWordmark] = useStateHero(false);
 
-  useEffect(() => {
+  useEffectHero(() => {
     const played = sessionStorage.getItem("cch_wordmark_played") === "1";
     if (!played) {
       sessionStorage.setItem("cch_wordmark_played", "1");
@@ -22,7 +25,7 @@ function Hero() {
       <div className="container hero__inner">
         <div className="hero__brand">
           <Wordmark size="1.45rem" className="hero__logo" blink />
-          <span className="hero__badge">v0.4.0</span>
+          <span className="hero__badge">v0.5.3</span>
           <span className="hero__badge">open source</span>
         </div>
 
@@ -45,8 +48,8 @@ function Hero() {
           </ButtonGhost>
         </div>
       </div>
-    </section>);
-
+    </section>
+  );
 }
 
 Object.assign(window, { Hero });
