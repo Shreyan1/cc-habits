@@ -2,15 +2,14 @@ import {
   cmdInit, cmdView, cmdLog, cmdReset, cmdPending, cmdTombstone, cmdTombstones,
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
   cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdMemoriesToggle,
-  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdShellInit, cmdSessionBanner, cmdTools,
+  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdShellInit, cmdSessionBanner, cmdTools, VERSION
 } from './cli';
+import { cmdFaq } from './faq';
 import { spawnSync } from 'child_process';
 import { runMigration } from './migrate';
 import { suggest, looksLikeEnvVar, nextSteps } from './suggestions';
 import { runInteractiveMenu } from './menu';
 import { maybeUpdateNotice } from './update-check';
-
-const VERSION = '0.5.3';
 
 // Print follow-up suggestions to stderr so stdout pipes stay clean. Only when
 // the command succeeded and we are attached to an interactive terminal.
@@ -57,8 +56,8 @@ Usage:
   cc-habits diff [--since N]        Show changes between the last two writes (or N writes ago)
   cc-habits explain "<rule>"        Show signals that contributed to a habit
   cc-habits lint <file> [--json]    Check a file against current habits (LLM-driven)
-  cc-habits export [path]           Print habits.md (or write to path)
-  cc-habits import <file>           Merge habits from a portable file
+  cc-habits export [path]           Export habits profile (add --include-memories for full bundle)
+  cc-habits import <file|url>       Import habits from a file or https:// URL (auto-detects full bundle)
   cc-habits sync [targets] [--dir]  Write habits to AGENTS.md / Cursor / Cline (default: agents)
   cc-habits tombstone "<rule>"      Mark a rule so it is never re-learned
   cc-habits tombstones              List tombstoned rules
@@ -67,6 +66,7 @@ Usage:
   cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
   cc-habits git-capture [--range r] Capture changes from git commits (HEAD~1..HEAD by default)
   cc-habits learn [--session id]    Compile habits and memories from collected signals
+  cc-habits faq [query]             Search the FAQ or raise an issue
   cc-habits shell-init              Print shell wrapper for claude/gemini (eval "$(cc-habits shell-init)")
   cc-habits --version               Print the installed version
   cc-habits --help                  Show this message
@@ -169,10 +169,11 @@ async function main(): Promise<void> {
     const asJson = args.includes('--json');
     code = await cmdLint(filePath, asJson);
   } else if (command === 'export') {
-    const out = args[1] && !args[1].startsWith('--') ? args[1] : undefined;
-    code = cmdExport(out);
+    const out = args.find((a, i) => i > 0 && !a.startsWith('--'));
+    const includeMemories = args.includes('--include-memories') || args.includes('--full');
+    code = cmdExport(out, includeMemories);
   } else if (command === 'import') {
-    code = cmdImport(args[1] ?? '');
+    code = await cmdImport(args[1] ?? '');
   } else if (command === 'sync') {
     const dirIdx = args.indexOf('--dir');
     const dir = dirIdx >= 0 ? args[dirIdx + 1] : undefined;
@@ -204,6 +205,9 @@ async function main(): Promise<void> {
       session: sessionIdx >= 0 ? args[sessionIdx + 1] : undefined,
       since: sinceIdx >= 0 && args[sinceIdx + 1] ? parseInt(args[sinceIdx + 1], 10) : undefined,
     });
+  } else if (command === 'faq') {
+    const q = args.slice(1).join(' ');
+    code = await cmdFaq(q);
   } else {
     // Unknown command. Distinguish a misplaced env var from a genuine typo.
     if (looksLikeEnvVar(command)) {

@@ -13,7 +13,7 @@ import { applyUpdates, pendingToUpdates, applyDecay, toPending, type AppliedChan
 import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
-import { exportHabits, importHabits } from './portable';
+import { exportProfile, importHabits, fetchProfile } from './portable';
 import { lintPath } from './lint';
 import { discoverSessions, bootstrap } from './bootstrap';
 import { syncTargets, SyncTarget, readSyncTargets } from './sync';
@@ -26,6 +26,8 @@ import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent } from
 import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools, isCliOnPath } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
+
+export const VERSION = '0.5.3';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -269,6 +271,15 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   if (installGlobal) {
     const added = installGlobalGitTemplateHook();
     process.stdout.write(`  ${added ? tick : dash} Global Git template post-commit hook ${added ? 'installed' : 'already installed or failed'}\n`);
+  }
+
+  // Enable memory learning by default for new installs. If the user already has
+  // an explicit setting (from a previous init or manual edit) leave it alone.
+  const { getConfigValue } = await import('./config');
+  if (!getConfigValue('memories_enabled')) {
+    setMemoriesEnabled(true);
+    process.stdout.write(`  ${tick} Memory learning enabled by default.\n`);
+    process.stdout.write(c(DIM, '  To disable at any time: cch memories --disable\n'));
   }
 
   process.stdout.write('\n');
@@ -980,28 +991,50 @@ export async function cmdBootstrap(): Promise<number> {
 }
 
 // export/import (C4) ───────────────────────────────────────────────────────
-export function cmdExport(outputPath?: string): number {
-  const md = exportHabits(outputPath);
+export function cmdExport(outputPath?: string, includeMemories = false): number {
+  const content = exportProfile({ version: VERSION, outputPath, includeMemories });
   if (outputPath) {
-    process.stdout.write(`  exported to ${outputPath}\n`);
+    const note = includeMemories ? ' (habits + memories)' : '';
+    process.stdout.write(`  exported${note} to ${outputPath}\n`);
   } else {
-    process.stdout.write(md);
+    process.stdout.write(content);
   }
   return 0;
 }
 
-export function cmdImport(inputPath: string): number {
-  if (!inputPath) {
-    process.stderr.write('cc-habits import: requires a file path.\n  Usage: cc-habits import <file.md>\n');
+export async function cmdImport(source: string): Promise<number> {
+  if (!source) {
+    process.stderr.write('cc-habits import: requires a file path or https:// URL.\n  Usage: cc-habits import <file.md|https://...>\n');
     return 1;
   }
-  if (!fs.existsSync(inputPath)) {
-    process.stderr.write(`cc-habits import: file not found: ${inputPath}\n`);
+
+  if (source.startsWith('http://')) {
+    process.stderr.write('cc-habits import: only https:// URLs are supported (not http://).\n');
     return 1;
   }
-  const incoming = fs.readFileSync(inputPath, 'utf-8');
+
+  let incoming: string;
+  if (source.startsWith('https://')) {
+    process.stdout.write(c(DIM, `  fetching ${source}...\n`));
+    try {
+      incoming = await fetchProfile(source);
+    } catch (e) {
+      process.stderr.write(`cc-habits import: ${String(e)}\n`);
+      return 1;
+    }
+  } else {
+    if (!fs.existsSync(source)) {
+      process.stderr.write(`cc-habits import: file not found: ${source}\n`);
+      return 1;
+    }
+    incoming = fs.readFileSync(source, 'utf-8');
+  }
+
   const result = importHabits(incoming);
-  process.stdout.write(`  imported: ${result.added} new, ${result.merged} merged\n`);
+  const memNote = result.memoriesImported !== undefined && result.memoriesImported > 0
+    ? `, ${result.memoriesImported} memories imported`
+    : '';
+  process.stdout.write(`  imported: ${result.added} new habit${result.added === 1 ? '' : 's'}, ${result.merged} merged${memNote}\n`);
   return 0;
 }
 
@@ -1238,7 +1271,7 @@ function promptChoice(question: string, min: number, max: number): Promise<numbe
   });
 }
 
-function promptYesNo(question: string): Promise<boolean> {
+export function promptYesNo(question: string): Promise<boolean> {
   if (!process.stdin.isTTY) return Promise.resolve(false);
   return new Promise(resolve => {
     process.stdout.write(question);
@@ -1264,7 +1297,7 @@ function promptYesNo(question: string): Promise<boolean> {
   });
 }
 
-function promptYesNoDefaultTrue(question: string): Promise<boolean> {
+export function promptYesNoDefaultTrue(question: string): Promise<boolean> {
   if (!process.stdin.isTTY) return Promise.resolve(true);
   return new Promise(resolve => {
     process.stdout.write(question);

@@ -129,7 +129,7 @@ describe('H-7: poisoned habits.md cannot escape the injection wrapper', () => {
 describe('H-8: extractRules validates provider response shape', () => {
   const mockCreate = vi.hoisted(() => vi.fn());
   vi.mock('@anthropic-ai/sdk', () => ({
-    default: vi.fn().mockImplementation(() => ({ messages: { create: mockCreate } })),
+    default: vi.fn().mockImplementation(function() { return { messages: { create: mockCreate } }; }),
   }));
 
   beforeEach(() => {
