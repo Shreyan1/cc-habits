@@ -2,7 +2,7 @@
 // app.jsx
 // ============================================================
 
-const { createContext, useContext, useEffect, useState } = React;
+const { createContext, useContext } = React;
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "palette": "acid",

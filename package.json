@@ -1,0 +1,15 @@
+{
+  "name": "cc-habits-website",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Marketing site for cc-habits",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
