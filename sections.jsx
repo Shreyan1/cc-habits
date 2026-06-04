@@ -181,12 +181,18 @@ const PERF_REDACTION = [
 
 function Performance() {
   const copy = useCopy();
-  const rowStyle = {
-    display: "flex", justifyContent: "space-between", alignItems: "baseline",
-    flexWrap: "wrap", gap: "0.25rem 1rem", padding: "0.625rem 0",
-    borderBottom: "0.5px solid rgba(255,255,255,.14)",
-    fontSize: "0.875rem", fontFamily: "var(--font-mono)"
-  };
+  // Shared cell styles so all three measured tables look identical.
+  const B = "0.5px solid rgba(255,255,255,.18)";
+  const th = { textAlign: "left", padding: "0.55rem 0.85rem", border: B, color: "var(--ink-muted-on-dark)", fontWeight: 500, whiteSpace: "nowrap" };
+  const thR = { ...th, textAlign: "right" };
+  const td = { padding: "0.55rem 0.85rem", border: B };
+  const tdMuted = { ...td, color: "var(--ink-muted-on-dark)" };
+  const tdNum = { ...td, textAlign: "right", color: "var(--accent)", whiteSpace: "nowrap" };
+  const tableWrap = { maxWidth: "34rem" };
+  const table = { borderCollapse: "collapse", width: "100%", fontFamily: "var(--font-mono)", fontSize: "0.8125rem" };
+  const label = { margin: "0 0 0.9rem", letterSpacing: "0.04em" };
+  const note = { marginTop: "0.75rem" };
+
   return (
     <section id="performance" className="section section--dark">
       <div className="container">
@@ -200,63 +206,56 @@ function Performance() {
         </p>
 
         <div className="portable__grid">
-          <div>
-            <p className="t-caption ink-dim" style={{ margin: "0 0 1rem", letterSpacing: "0.04em" }}>where the time goes  ·  per edit</p>
-            <div style={{ borderTop: "0.5px solid rgba(255,255,255,.14)" }}>
-              {PERF_ROWS.map((r, i) =>
-                <div key={i} style={rowStyle}>
-                  <span style={{ flex: "1 1 7rem" }}>{r[0]}</span>
-                  <span style={{ color: "var(--ink-muted-on-dark)", flex: "2 1 10rem" }}>{r[1]}</span>
-                  <span style={{ color: "var(--accent)" }}>{r[2]}</span>
-                </div>
-              )}
-            </div>
+          <div style={tableWrap}>
+            <p className="t-caption ink-dim" style={label}>where the time goes  ·  per edit</p>
+            <table style={table}>
+              <thead><tr><th style={th}>stage</th><th style={th}>what runs</th><th style={thR}>p50</th></tr></thead>
+              <tbody>
+                {PERF_ROWS.map((r, i) =>
+                  <tr key={i}>
+                    <td style={td}>{r[0]}</td>
+                    <td style={tdMuted}>{r[1]}</td>
+                    <td style={tdNum}>{r[2]}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <p className="t-caption ink-dim" style={note}>n=60 per event, isolated store. Full hook p99 ~92 ms.</p>
           </div>
 
-          <div>
-            <p className="t-caption ink-dim" style={{ margin: "0 0 1rem", letterSpacing: "0.04em" }}>network calls  ·  per session</p>
-            <div style={{ border: "0.5px solid rgba(255,255,255,.18)", padding: "1.1rem 1.25rem", fontFamily: "var(--font-mono)", fontSize: "0.875rem" }}>
-              {PERF_NETWORK.map((r, i) =>
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem 1rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>
-                  <span>{r[0]}</span>
-                  <span style={{ color: "var(--ink-muted-on-dark)" }}>{r[1]}</span>
-                  <span style={{ color: r[2] === "no network" ? "var(--accent)" : "inherit" }}>{r[2]}</span>
-                </div>
-              )}
-              <div style={{ marginTop: "0.5rem", paddingTop: "0.75rem", borderTop: "0.5px solid rgba(255,255,255,.14)", color: "var(--ink-muted-on-dark)", fontSize: "0.8125rem" }}>
-                Signals capped at 50 + 180 KB to bound that one call.
-              </div>
-            </div>
+          <div style={tableWrap}>
+            <p className="t-caption ink-dim" style={label}>network calls  ·  per session</p>
+            <table style={table}>
+              <thead><tr><th style={th}>hook</th><th style={th}>frequency</th><th style={thR}>network</th></tr></thead>
+              <tbody>
+                {PERF_NETWORK.map((r, i) =>
+                  <tr key={i}>
+                    <td style={td}>{r[0]}</td>
+                    <td style={tdMuted}>{r[1]}</td>
+                    <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap", color: r[2] === "no network" ? "var(--accent)" : "var(--ink-on-dark)" }}>{r[2]}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <p className="t-caption ink-dim" style={note}>Signals capped at 50 + 180 KB to bound that one call.</p>
           </div>
         </div>
 
-        <p className="t-caption ink-dim" style={{ marginTop: "1.25rem" }}>
-          Measured on the real hook binary. Node 26, Apple Silicon, n=60 per event, isolated store. p99 ~92 ms.
-        </p>
-
-        <div style={{ marginTop: "2.5rem", maxWidth: "44rem" }}>
-          <p className="t-caption ink-dim" style={{ marginBottom: "0.75rem" }}>
-            redaction  ·  linear-time, bounded by a 4 KB input cap
-          </p>
-          <table style={{ borderCollapse: "collapse", width: "100%", fontFamily: "var(--font-mono)", fontSize: "0.8125rem" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", color: "var(--ink-muted-on-dark)", fontWeight: 500 }}>input</th>
-                <th style={{ textAlign: "right", padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", color: "var(--ink-muted-on-dark)", fontWeight: 500 }}>p50</th>
-                <th style={{ textAlign: "right", padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", color: "var(--ink-muted-on-dark)", fontWeight: 500 }}>p99</th>
-              </tr>
-            </thead>
+        <div style={{ marginTop: "2.5rem", ...tableWrap }}>
+          <p className="t-caption ink-dim" style={label}>redaction  ·  linear-time, bounded by a 4 KB input cap</p>
+          <table style={table}>
+            <thead><tr><th style={th}>input</th><th style={thR}>p50</th><th style={thR}>p99</th></tr></thead>
             <tbody>
               {PERF_REDACTION.map((r, i) =>
                 <tr key={i}>
-                  <td style={{ padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)" }}>{r[0]}</td>
-                  <td style={{ padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", textAlign: "right", color: "var(--accent)" }}>{r[1]}</td>
-                  <td style={{ padding: "0.5rem 0.75rem", border: "0.5px solid rgba(255,255,255,.18)", textAlign: "right", color: "var(--accent)" }}>{r[2]}</td>
+                  <td style={td}>{r[0]}</td>
+                  <td style={tdNum}>{r[1]}</td>
+                  <td style={tdNum}>{r[2]}</td>
                 </tr>
               )}
             </tbody>
           </table>
-          <p className="t-caption ink-dim" style={{ marginTop: "0.75rem" }}>
+          <p className="t-caption ink-dim" style={note}>
             16x the input is ~15x the time. Linear, with no catastrophic backtracking, so the cap keeps every redaction under a millisecond.
           </p>
         </div>
