@@ -1059,7 +1059,7 @@ const P1_TEXT =
 + msg = f'Hello {name}'
 
 written to log.jsonl
-exits in <50ms`;
+local · no network`;
 
 const P2_TEXT =
 `$ claude session ended
@@ -1164,7 +1164,7 @@ function HowItWorks() {
               <PanelBody text={P1_TEXT} />
             </TerminalPanel>
             <p className="hiw__panel-cap">
-              Every Write/Edit/MultiEdit captures a diff to <code>log.jsonl</code>. Under 50ms.
+              Every Write/Edit/MultiEdit captures a diff to <code>log.jsonl</code>. Locally, with no network call.
             </p>
           </div>
 
@@ -1552,7 +1552,7 @@ const FAQ_GROUPS = [
       },
       {
         q: "Will it slow down or break my coding sessions?",
-        a: "No. The capture and inject hooks run locally in under 50ms. Every hook is wrapped in try/catch and exits 0 on error, so cc-habits can never fail or block a session."
+        a: "No. The capture and inject hooks run locally with no network call, and the capture work itself takes a few milliseconds. Every hook is wrapped in try/catch and exits 0 on error, so cc-habits can never fail or block a session."
       },
       {
         q: "What if it learns the wrong thing?",
@@ -1672,7 +1672,7 @@ const COPY = {
   heroCaption: "cc-habits  ·  v0.5.3  ·  open source",
   heroTagline: "It learns your style from the edits you already make, and feeds it back into every session, automatically.",
   heroSub:
-    "A local-first CLI that writes your style to a plain habits.md every agent reads every session, across Claude Code, Gemini CLI, Codex, and Kimi. Every hook runs in under 50ms and never blocks your terminal. No lock-in.",
+    "A local-first CLI that writes your style to a plain habits.md every agent reads every session, across Claude Code, Gemini CLI, Codex, and Kimi. Capture runs locally with no network call and never blocks your terminal. No lock-in.",
   problemCaption: "00  ·  why this exists",
   problemPull: "You've been training your agents all along. They just haven't been listening.",
   problemBody: [
@@ -1684,7 +1684,7 @@ const COPY = {
   problemContrastRight: "what you changed it to",
   hiwCaption: "01  ·  how cc-habits works",
   hiwTitle: "A few hooks. One markdown file. Zero config.",
-  hiwSub: "cc-habits plugs into your tool's lifecycle hooks, the same way across Claude Code, Gemini CLI, Codex, and Kimi. They run silently, execute in under 50ms, and never block your terminal.",
+  hiwSub: "cc-habits plugs into your tool's lifecycle hooks, the same way across Claude Code, Gemini CLI, Codex, and Kimi. They run silently, locally, and never block your terminal.",
   hiwFooter: "The capture and inject hooks run locally in milliseconds. The session-end hook makes a single small-model call, and a session-start hook surfaces anything waiting for your review. You choose the provider.",
   learnsCaption: "02  ·  what it learns  ·  habits",
   learnsTitle: "Your style, in plain markdown.",
