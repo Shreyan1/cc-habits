@@ -195,11 +195,14 @@ function Performance() {
           <h2 className="t-display-2">{copy.perfTitle}</h2>
         </div>
 
-        <div className="portable__grid">
-          <div className="portable__copy">
-            <p className="t-body">{copy.perfBody}</p>
+        <p className="t-body" style={{ maxWidth: "62ch", margin: "0 0 2.5rem", color: "var(--ink-muted-on-dark)" }}>
+          {copy.perfBody}
+        </p>
 
-            <div style={{ marginTop: "1.5rem", borderTop: "0.5px solid rgba(255,255,255,.14)" }}>
+        <div className="portable__grid">
+          <div>
+            <p className="t-caption ink-dim" style={{ margin: "0 0 1rem", letterSpacing: "0.04em" }}>where the time goes  ·  per edit</p>
+            <div style={{ borderTop: "0.5px solid rgba(255,255,255,.14)" }}>
               {PERF_ROWS.map((r, i) =>
                 <div key={i} style={rowStyle}>
                   <span style={{ flex: "1 1 7rem" }}>{r[0]}</span>
@@ -208,25 +211,28 @@ function Performance() {
                 </div>
               )}
             </div>
-
-            <p className="t-caption ink-dim" style={{ marginTop: "1rem" }}>
-              Measured on the real hook binary. Node 26, Apple Silicon, n=60 per event, isolated store. p99 ~92 ms.
-            </p>
           </div>
 
-          <TerminalPanel header="network calls per session">
-            {PERF_NETWORK.map((r, i) =>
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem 1rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-                <span>{r[0]}</span>
-                <span style={{ color: "var(--ink-muted-on-dark)" }}>{r[1]}</span>
-                <span style={{ color: r[2] === "no network" ? "var(--accent)" : "inherit" }}>{r[2]}</span>
+          <div>
+            <p className="t-caption ink-dim" style={{ margin: "0 0 1rem", letterSpacing: "0.04em" }}>network calls  ·  per session</p>
+            <div style={{ border: "0.5px solid rgba(255,255,255,.18)", padding: "1.1rem 1.25rem", fontFamily: "var(--font-mono)", fontSize: "0.875rem" }}>
+              {PERF_NETWORK.map((r, i) =>
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem 1rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>
+                  <span>{r[0]}</span>
+                  <span style={{ color: "var(--ink-muted-on-dark)" }}>{r[1]}</span>
+                  <span style={{ color: r[2] === "no network" ? "var(--accent)" : "inherit" }}>{r[2]}</span>
+                </div>
+              )}
+              <div style={{ marginTop: "0.5rem", paddingTop: "0.75rem", borderTop: "0.5px solid rgba(255,255,255,.14)", color: "var(--ink-muted-on-dark)", fontSize: "0.8125rem" }}>
+                Signals capped at 50 + 180 KB to bound that one call.
               </div>
-            )}
-            <div style={{ marginTop: "0.75rem", color: "var(--ink-muted-on-dark)", fontSize: "0.8125rem" }}>
-              Signals capped at 50 + 180 KB to bound that one call.
             </div>
-          </TerminalPanel>
+          </div>
         </div>
+
+        <p className="t-caption ink-dim" style={{ marginTop: "1.25rem" }}>
+          Measured on the real hook binary. Node 26, Apple Silicon, n=60 per event, isolated store. p99 ~92 ms.
+        </p>
 
         <div style={{ marginTop: "2.5rem", maxWidth: "44rem" }}>
           <p className="t-caption ink-dim" style={{ marginBottom: "0.75rem" }}>
