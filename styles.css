@@ -578,6 +578,22 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   align-items: flex-start;
   background: transparent;
 }
+/* Soft scrim behind the hero copy so the headline reads cleanly while the
+   ASCII rain still frames the edges. Sits above the rain canvas (z 0) and
+   below the hero content (.hero__inner, z 1). */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 78% 68% at 32% 46%,
+    var(--bg) 0%,
+    color-mix(in oklab, var(--bg) 72%, transparent) 42%,
+    transparent 74%
+  );
+}
 @media (min-width: 768px) {
   .hero {
     min-height: 100svh;

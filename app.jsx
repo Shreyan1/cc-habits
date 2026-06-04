@@ -75,7 +75,7 @@ function RainBackground() {
 
     const atmo = t.atmosphere || "standard";
     const DENSITY = { calm: 0.6, standard: 1.0, storm: 1.5 }[atmo] || 1.0;
-    const OPACITY = { calm: 0.13, standard: 0.22, storm: 0.36 }[atmo] || 0.22;
+    const OPACITY = { calm: 0.10, standard: 0.15, storm: 0.26 }[atmo] || 0.15;
 
     let raf, swapTimer;
     let cells = [];
