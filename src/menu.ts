@@ -8,6 +8,7 @@ export interface MenuItem {
   label: string;   // shown in the menu
   args: string[];  // argv passed to cc-habits when selected
   hint: string;    // short description
+  disabled?: boolean;
 }
 
 export const MENU_ITEMS: MenuItem[] = [
@@ -27,9 +28,26 @@ export const MENU_ITEMS: MenuItem[] = [
 ];
 
 // Wrap-around index movement for up/down keys. Pure for testability.
-export function nextIndex(current: number, key: 'up' | 'down', len: number): number {
+export function nextIndex(
+  current: number,
+  key: 'up' | 'down',
+  itemsOrLen: number | { disabled?: boolean }[],
+): number {
+  if (typeof itemsOrLen === 'number') {
+    const len = itemsOrLen;
+    if (len <= 0) return 0;
+    return key === 'up' ? (current - 1 + len) % len : (current + 1) % len;
+  }
+  const len = itemsOrLen.length;
   if (len <= 0) return 0;
-  return key === 'up' ? (current - 1 + len) % len : (current + 1) % len;
+  let idx = current;
+  for (let i = 0; i < len; i++) {
+    idx = key === 'up' ? (idx - 1 + len) % len : (idx + 1) % len;
+    if (!itemsOrLen[idx]?.disabled) {
+      return idx;
+    }
+  }
+  return current;
 }
 
 // Render the menu as a plain string (no cursor control) so tests can assert it.
@@ -39,8 +57,15 @@ export function renderMenu(items: MenuItem[], selected: number): string {
     const pointer = i === selected ? '❯' : ' ';
     // Pad the raw label first, then colorize, so ANSI codes do not skew width.
     const padded = item.label.padEnd(width);
-    const label = i === selected ? `\x1b[36m${padded}\x1b[0m` : padded;
-    return `  ${pointer} ${label}  ${item.hint}`;
+    let label = padded;
+    let hint = item.hint;
+    if (item.disabled) {
+      label = `\x1b[2m${padded}\x1b[0m`;
+      hint = `\x1b[2m${item.hint}\x1b[0m`;
+    } else if (i === selected) {
+      label = `\x1b[36m${padded}\x1b[0m`;
+    }
+    return `  ${pointer} ${label}  ${hint}`;
   });
   return lines.join('\n');
 }
@@ -50,6 +75,11 @@ export function renderMenu(items: MenuItem[], selected: number): string {
 export function runInteractiveMenu(items: MenuItem[] = MENU_ITEMS): Promise<MenuItem | null> {
   return new Promise(resolve => {
     let selected = 0;
+    while (selected < items.length && items[selected]?.disabled) {
+      selected++;
+    }
+    if (selected >= items.length) selected = 0;
+
     const out = process.stderr;
 
     out.write('\n  cc-habits, use ↑/↓ to choose, Enter to run, q to quit\n\n');
@@ -78,7 +108,76 @@ export function runInteractiveMenu(items: MenuItem[] = MENU_ITEMS): Promise<Menu
     const onKey = (_str: string, key: { name?: string; ctrl?: boolean }): void => {
       if (!key) return;
       if (key.name === 'up' || key.name === 'down') {
-        selected = nextIndex(selected, key.name, items.length);
+        selected = nextIndex(selected, key.name, items);
+        redraw();
+        return;
+      }
+      if (key.name === 'return' || key.name === 'enter') {
+        if (items[selected]?.disabled) return;
+        cleanup();
+        resolve(items[selected] ?? null);
+        return;
+      }
+      if (key.name === 'escape' || key.name === 'q' || (key.ctrl && key.name === 'c')) {
+        cleanup();
+        out.write('\n');
+        resolve(null);
+        return;
+      }
+    };
+
+    stdin.on('keypress', onKey);
+  });
+}
+
+export function runSelectMenu(
+  title: string,
+  items: { label: string; value: string }[],
+): Promise<{ label: string; value: string } | null> {
+  return new Promise(resolve => {
+    let selected = 0;
+    const out = process.stderr;
+
+    out.write('\n' + title + '\n');
+
+    const render = (): string => {
+      const width = Math.max(...items.map(it => it.label.length));
+      const lines = items.map((item, i) => {
+        const pointer = i === selected ? '❯' : ' ';
+        const padded = item.label.padEnd(width);
+        const label = i === selected ? `\x1b[36m${padded}\x1b[0m` : padded;
+        return `  ${pointer} ${label}`;
+      });
+      return lines.join('\n');
+    };
+
+    out.write(render() + '\n');
+
+    const redraw = (): void => {
+      readline.moveCursor(out, 0, -items.length);
+      readline.cursorTo(out, 0);
+      readline.clearScreenDown(out);
+      out.write(render() + '\n');
+    };
+
+    const stdin = process.stdin;
+    readline.emitKeypressEvents(stdin);
+    const wasRaw = stdin.isRaw === true;
+    if (stdin.isTTY) stdin.setRawMode(true);
+    stdin.resume();
+
+    const cleanup = (): void => {
+      stdin.removeListener('keypress', onKey);
+      if (stdin.isTTY) stdin.setRawMode(wasRaw);
+      stdin.pause();
+    };
+
+    const onKey = (_str: string, key: { name?: string; ctrl?: boolean }): void => {
+      if (!key) return;
+      if (key.name === 'up' || key.name === 'down') {
+        selected = key.name === 'up'
+          ? (selected - 1 + items.length) % items.length
+          : (selected + 1) % items.length;
         redraw();
         return;
       }
@@ -98,3 +197,4 @@ export function runInteractiveMenu(items: MenuItem[] = MENU_ITEMS): Promise<Menu
     stdin.on('keypress', onKey);
   });
 }
+

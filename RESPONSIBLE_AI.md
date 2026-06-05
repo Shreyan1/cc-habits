@@ -106,4 +106,4 @@ The one gap above (free-text names / addresses / conditions in prose) is solvabl
 
 ---
 
-*Last updated: v0.5.3, 2026-06-03. Redaction logic: `src/redact.ts`. Tests: `tests-ts/redact.test.ts`.*
+*Last updated: v0.5.4, 2026-06-05. Redaction logic: `src/redact.ts`. Tests: `tests-ts/redact.test.ts`.*

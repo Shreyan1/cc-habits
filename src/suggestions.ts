@@ -1,5 +1,6 @@
-import { readPending, parseHabits, readHabitsMd } from './storage';
-import { isGloballyDisabled } from './config';
+import { readPending, parseHabits, readHabitsMd, readSignals, readMemoriesMd, parseMemories } from './storage';
+import { isGloballyDisabled, memoriesEnabled, getConfigValue } from './config';
+import { discoverSessions } from './bootstrap';
 
 // Pure helpers for command suggestions and follow-up hints. Kept separate from
 // index.ts so they can be unit-tested without triggering the CLI entrypoint.
@@ -57,104 +58,199 @@ export function looksLikeEnvVar(token: string): boolean {
 }
 
 // Contextual follow-up commands, keyed by what the user just ran. Returns the
+interface SystemState {
+  disabled: boolean;
+  hasProvider: boolean;
+  hasHabits: boolean;
+  hasPending: boolean;
+  hasSignals: boolean;
+  memoriesOn: boolean;
+  hasMemories: boolean;
+  hasPastSessions: boolean;
+}
+
+function getSystemState(): SystemState {
+  let disabled = false;
+  let hasProvider = false;
+  let hasHabits = false;
+  let hasPending = false;
+  let hasSignals = false;
+  let memoriesOn = false;
+  let hasMemories = false;
+  let hasPastSessions = false;
+
+  try {
+    disabled = isGloballyDisabled();
+  } catch {}
+
+  try {
+    const provider = getConfigValue('provider');
+    hasProvider = !!provider || !!process.env['ANTHROPIC_API_KEY'];
+  } catch {}
+
+  try {
+    const habits = parseHabits(readHabitsMd());
+    hasHabits = Object.values(habits).some(h => h.length > 0);
+  } catch {}
+
+  try {
+    hasPending = readPending().length > 0;
+  } catch {}
+
+  try {
+    hasSignals = readSignals().length > 0;
+  } catch {}
+
+  try {
+    memoriesOn = memoriesEnabled();
+  } catch {}
+
+  try {
+    const memories = parseMemories(readMemoriesMd());
+    hasMemories = Object.values(memories).some(m => m.length > 0);
+  } catch {}
+
+  try {
+    hasPastSessions = discoverSessions().length > 0;
+  } catch {}
+
+  return {
+    disabled,
+    hasProvider,
+    hasHabits,
+    hasPending,
+    hasSignals,
+    memoriesOn,
+    hasMemories,
+    hasPastSessions,
+  };
+}
+
 // lines to print after a successful command, or undefined for none.
 export function nextSteps(command: string, args: string[]): string[] | undefined {
-  try {
-    if (isGloballyDisabled() && command !== 'on') {
-      return ['cch on                enable cc-habits (resume capture and prompt injection)'];
-    }
-  } catch {
-    // safe fallback
+  const state = getSystemState();
+
+  if (state.disabled && command !== 'on') {
+    return ['cch on                enable cc-habits (resume capture and prompt injection)'];
   }
 
   switch (command) {
     case 'on':
-      return [
-        'cch view              see learned habits',
-        'cch bootstrap         bootstrap from past sessions'
-      ];
+      if (state.hasPending) {
+        return ['cch pending           review proposed habits', 'cch view              see current habits'];
+      }
+      if (state.hasHabits) {
+        return ['cch view              see learned habits', 'cch sync              share habits with your other tools'];
+      }
+      return ['cch bootstrap         bootstrap from past sessions', 'cch view              see current habits'];
+
     case 'off':
-      return [
-        'cch on                re-enable cc-habits'
-      ];
-    case 'init': {
-      try {
-        const habits = parseHabits(readHabitsMd());
-        const totalHabits = Object.values(habits).reduce((s, h) => s + h.length, 0);
-        if (totalHabits === 0) {
-          return [
-            'cch bootstrap         bootstrap habits from past Claude Code transcripts',
-            'cch view              see learned habits (currently empty)'
-          ];
-        }
-      } catch {}
-      return ['cch view              see learned habits', 'cch bootstrap         learn from past sessions in this project'];
-    }
-    case 'bootstrap': {
-      try {
-        const pending = readPending();
-        if (pending.length > 0) {
-          return [
-            'cch pending           review proposed habits',
-            'cch view              see what was learned'
-          ];
-        }
-      } catch {}
+      return ['cch on                re-enable cc-habits'];
+
+    case 'init':
+      if (state.hasPastSessions && !state.hasHabits) {
+        return [
+          'cch bootstrap         bootstrap habits from past Claude Code transcripts',
+          'cch view              see learned habits (currently empty)'
+        ];
+      }
+      if (state.hasHabits) {
+        return ['cch view              see learned habits', 'cch sync              share habits with your other tools'];
+      }
+      return ['cch view              see learned habits (currently empty)'];
+
+    case 'bootstrap':
+    case 'learn':
+      if (!state.hasProvider) {
+        return ['cch init              configure an AI provider to start extracting habits'];
+      }
+      if (state.hasPending) {
+        return [
+          'cch pending           review proposed habits',
+          'cch view              see what was learned'
+        ];
+      }
+      if (state.hasHabits) {
+        return ['cch view              see what was learned', 'cch sync              share habits with your other tools'];
+      }
       return ['cch view              see what was learned'];
-    }
-    case 'view': {
-      try {
-        const pending = readPending();
-        if (pending.length > 0) {
-          return [
-            'cch pending           review proposed habits',
-            'cch sync              share habits with your other tools'
-          ];
-        }
-      } catch {}
+
+    case 'view':
+      if (state.hasPending) {
+        return [
+          'cch pending           review proposed habits',
+          'cch sync              share habits with your other tools'
+        ];
+      }
       return ['cch sync              share habits with your other tools'];
-    }
+
     case 'log':
-      return ['cch view              see your habits', 'cch reset --yes       erase all captures'];
+      if (state.hasHabits) {
+        return ['cch view              see your habits', 'cch reset --yes       erase all captures'];
+      }
+      return ['cch reset --yes       erase all captures'];
+
     case 'pending':
-      if (args.includes('--approve')) return ['cch view              see updated habits', 'cch sync              share them with other tools'];
-      if (args.includes('--discard')) return ['cch view              see current habits'];
+      if (args.includes('--approve')) {
+        return ['cch view              see updated habits', 'cch sync              share them with your other tools'];
+      }
+      if (args.includes('--discard')) {
+        return ['cch view              see current habits'];
+      }
       return ['cch pending --approve apply the proposals', 'cch pending --discard drop them'];
+
     case 'tombstone':
       return ['cch tombstone         list all tombstoned rules'];
+
     case 'diff':
-      return ['cch view              see current habits'];
     case 'explain':
-      return ['cch view              see all habits'];
     case 'import':
-      return ['cch view              see merged habits', 'cch sync              share them with other tools'];
+      if (state.hasPending) {
+        return ['cch pending           review proposed habits', 'cch view              see current habits'];
+      }
+      if (state.hasHabits) {
+        return ['cch view              see current habits', 'cch sync              share them with your other tools'];
+      }
+      return ['cch view              see current habits'];
+
     case 'sync':
       return ['open the written rules files in your other tools to confirm'];
+
     case 'migrate':
       return ['cch view              confirm your habits moved'];
+
     case 'capture':
-      return ['cch learn             compile habits from captured signals'];
     case 'git-capture':
-      return ['cch learn             compile habits from your commits', 'cch view              see the result'];
-    case 'learn': {
-      try {
-        const pending = readPending();
-        if (pending.length > 0) {
-          return [
-            'cch pending           review proposals',
-            'cch view              see updated habits',
-            'cch sync              share with other tools'
-          ];
-        }
-      } catch {}
-      return ['cch view              see updated habits', 'cch sync              share with other tools'];
-    }
+      return ['cch learn             compile habits from captured signals'];
+
     case 'shell-init':
       return ['add `eval "$(cc-habits shell-init)"` to ~/.zshrc, then restart your shell'];
+
     case 'tools':
       return ['cch init              register hooks for your detected tools'];
+
     case 'faq':
+      if (state.hasPending) {
+        return ['cch pending           review proposed habits', 'cch view              see current habits'];
+      }
+      if (state.hasHabits) {
+        return ['cch view              see current habits'];
+      }
+      return ['cch bootstrap         bootstrap habits from past sessions'];
+
+    case 'memories':
+      if (!state.memoriesOn) {
+        return ['cch memories --enable  enable memory learning to capture corrections'];
+      }
+      if (state.hasMemories) {
+        return ['cch memories --delete "text" delete a learned memory'];
+      }
       return ['cch view              see current habits'];
+
+    case 'export':
+    case 'reset':
+      return undefined;
+
     default:
       return undefined;
   }

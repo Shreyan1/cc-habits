@@ -67,6 +67,11 @@ const INJECTION_KEYWORDS = new RegExp(
   'gi',
 );
 const URL_RE = /\bhttps?:\/\/\S+/gi;
+// Shell command-substitution patterns: backtick execution (`cmd`) and $() expansion.
+// Habits are never executed as shell commands, but stripping these is defence-in-depth,
+// it prevents a poisoned habit from carrying a payload that later confuses an LLM
+// or human reviewer into thinking the command should be run.
+const SHELL_SUBST = /`[^`]*`|\$\([^)]*\)/g;
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
 // Zero-width / invisible characters an attacker inserts mid-keyword to defeat the
 // denylist while the text still renders as the keyword to an LLM (e.g. SYS​TEM:).
@@ -74,6 +79,11 @@ const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
 // Unicode whitespace and line/paragraph separators that are not caught by \x00-\x1f
 // but can still inject structure or break the injection wrapper (U+2028, U+2029, …).
 const UNICODE_SEPARATORS = /[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g;
+// HTML/markdown comments are a hidden-instruction channel: a human skims past
+// <!-- ... --> but an LLM reads the body. Strip the whole comment (including any
+// unclosed <!-- or stray -->) so hidden instructions never reach extraction or
+// injection. Lazy quantifier on already-length-bounded input, so no ReDoS.
+const HTML_COMMENT = /<!--[\s\S]*?-->|<!--|-->/g;
 // Any XML/HTML-style tag token. Stops container-escape attacks where a rule embeds
 // </coding-habits> (or any tag) to break out of the UserPromptSubmit injection wrapper.
 const TAG_TOKEN = /<\/?\s*[a-zA-Z][\w-]*\s*\/?>/g;
@@ -95,9 +105,11 @@ export function sanitizeRule(rule: string): string {
   s = s.normalize('NFKC');
   s = s.replace(CONTROL_CHARS, '');
   s = s.replace(UNICODE_SEPARATORS, ' ');
+  s = s.replace(HTML_COMMENT, '');
   s = s.replace(INJECTION_KEYWORDS, '[redacted]');
   s = s.replace(TAG_TOKEN, '[redacted]');
   s = s.replace(URL_RE, '[url]');
+  s = s.replace(SHELL_SUBST, '[cmd]');
   s = s.replace(/\s+/g, ' ').trim();
   if (s.length > MAX_RULE_LENGTH) s = s.slice(0, MAX_RULE_LENGTH).trimEnd();
   return s;
@@ -113,6 +125,7 @@ export function sanitizeCategory(category: string): string {
   s = s.replace(ZERO_WIDTH, '').normalize('NFKC');
   s = s.replace(CONTROL_CHARS, '');
   s = s.replace(UNICODE_SEPARATORS, ' ');
+  s = s.replace(HTML_COMMENT, '');
   s = s.replace(TAG_TOKEN, '');
   // Drop markdown-structural and delimiter chars that could inject headers or
   // break the "Category:" label format in the injection block.

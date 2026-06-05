@@ -1,7 +1,8 @@
 import { execFileSync } from 'child_process';
 import { FAQ_DATABASE, type FAQEntry } from './faq-db';
-import { VERSION, promptYesNo } from './cli';
-import { runInteractiveMenu } from './menu';
+import { VERSION, promptYesNo, c, BOLD, DIM, CYAN, YELLOW } from './cli';
+import { runInteractiveMenu, runSelectMenu } from './menu';
+import readline from 'readline';
 
 function levenshtein(a: string, b: string): number {
   const m = a.length, n = b.length;
@@ -36,10 +37,32 @@ function scoreEntry(entry: FAQEntry, queryTokens: string[]): number {
 
 const CONFIDENCE_THRESHOLD = 2;
 
+const STOP_WORDS = new Set([
+  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 'aren\'t', 'as', 'at',
+  'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'but', 'by',
+  'can', 'can\'t', 'cannot', 'could', 'couldn\'t',
+  'did', 'didn\'t', 'do', 'does', 'doesn\'t', 'doing', 'don\'t', 'down', 'during',
+  'each', 'feel',
+  'few', 'for', 'from', 'further',
+  'had', 'hadn\'t', 'has', 'hasn\'t', 'have', 'haven\'t', 'having', 'he', 'he\'d', 'he\'ll', 'he\'s', 'her', 'here', 'here\'s', 'hers', 'herself', 'him', 'himself', 'his', 'how', 'how\'s',
+  'i', 'i\'d', 'i\'ll', 'i\'m', 'i\'ve', 'if', 'in', 'into', 'is', 'isn\'t', 'it', 'it\'s', 'its', 'itself',
+  'let\'s',
+  'me', 'more', 'most', 'mustn\'t', 'my', 'myself',
+  'no', 'nor', 'not',
+  'of', 'off', 'on', 'once', 'only', 'or', 'other', 'ought', 'our', 'ours', 'ourselves', 'out', 'over', 'own',
+  'same', 'shan\'t', 'she', 'she\'d', 'she\'ll', 'she\'s', 'should', 'shouldn\'t', 'so', 'some', 'such',
+  'than', 'that', 'that\'s', 'the', 'their', 'theirs', 'them', 'themselves', 'then', 'there', 'there\'s', 'these', 'they', 'they\'d', 'they\'ll', 'they\'re', 'they\'ve', 'this', 'those', 'through', 'to', 'too', 'under', 'until', 'up', 'very',
+  'was', 'wasn\'t', 'we', 'we\'d', 'we\'ll', 'we\'re', 'we\'ve', 'were', 'weren\'t', 'what', 'what\'s', 'when', 'when\'s', 'where', 'where\'s', 'which', 'while', 'who', 'who\'s', 'whom', 'why', 'why\'s', 'with', 'won\'t', 'would', 'wouldn\'t',
+  'you', 'you\'d', 'you\'ll', 'you\'re', 'you\'ve', 'your', 'yours', 'yourself', 'yourselves'
+]);
+
 export function searchFaq(query: string, db: FAQEntry[] = FAQ_DATABASE): { high: FAQEntry[], low: FAQEntry[] } {
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const nonStopTokens = tokens.filter(t => !STOP_WORDS.has(t));
+  const queryTokens = nonStopTokens.length > 0 ? nonStopTokens : tokens;
+
   const scored = db
-    .map(e => ({ entry: e, score: scoreEntry(e, tokens) }))
+    .map(e => ({ entry: e, score: scoreEntry(e, queryTokens) }))
     .filter(r => r.score > 0)
     .sort((a, b) => b.score - a.score);
   const high = scored.filter(r => r.score >= CONFIDENCE_THRESHOLD).map(r => r.entry);
@@ -83,8 +106,8 @@ export function entriesInCategory(category: string, db: FAQEntry[] = FAQ_DATABAS
 }
 
 function printEntry(entry: FAQEntry): void {
-  process.stdout.write(`\n  Q: ${entry.question}\n`);
-  process.stdout.write(`  A: ${entry.answer.replace(/\n/g, '\n     ')}\n\n`);
+  process.stdout.write(`\n  ${c(BOLD + CYAN, `Q: ${entry.question}`)}\n`);
+  process.stdout.write(`  ${c(BOLD, 'A:')} ${entry.answer.replace(/\n/g, '\n     ')}\n\n`);
 }
 
 export async function runCategoryMenu(db: FAQEntry[] = FAQ_DATABASE): Promise<string | null> {
@@ -124,24 +147,83 @@ async function browseCategories(): Promise<number> {
   return 0;
 }
 
+function askQuery(question: string): Promise<string> {
+  return new Promise(resolve => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    rl.question(question, answer => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
 export async function cmdFaq(query?: string): Promise<number> {
-  if (!query || !query.trim()) return browseCategories();
+  if (!query || !query.trim()) {
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+      const q = await askQuery(
+        `\n  ${c(BOLD + CYAN, 'What\'s your query?')} ${c(DIM, '(Type to search FAQ, or press Enter to browse categories):')} `,
+      );
+      if (q.trim()) {
+        return cmdFaq(q);
+      }
+    }
+    return browseCategories();
+  }
 
   const { high, low } = searchFaq(query);
 
+  let solved = false;
   if (high.length > 0) {
     for (const entry of high) printEntry(entry);
-    const solved = await promptYesNo('  Did this solve your issue? [y/n] ');
+    solved = await promptYesNo('  Did this solve your issue? [y/n] ');
     if (solved) return 0;
   } else if (low.length > 0) {
-    process.stdout.write('  Closest matches:\n');
-    for (const entry of low) process.stdout.write(`  • ${entry.question}\n`);
-    process.stdout.write('\n');
+    process.stdout.write(`\n  ${c(YELLOW, 'I don\'t have a direct answer for your query right now.')}\n`);
+    process.stdout.write('  Here are the closest matches:\n\n');
+
+    const menuItems = low.slice(0, 5).map(entry => ({
+      label: entry.question,
+      value: entry.id
+    }));
+    menuItems.push({ label: 'None of these / Search again', value: 'none' });
+
+    const selected = await runSelectMenu(
+      `  ${c(BOLD + CYAN, 'Select a question to view its answer (use ↑/↓ keys):')}`,
+      menuItems
+    );
+
+    if (selected && selected.value !== 'none') {
+      const chosenEntry = low.find(e => e.id === selected.value);
+      if (chosenEntry) {
+        printEntry(chosenEntry);
+        solved = await promptYesNo('  Did this solve your issue? [y/n] ');
+        if (solved) return 0;
+      }
+    }
   } else {
-    process.stdout.write('  No matches found.\n\n');
+    process.stdout.write(`\n  ${c(YELLOW, 'I don\'t have a direct answer for your query right now.')}\n\n`);
+  }
+
+  if (!solved) {
+    const retry = await promptYesNo('  Would you like to try searching with a different query? [y/n] ');
+    if (retry) {
+      const newQuery = await askQuery(
+        `  ${c(BOLD + CYAN, 'Enter new query:')} `
+      );
+      if (newQuery.trim()) {
+        return cmdFaq(newQuery);
+      }
+    }
   }
 
   const raise = await promptYesNo('  Open a pre-filled GitHub issue? [y/n] ');
-  if (raise) openBrowser(buildIssueUrl(query));
+  if (raise) {
+    const url = buildIssueUrl(query);
+    process.stdout.write(`\n  Opening browser... If it does not open, you can manually create the issue here:\n  ${c(CYAN, url)}\n\n`);
+    openBrowser(url);
+  }
   return 0;
 }

@@ -133,9 +133,10 @@ describe('buildIssueUrl', () => {
 
   it('includes the running version and node version in the body', async () => {
     const { buildIssueUrl } = await import('../src/faq');
+    const { VERSION } = await import('../src/cli');
     const url = buildIssueUrl('test');
     const decoded = decodeURIComponent(url);
-    expect(decoded).toContain('**cc-habits version:** 0.5.3');
+    expect(decoded).toContain(`**cc-habits version:** ${VERSION}`);
     expect(decoded).toContain(`**Node.js:** ${process.version}`);
   });
 });

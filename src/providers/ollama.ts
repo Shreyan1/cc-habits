@@ -21,7 +21,16 @@ export class OllamaProvider implements Provider {
         }),
         signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`${this.name}: HTTP ${res.status}`);
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
+        try {
+          const body = await res.json() as { error?: string };
+          if (body && typeof body.error === 'string') {
+            errMsg = `${body.error} (HTTP ${res.status})`;
+          }
+        } catch { /* ignore */ }
+        throw new Error(`${this.name}: ${errMsg}`);
+      }
       const data = await res.json() as { response?: string };
       return data.response ?? '';
     } catch (e) {

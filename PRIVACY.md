@@ -159,4 +159,4 @@ If you believe cc-habits has leaked data or has a vulnerability with privacy imp
 
 ---
 
-*Last updated: v0.5.3, 2026-06-03.*
+*Last updated: v0.5.4, 2026-06-05.*

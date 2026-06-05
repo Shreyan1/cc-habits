@@ -10,6 +10,7 @@ import {
   type Memory, type Signal,
 } from './storage';
 import { applyUpdates, pendingToUpdates, applyDecay, toPending, type AppliedChange } from './confidence';
+import { runSelectMenu } from './menu';
 import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
@@ -27,7 +28,7 @@ import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools, isCliOnPath } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 
-export const VERSION = '0.5.3';
+export const VERSION = '0.5.4';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -59,17 +60,17 @@ const CONFIG_FILE = storagePaths.configFile;
 const OLLAMA_DEFAULT_URL   = 'http://localhost:11434';
 const OLLAMA_DEFAULT_MODEL = 'llama3.2';
 
-const BOLD   = '\x1b[1m';
-const DIM    = '\x1b[2m';
-const GREEN  = '\x1b[38;2;150;210;30m';  // Softer Acid Lime (#96D21E)
-const YELLOW = '\x1b[38;2;140;90;215m';  // Softer Purple/Learning (#8C5AD7)
-const RED    = '\x1b[38;2;215;60;105m';  // Softer Neon Pink/Negatives (#D73C69)
-const CYAN   = '\x1b[38;2;20;160;220m';   // Softer Accent Cyan (#14A0DC)
-const RESET  = '\x1b[0m';
+export const BOLD   = '\x1b[1m';
+export const DIM    = '\x1b[2m';
+export const GREEN  = '\x1b[38;2;150;210;30m';  // Softer Acid Lime (#96D21E)
+export const YELLOW = '\x1b[38;2;140;90;215m';  // Softer Purple/Learning (#8C5AD7)
+export const RED    = '\x1b[38;2;215;60;105m';  // Softer Neon Pink/Negatives (#D73C69)
+export const CYAN   = '\x1b[38;2;20;160;220m';   // Softer Accent Cyan (#14A0DC)
+export const RESET  = '\x1b[0m';
 
-const NO_COLOR = !process.stdout.isTTY || !!process.env['NO_COLOR'];
+export const NO_COLOR = !process.stdout.isTTY || !!process.env['NO_COLOR'];
 
-function c(code: string, text: string): string {
+export function c(code: string, text: string): string {
   return NO_COLOR ? text : `${code}${text}${RESET}`;
 }
 
@@ -249,10 +250,17 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
 
     const hookBin = resolveHookBinaryPath();
 
+    let first = true;
     for (const tool of detected) {
+      if (!first) {
+        process.stdout.write('\n');
+      }
+      first = false;
+
       if (tool.id === 'claude-code') {
-        const register = await promptYesNoDefaultTrue(`  Register hooks in Claude Code? [Y/n] `);
+        const register = await promptYesNoDefaultTrue('  Register hooks in Claude Code? [Y/n] ');
         if (register) {
+          process.stdout.write('\n');
           const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerHooks(hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
@@ -262,8 +270,9 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${importAdded ? tick : dash} habits.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
         }
       } else if (tool.id === 'gemini') {
-        const register = await promptYesNoDefaultTrue(`  Register hooks in Gemini CLI? [Y/n] `);
+        const register = await promptYesNoDefaultTrue('  Register hooks in Gemini CLI? [Y/n] ');
         if (register) {
+          process.stdout.write('\n');
           const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerJsonHooks(tool.settingsPath, 'gemini', hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} AfterTool hook ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${stopAdded ? tick : dash} AfterAgent hook ${stopAdded ? 'registered' : 'already registered'}\n`);
@@ -271,15 +280,17 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
         }
       } else if (tool.id === 'codex') {
-        const register = await promptYesNoDefaultTrue(`  Register hooks in Codex CLI? [Y/n] `);
+        const register = await promptYesNoDefaultTrue('  Register hooks in Codex CLI? [Y/n] ');
         if (register) {
+          process.stdout.write('\n');
           const { postAdded, stopAdded } = registerCodexHooks(tool.settingsPath, hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
         }
       } else if (tool.id === 'kimi') {
-        const register = await promptYesNoDefaultTrue(`  Register hooks in Kimi Code CLI? [Y/n] `);
+        const register = await promptYesNoDefaultTrue('  Register hooks in Kimi Code CLI? [Y/n] ');
         if (register) {
+          process.stdout.write('\n');
           const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerKimiHooks(tool.settingsPath, hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
@@ -287,8 +298,9 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
         }
       } else if (tool.id === 'cline') {
-        const register = await promptYesNoDefaultTrue(`  Register hooks in Cline/RooCode? [Y/n] `);
+        const register = await promptYesNoDefaultTrue('  Register hooks in Cline/RooCode? [Y/n] ');
         if (register) {
+          process.stdout.write('\n');
           const { postAdded, stopAdded } = registerClineHooks(tool.settingsPath, hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
@@ -297,6 +309,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
         process.stdout.write(`  ${dash} Cursor detected, edits will be captured automatically via the VS Code extension or Git commits.\n`);
       }
     }
+    process.stdout.write('\n');
   } else {
     const { postAdded, stopAdded, promptAdded } = registerHooks();
     process.stdout.write(`  ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
@@ -352,6 +365,8 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     }
   }
 
+  process.stdout.write('\n');
+
   const inGitRepo = fs.existsSync('.git');
   if (inGitRepo) {
     const installLocal = await promptYesNo('  Install git capture hook locally in this project? [y/N] ');
@@ -359,6 +374,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
       const added = installLocalGitHook();
       process.stdout.write(`  ${added ? tick : dash} Local Git post-commit hook ${added ? 'installed' : 'already installed or failed'}\n`);
     }
+    process.stdout.write('\n');
   }
 
   const installGlobal = await promptYesNo('  Install git capture hook globally for all new repositories? [y/N] ');
@@ -366,6 +382,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     const added = installGlobalGitTemplateHook();
     process.stdout.write(`  ${added ? tick : dash} Global Git template post-commit hook ${added ? 'installed' : 'already installed or failed'}\n`);
   }
+  process.stdout.write('\n');
 
   // Enable memory learning by default for new installs. If the user already has
   // an explicit setting (from a previous init or manual edit) leave it alone.
@@ -375,7 +392,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     process.stdout.write(c(DIM, '  To disable at any time: cch memories --disable\n'));
   }
 
-  process.stdout.write('\n');
+  process.stdout.write('\n\n');
   process.stdout.write(
     c(BOLD, 'cc-habits is ready.') + ' Start a coding session or commit changes to begin learning.\n',
   );
@@ -428,6 +445,130 @@ async function showProviderMenu(tick: string, dash: string): Promise<void> {
   await configureProvider(nameMap[choice]!, tick, dash);
 }
 
+interface OllamaTagsModel {
+  name: string;
+}
+
+interface OllamaTagsResponse {
+  models?: OllamaTagsModel[];
+}
+
+async function interactiveOllamaSetup(
+  tick: string,
+  dash: string,
+  failedModel?: string,
+): Promise<string | null> {
+  let ollamaOk = false;
+  let detectedModels: string[] = [];
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2000);
+    const res = await fetch(`${OLLAMA_DEFAULT_URL}/api/tags`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    ollamaOk = res.ok;
+    if (res.ok) {
+      const data = await res.json() as OllamaTagsResponse;
+      detectedModels = (data.models ?? []).map(m => m.name);
+    }
+  } catch { /* not running or error fetching models */ }
+
+  if (failedModel) {
+    process.stdout.write(`\n  ⚠️ Ollama model '${failedModel}' was not found on your local instance.\n`);
+  }
+
+  if (!ollamaOk) {
+    process.stdout.write('\n');
+    process.stdout.write(c(YELLOW, '  Ollama was not detected at ' + OLLAMA_DEFAULT_URL + '\n'));
+    process.stdout.write('  1. Install Ollama: ' + c(CYAN, 'https://ollama.com/download') + '\n');
+    process.stdout.write('  2. Pull a model (e.g. `ollama pull llama3.2`)\n');
+    process.stdout.write('  3. Start Ollama (e.g. `ollama serve`)\n');
+    process.stdout.write('\n  Please ensure Ollama is running and has a model loaded, then try running setup again.\n');
+    return null;
+  }
+
+  process.stdout.write(`  ${tick} Ollama detected at ${OLLAMA_DEFAULT_URL}\n`);
+
+  const otherModels = failedModel
+    ? detectedModels.filter(m => m !== failedModel)
+    : detectedModels;
+
+  if (otherModels.length === 0) {
+    process.stdout.write('\n');
+    process.stdout.write(c(YELLOW, failedModel
+      ? '  No other models were found on your local Ollama instance.\n'
+      : '  No models were found on your local Ollama instance.\n'
+    ));
+    process.stdout.write(`  Please pull a model separately (for example, by running ${c(BOLD, `ollama pull ${OLLAMA_DEFAULT_MODEL}`)}),\n  and re-run setup once it is ready.\n`);
+    return null;
+  }
+
+  while (true) {
+    const menuItems = otherModels.map(m => ({ label: m, value: m }));
+    menuItems.push({ label: 'Configure/pull a different model separately', value: 'configure_separately' });
+
+    const selected = await runSelectMenu(
+      failedModel
+        ? '  Detected other Ollama models (use ↑/↓ keys):'
+        : '  Detected Ollama models (use ↑/↓ keys):',
+      menuItems
+    );
+    if (selected === null || selected.value === 'configure_separately') {
+      process.stdout.write('\n  Please configure or pull a different model separately, and re-run setup once ready.\n');
+      return null;
+    }
+
+    const candidateModel = selected.value;
+    process.stdout.write(`\n  Verifying model '${candidateModel}'...\n`);
+
+    let verificationOk = false;
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch(`${OLLAMA_DEFAULT_URL}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: candidateModel,
+          prompt: 'Say "hello" in one word',
+          stream: false,
+        }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const body = await res.json() as { response?: string };
+        if (body && body.response) {
+          verificationOk = true;
+        }
+      } else {
+        try {
+          const body = await res.json() as { error?: string };
+          if (body && body.error) {
+            process.stdout.write(c(RED, `  Model error: ${body.error}\n`));
+          }
+        } catch { /* ignore */ }
+      }
+    } catch (err) {
+      process.stdout.write(c(RED, `  Verification failed to connect: ${String(err)}\n`));
+    }
+
+    if (verificationOk) {
+      process.stdout.write(c(GREEN, `  ${tick} Model '${candidateModel}' verified successfully!\n`));
+      writeConfigFile(`provider: ollama\nollama_url: ${OLLAMA_DEFAULT_URL}\nollama_model: ${candidateModel}\n`);
+      process.stdout.write(`  ${tick} Ollama config saved (model: ${candidateModel})\n`);
+      return candidateModel;
+    } else {
+      process.stdout.write(c(YELLOW, `  ⚠️ Model '${candidateModel}' appears to be broken or did not respond correctly.\n`));
+      const tryAnother = await promptYesNo('  Would you like to try selecting a different model? [y/N] ');
+      if (!tryAnother) {
+        process.stdout.write('\n  Please configure/pull a working model separately, then come back and re-run cc-habits init.\n');
+        return null;
+      }
+    }
+  }
+}
+
 async function configureProvider(provider: string, tick: string, dash: string): Promise<void> {
   const dir = path.dirname(CONFIG_FILE);
   fs.mkdirSync(dir, { recursive: true });
@@ -444,28 +585,11 @@ async function configureProvider(provider: string, tick: string, dash: string): 
   }
 
   if (provider === 'ollama') {
-    // Try a quick reachability check so we can warn if Ollama isn't running.
-    let ollamaOk = false;
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 2000);
-      const res = await fetch(OLLAMA_DEFAULT_URL, { signal: ctrl.signal });
-      clearTimeout(timer);
-      ollamaOk = res.ok;
-    } catch { /* not running */ }
-
-    if (ollamaOk) {
-      process.stdout.write(`  ${tick} Ollama detected at ${OLLAMA_DEFAULT_URL}\n`);
-    } else {
-      process.stdout.write('\n');
-      process.stdout.write(c(YELLOW, '  Ollama not detected at ' + OLLAMA_DEFAULT_URL + '\n'));
-      process.stdout.write('  1. Install: ' + c(CYAN, 'https://ollama.com/download') + '\n');
-      process.stdout.write('  2. Pull model: ' + c(BOLD, `ollama pull ${OLLAMA_DEFAULT_MODEL}`) + '\n');
-      process.stdout.write('  3. Start: ' + c(BOLD, 'ollama serve') + '\n');
-      process.stdout.write(c(DIM, '  Config written, re-run cc-habits init once Ollama is running to verify.\n'));
+    if (!process.stdin.isTTY) {
+      writeConfigFile(`provider: ollama\nollama_url: ${OLLAMA_DEFAULT_URL}\nollama_model: ${OLLAMA_DEFAULT_MODEL}\n`);
+      return;
     }
-    writeConfigFile(`provider: ollama\nollama_url: ${OLLAMA_DEFAULT_URL}\nollama_model: ${OLLAMA_DEFAULT_MODEL}\n`);
-    process.stdout.write(`  ${tick} Ollama config saved (model: ${OLLAMA_DEFAULT_MODEL})\n`);
+    await interactiveOllamaSetup(tick, dash);
     return;
   }
 
@@ -1016,6 +1140,16 @@ export async function cmdLint(filePath: string, asJson: boolean): Promise<number
   try {
     findings = await lintPath(filePath);
   } catch (e) {
+    if (getConfigValue('provider') === 'ollama' && process.stdin.isTTY && !asJson) {
+      process.stdout.write(c(YELLOW, `\n  Ollama error: ${String(e)}\n`));
+      const model = getConfigValue('ollama_model') || OLLAMA_DEFAULT_MODEL;
+      const okModel = await interactiveOllamaSetup('✓', '~', model);
+      if (okModel) {
+        process.stdout.write('\n  Configuration updated. Retrying lint...\n\n');
+        return cmdLint(filePath, asJson);
+      }
+      return 1;
+    }
     process.stderr.write(`cc-habits lint: ${String(e)}\n`);
     return 1;
   }
@@ -1084,6 +1218,16 @@ export async function cmdBootstrap(): Promise<number> {
     process.stdout.write(c(DIM, '  Run `cc-habits view` to see your habits.\n\n'));
     return 0;
   } catch (e) {
+    if (getConfigValue('provider') === 'ollama' && process.stdin.isTTY) {
+      process.stdout.write(c(YELLOW, `\n  Ollama error: ${String(e)}\n`));
+      const model = getConfigValue('ollama_model') || OLLAMA_DEFAULT_MODEL;
+      const okModel = await interactiveOllamaSetup('✓', '~', model);
+      if (okModel) {
+        process.stdout.write('\n  Configuration updated. Retrying bootstrap...\n\n');
+        return cmdBootstrap();
+      }
+      return 1;
+    }
     process.stderr.write(`cc-habits bootstrap: ${String(e)}\n`);
     return 1;
   }
@@ -1260,6 +1404,16 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
   try {
     updates = await extractRules(capped, habitsMd);
   } catch (e) {
+    if (getConfigValue('provider') === 'ollama' && process.stdin.isTTY) {
+      process.stdout.write(c(YELLOW, `\n  Ollama error: ${String(e)}\n`));
+      const model = getConfigValue('ollama_model') || OLLAMA_DEFAULT_MODEL;
+      const okModel = await interactiveOllamaSetup('✓', '~', model);
+      if (okModel) {
+        process.stdout.write('\n  Configuration updated. Retrying learn...\n\n');
+        return cmdLearn(opts);
+      }
+      return 1;
+    }
     const hint = providerHint(e);
     if (!hint) throw e;
     process.stdout.write(c(YELLOW, `  ${hint}\n`));
@@ -1342,7 +1496,12 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
 function promptChoice(question: string, min: number, max: number): Promise<number | null> {
   if (!process.stdin.isTTY) return Promise.resolve(null);
   return new Promise(resolve => {
-    process.stdout.write(question);
+    let colored = question;
+    const m = question.match(/^(\s*)(.*?)(\s*\[\d+-\d+\]:?\s*)$/);
+    if (m) {
+      colored = m[1] + c(BOLD + CYAN, m[2]) + c(DIM, m[3]);
+    }
+    process.stdout.write(colored);
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     process.stdin.setEncoding('utf-8');
@@ -1373,7 +1532,12 @@ function promptChoice(question: string, min: number, max: number): Promise<numbe
 export function promptYesNo(question: string): Promise<boolean> {
   if (!process.stdin.isTTY) return Promise.resolve(false);
   return new Promise(resolve => {
-    process.stdout.write(question);
+    let colored = question;
+    const m = question.match(/^(\s*)(.*?\?)(\s*\[[yY]\/[nN]\]\s*)$/);
+    if (m) {
+      colored = m[1] + c(BOLD + CYAN, m[2]) + c(DIM, m[3]);
+    }
+    process.stdout.write(colored);
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     process.stdin.setEncoding('utf-8');
@@ -1399,7 +1563,12 @@ export function promptYesNo(question: string): Promise<boolean> {
 export function promptYesNoDefaultTrue(question: string): Promise<boolean> {
   if (!process.stdin.isTTY) return Promise.resolve(true);
   return new Promise(resolve => {
-    process.stdout.write(question);
+    let colored = question;
+    const m = question.match(/^(\s*)(.*?\?)(\s*\[[yY]\/[nN]\]\s*)$/);
+    if (m) {
+      colored = m[1] + c(BOLD + CYAN, m[2]) + c(DIM, m[3]);
+    }
+    process.stdout.write(colored);
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     process.stdin.setEncoding('utf-8');
@@ -1425,7 +1594,12 @@ export function promptYesNoDefaultTrue(question: string): Promise<boolean> {
 function promptSecret(question: string): Promise<string> {
   return new Promise(resolve => {
     let key = '';
-    process.stdout.write(question);
+    let colored = question;
+    const m = question.match(/^(\s*)(.*?)(\s*\(hidden\):?\s*)$/);
+    if (m) {
+      colored = m[1] + c(BOLD + CYAN, m[2]) + c(DIM, m[3]);
+    }
+    process.stdout.write(colored);
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     process.stdin.setEncoding('utf-8');
@@ -1456,14 +1630,14 @@ function promptSecret(question: string): Promise<string> {
 
 export function cmdOn(): number {
   setGloballyDisabled(false);
-  process.stdout.write(c(GREEN, '  ✓ cc-habits enabled.\n'));
+  process.stdout.write('\n\n' + c(GREEN, '  ✓ cc-habits enabled.\n'));
   process.stdout.write(c(DIM, '  Capture and injection are now active.\n'));
   return 0;
 }
  
 export function cmdOff(): number {
   setGloballyDisabled(true);
-  process.stdout.write(c(DIM, '  cc-habits disabled.\n'));
+  process.stdout.write('\n\n' + c(RED, '  ✗ cc-habits disabled.\n'));
   process.stdout.write(c(DIM, '  Capture and injection are now paused.\n'));
   return 0;
 }

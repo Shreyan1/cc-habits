@@ -3,14 +3,16 @@ import {
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
   cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdMemoriesToggle,
   cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdShellInit, cmdSessionBanner, cmdTools, VERSION,
-  cmdOn, cmdOff
+  cmdOn, cmdOff,
+  c, BOLD, DIM, CYAN
 } from './cli';
 import { cmdFaq } from './faq';
 import { spawnSync } from 'child_process';
 import { runMigration } from './migrate';
 import { suggest, looksLikeEnvVar, nextSteps } from './suggestions';
-import { runInteractiveMenu } from './menu';
+import { runInteractiveMenu, runSelectMenu, MENU_ITEMS } from './menu';
 import { maybeUpdateNotice } from './update-check';
+import { isGloballyDisabled } from './config';
 
 // Print follow-up suggestions to stderr so stdout pipes stay clean. Only when
 // the command succeeded and we are attached to an interactive terminal.
@@ -19,8 +21,16 @@ function printNextSteps(command: string, args: string[], code: number): void {
   if (args.includes('--json')) return;
   const steps = nextSteps(command, args);
   if (!steps || steps.length === 0) return;
-  process.stderr.write(`\n  Next:\n`);
-  for (const s of steps) process.stderr.write(`    ${s}\n`);
+  process.stderr.write(`\n\n  ${c(BOLD + CYAN, 'Next:')}\n`);
+  for (const s of steps) {
+    if (s.startsWith('cch ')) {
+      const cmdPart = s.slice(0, 22);
+      const descPart = s.slice(22);
+      process.stderr.write(`    ${c(CYAN, cmdPart)}${c(DIM, descPart)}\n`);
+    } else {
+      process.stderr.write(`    ${c(DIM, s)}\n`);
+    }
+  }
 }
 
 // Print the "update available" notice to stderr so stdout pipes stay clean.
@@ -40,38 +50,49 @@ const HELP = `cc-habits ${VERSION}, A tool-agnostic coding memory layer for deve
   Tip: 'cch' is a short alias for 'cc-habits'.
 
 Usage:
-  cc-habits tools                   List supported coding tools and which are detected here
-  cc-habits init                    Install hooks, create habits.md, interactive provider setup
-  cc-habits init --provider ollama  Skip API key prompt, configure Ollama (free, local)
-  cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
-  cc-habits view                    Show current habits + recent signals
-  cc-habits memories                Show coding memories (prompts to enable learning if off)
-  cc-habits memories --enable       Turn on memory learning permanently (persists to config.yml)
-  cc-habits memories --disable      Turn off memory learning
-  cc-habits memories --delete "<t>" Delete and tombstone a memory so it is never re-learned
-  cc-habits memories --tombstones   List tombstoned memories
-  cc-habits log [--limit N]         Show the capture log (audit trail of what was sent)
-  cc-habits pending                 Show pending updates queued for the next session write
-  cc-habits pending --approve       Apply pending updates to habits.md
-  cc-habits pending --discard       Drop pending updates without applying
-  cc-habits diff [--since N]        Show changes between the last two writes (or N writes ago)
-  cc-habits explain "<rule>"        Show signals that contributed to a habit
-  cc-habits lint <file> [--json]    Check a file against current habits (LLM-driven)
-  cc-habits export [path]           Export habits profile (add --include-memories for full bundle)
-  cc-habits import <file|url>       Import habits from a file or https:// URL (auto-detects full bundle)
-  cc-habits sync [targets] [--dir]  Write habits to AGENTS.md / Cursor / Cline (default: agents)
-  cc-habits tombstone [rule]        Block a habit rule (or list blocked rules when rule omitted)
-  cc-habits on                      Enable cc-habits (resume capture and prompt injection)
-  cc-habits off                     Disable cc-habits (pause capture and prompt injection)
-  cc-habits reset --yes             Delete habits.md, log.jsonl, pending, snapshot
-  cc-habits migrate [--force]       Migrate storage from old ~/.claude/habits/ to ~/.cc-habits/
-  cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
-  cc-habits git-capture [--range r] Capture changes from git commits (HEAD~1..HEAD by default)
-  cc-habits learn [--session id]    Compile habits and memories from collected signals
-  cc-habits faq [query]             Search the FAQ or raise an issue
-  cc-habits shell-init              Print shell wrapper for claude/gemini (eval "$(cc-habits shell-init)")
-  cc-habits --version               Print the installed version
-  cc-habits --help                  Show this message
+
+  Setup & Configuration:
+    cc-habits init                    Install hooks, create habits.md, interactive provider setup
+    cc-habits init --provider ollama  Skip API key prompt, configure Ollama (free, local)
+    cc-habits tools                   List supported coding tools and which are detected here
+    cc-habits on                      Enable cc-habits (resume capture and prompt injection)
+    cc-habits off                     Disable cc-habits (pause capture and prompt injection)
+    cc-habits shell-init              Print shell wrapper for claude/gemini (eval "$(cc-habits shell-init)")
+    cc-habits migrate [--force]       Migrate storage from old ~/.claude/habits/ to ~/.cc-habits/
+
+  Habits Lifecycle:
+    cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
+    cc-habits view                    Show current habits + recent signals
+    cc-habits pending                 Show pending updates queued for the next session write
+    cc-habits pending --approve       Apply pending updates to habits.md
+    cc-habits pending --discard       Drop pending updates without applying
+    cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
+    cc-habits git-capture [--range r] Capture changes from git commits (HEAD~1..HEAD by default)
+    cc-habits learn [--session id]    Compile habits and memories from collected signals
+
+  Sharing & Portability:
+    cc-habits sync [targets] [--dir]  Write habits to AGENTS.md / Cursor / Cline (default: agents)
+    cc-habits export [path]           Export habits profile (add --include-memories for full bundle)
+    cc-habits import <file|url>       Import habits from a file or https:// URL (auto-detects full bundle)
+
+  Analysis & Debugging:
+    cc-habits log [--limit N]         Show the capture log (audit trail of what was sent)
+    cc-habits diff [--since N]        Show changes between the last two writes (or N writes ago)
+    cc-habits explain "<rule>"        Show signals that contributed to a habit
+    cc-habits lint <file> [--json]    Check a file against current habits (LLM-driven)
+
+  Memory & Tombstones:
+    cc-habits memories                Show coding memories (prompts to enable learning if off)
+    cc-habits memories --enable       Turn on memory learning permanently (persists to config.yml)
+    cc-habits memories --disable      Turn off memory learning
+    cc-habits memories --delete "<t>" Delete and tombstone a memory so it is never re-learned
+    cc-habits memories --tombstones   List tombstoned memories
+    cc-habits tombstone [rule]        Block a habit rule (or list blocked rules when rule omitted)
+
+  Getting Help:
+    cc-habits faq [query]             Search the FAQ or raise an issue
+    cc-habits --help                  Show this message
+    cc-habits --version               Print the installed version
 
 Env (set in your shell, e.g. \`export CC_HABITS_PROVIDER=ollama\`; not cc-habits subcommands):
   CC_HABITS_DIR                     Override storage location (default ~/.cc-habits)
@@ -100,12 +121,87 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  async function runMainInteractiveMenu(): Promise<void> {
+    const disabled = isGloballyDisabled();
+    const items = MENU_ITEMS.map(item => {
+      if (item.label === 'on' && !disabled) {
+        return { ...item, disabled: true };
+      }
+      if (item.label === 'off' && disabled) {
+        return { ...item, disabled: true };
+      }
+      return item;
+    });
+    const item = await runInteractiveMenu(items);
+    if (!item) process.exit(0);
+
+    if (item.args[0] === '--help') {
+      const helpItems = [
+        // Setup & Configuration
+        { label: 'init                    Install hooks and set up a provider', args: ['init'] },
+        { label: 'init --provider ollama  Skip key prompt, configure local Ollama', args: ['init', '--provider', 'ollama'] },
+        { label: 'tools                   List supported coding tools', args: ['tools'] },
+        { label: 'on                      Enable cc-habits', args: ['on'] },
+        { label: 'off                     Disable cc-habits', args: ['off'] },
+        { label: 'shell-init              Print shell wrapper', args: ['shell-init'] },
+        { label: 'migrate                 Migrate storage location', args: ['migrate'] },
+        
+        // Habits Lifecycle
+        { label: 'bootstrap               Learn habits from past sessions', args: ['bootstrap'] },
+        { label: 'view                    Show current habits and signals', args: ['view'] },
+        { label: 'pending                 Review queued habit suggestions', args: ['pending'] },
+        { label: 'pending --approve       Apply pending updates to habits.md', args: ['pending', '--approve'] },
+        { label: 'pending --discard       Drop pending updates', args: ['pending', '--discard'] },
+        { label: 'git-capture             Capture changes from git commits', args: ['git-capture'] },
+        { label: 'learn                   Compile habits from collected signals', args: ['learn'] },
+        
+        // Sharing & Portability
+        { label: 'sync                    Share habits with other tools', args: ['sync'] },
+        { label: 'export                  Export habits profile', args: ['export'] },
+        { label: 'import                  Import habits profile', args: ['import'] },
+        
+        // Analysis & Debugging
+        { label: 'log                     Show the capture log', args: ['log'] },
+        { label: 'diff                    Show changes between last two writes', args: ['diff'] },
+        { label: 'explain                 Show signals contributing to a habit', args: ['explain'] },
+        { label: 'lint                    Check a file against habits', args: ['lint'] },
+        
+        // Memory & Tombstones
+        { label: 'memories                Show coding memories', args: ['memories'] },
+        { label: 'memories --enable       Turn on memory learning', args: ['memories', '--enable'] },
+        { label: 'memories --disable      Turn off memory learning', args: ['memories', '--disable'] },
+        { label: 'memories --tombstones   List tombstoned memories', args: ['memories', '--tombstones'] },
+        { label: 'tombstone               Block a habit rule', args: ['tombstone'] },
+        
+        // Getting Help
+        { label: 'faq                     Search FAQ or raise a GitHub issue', args: ['faq'] },
+      ];
+
+      const menuItems = helpItems.map(hi => ({
+        label: hi.label,
+        value: JSON.stringify(hi.args)
+      }));
+      menuItems.push({ label: 'Back to main menu', value: 'back' });
+
+      const selectedHelp = await runSelectMenu(
+        `  ${c(BOLD + CYAN, 'Select a detailed usage command to run (use ↑/↓ keys):')}`,
+        menuItems
+      );
+      if (!selectedHelp || selectedHelp.value === 'back') {
+        return runMainInteractiveMenu();
+      }
+      const chosenArgs = JSON.parse(selectedHelp.value);
+      const res = spawnSync(process.execPath, [String(process.argv[1]), ...chosenArgs], { stdio: 'inherit' });
+      process.exit(res.status ?? 0);
+    }
+
+    const res = spawnSync(process.execPath, [String(process.argv[1]), ...item.args], { stdio: 'inherit' });
+    process.exit(res.status ?? 0);
+  }
+
   if (!command || command === 'help') {
     if (process.stdin.isTTY && process.stderr.isTTY) {
-      const item = await runInteractiveMenu();
-      if (!item) process.exit(0);
-      const res = spawnSync(process.execPath, [String(process.argv[1]), ...item.args], { stdio: 'inherit' });
-      process.exit(res.status ?? 0);
+      await runMainInteractiveMenu();
     }
     process.stdout.write(HELP);
     process.exit(0);

@@ -22,7 +22,7 @@ cc-habits learns where it can hook in, and carries what it learned everywhere el
 |---|---|---|
 | **Claude Code** | PostToolUse / Stop / UserPromptSubmit / SessionStart hooks | `@import` + per-prompt injection |
 | **Gemini CLI** | AfterTool / AfterAgent / BeforeAgent / SessionStart hooks in `~/.gemini/settings.json` | `GEMINI.md` @import |
-| **Codex CLI** | hooks in `.codex/config.toml` | `AGENTS.md` |
+| **Codex CLI** | hooks in `~/.codex/hooks.json` | `AGENTS.md` |
 | **Kimi Code CLI** | `[[hooks]]` in `~/.kimi/config.toml` | `AGENTS.md` |
 | **Cursor** | VS Code extension or Git commits | `cch sync cursor` → `.cursor/rules/` |
 | **Cline / RooCode** | PostToolUse / Stop hooks | `cch sync cline` → `.clinerules` |
@@ -315,7 +315,24 @@ cc-habits view
 ```
 
 ```
-  cc-habits · your coding habits
+  ┌────────────────────────────────────────────┐
+  │                                            │
+  │                   ▄▄▄▄▄▄                  │
+  │                  ██▀▀▀▀██                  │
+  │           ▄▄▄▄▄▄▄██▄▄▄▄██▄▄▄▄▄▄▄           │
+  │         ▄██▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀██▄         │
+  │         ██    ▀▀▄▄              ██         │
+  │         ██      ▄▄▀▀  ▄▄▄▄▄▄    ██         │
+  │         ██    ▀▀      ▀▀▀▀▀▀    ██         │
+  │         ██      ▄        ▄      ██         │
+  │         ██      █▄▄▄▄▄▄▄▄█      ██         │
+  │         ▀██▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄██▀         │
+  │           ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀           │
+  │                                            │
+  │       cc-habits · your coding habits       │
+  │  One tool-agnostic developer memory layer  │
+  │         Active  ·  anthropic haiku         │
+  └────────────────────────────────────────────┘
 
   3 habits across 2 categories  ·  12 signals processed
 
@@ -380,6 +397,7 @@ Each `Write` / `Edit` / `MultiEdit` during a coding session produces a diff sign
 | Scope | How |
 |---|---|
 | A single repository | Add `.cc-habits-ignore` to the repo root |
+| System-wide, persistently | `cch off` (re-enable with `cch on`) |
 | System-wide, temporarily | Set `CC_HABITS_DISABLE=1` in your shell |
 | Audit what was captured | `cc-habits log [--limit N]` |
 | Erase all captures | `cc-habits reset --yes` |
@@ -421,6 +439,8 @@ npm install -g cc-habits              # install globally (once)
 # cch is a short alias; all commands below work with either
 cc-habits tools                       # list supported tools and which are detected on this machine
 cc-habits init                        # detect tools, install hooks, create habits.md, choose a provider
+cc-habits on                          # re-enable cc-habits after cch off
+cc-habits off                         # disable all capture and injection persistently (survives restarts)
 cc-habits bootstrap                   # learn habits from past sessions in this project
 cc-habits view                        # show current habits + recent signals
 cc-habits memories                    # show coding memories (enable with CC_HABITS_MEMORIES=1)
@@ -437,10 +457,12 @@ cc-habits capture --file <p> --diff <d>  # append an edit signal from any tool (
 cc-habits git-capture [--range r]     # learn from Git commits (HEAD~1..HEAD by default)
 cc-habits learn [--session id]        # compile habits and memories from collected signals
 cc-habits migrate [--force]           # migrate storage from ~/.claude/habits/ to ~/.cc-habits/
-cc-habits pending                     # review proposed new habits
+cc-habits pending                     # list proposed new habits awaiting review
+cc-habits pending --approve           # apply all pending proposals
 cc-habits pending --discard           # reject all pending proposals
+cc-habits tombstone                   # list all tombstoned (permanently blocked) rules
 cc-habits tombstone "<rule>"          # block a rule from ever being re-learned
-cc-habits tombstones                  # list tombstoned rules
+cc-habits faq                         # print common questions and answers
 cc-habits reset --yes                 # delete habits.md, memories.md, log.jsonl, pending, snapshot
 cc-habits shell-init                  # print a claude/gemini shell wrapper, add via: eval "$(cc-habits shell-init)"
 cc-habits help                        # interactive arrow-key menu (falls back to text when piped)
@@ -510,6 +532,44 @@ cc-habits auto-migrates your old store to `~/.cc-habits/` on first run, and rewr
 **What happens when two projects have conflicting styles?**
 All signals go into one global pool. Contradicting signals lower a habit's confidence; if it drops below 0.30 it is pruned. Explicit per-project profiles are on the roadmap.
 
+**Won't Anthropic, Cursor, or OpenAI just build this themselves?**
+Every platform will build memory for their own runtime. Anthropic will build Claude memory. Cursor will build Cursor memory. None of them will build the neutral cross-platform layer, because that requires cooperating with competitors. The moment they ship memory, it becomes single-vendor and opaque — which is exactly what cc-habits is not. The value of a neutral memory layer compounds with ecosystem fragmentation: the more AI coding tools exist, the stronger the case for one shared memory layer across all of them. That is structurally impossible for any single platform to provide.
+
+---
+
+## Performance
+
+cc-habits is designed to never add perceptible latency to your coding sessions. Every number below is measurable today.
+
+| Operation | Latency | Notes |
+|---|---|---|
+| **PostToolUse hook** (capture) | < 50ms | Synchronous path: diff extraction, PII redaction, append to log.jsonl |
+| **UserPromptSubmit hook** (injection) | < 5ms | Reads habits.md, filters top 12 habits, writes to stdout |
+| **SessionStart hook** (pending banner) | < 5ms | Reads pending.json, formats message, writes to stdout |
+| **Stop hook** (extraction) | 1–4s | One LLM call per session; signal batch capped at 50 signals / 180 KB |
+| **`cch view`** | < 100ms | Reads habits.md + log.jsonl, renders to terminal |
+| **`cch sync`** | < 200ms | Writes one rules file per target; no LLM call |
+
+### Signal budgets
+
+| Limit | Value | Purpose |
+|---|---|---|
+| Max signals per extraction | 50 | Prevents provider 413 / context-length errors |
+| Max diff bytes per batch | 180 KB | Well under Groq's 200 KB hard limit |
+| Max diff bytes per signal | 4 KB | Signals above this are truncated |
+| Max stdin bytes per hook | 4 MB | Anomalous payloads are discarded |
+| Log rotation threshold | 2 MB | `log.jsonl` trimmed to 5,000 most-recent signals |
+| History snapshots kept | 100 sessions | `.history.jsonl` trimmed automatically |
+| Error log lines kept | 1,000 | `error.log` trimmed on rotation |
+
+### Test suite
+
+503 tests across 28 files, including dedicated security, red-team, pentest, hardening, and injection suites. CI runs the full suite on Linux, macOS, and Windows in approximately 1.3 seconds.
+
+```bash
+npm test    # 503 tests, ~1.3s on macOS M-series
+```
+
 ---
 
 ## Architecture
@@ -529,12 +589,12 @@ Per-tool wiring (each tool's own config dir):
 ~/.claude/settings.json    ← PostToolUse + Stop + UserPromptSubmit hooks (Claude Code)
 ~/.claude/CLAUDE.md        ← @import line added here
 ~/.gemini/settings.json    ← hooks for Gemini CLI
-.codex/config.toml         ← hooks for Codex CLI
+~/.codex/hooks.json        ← hooks for Codex CLI (JSON MatcherGroup format)
 ```
 
 VS Code / Cursor / Antigravity IDE extension: `vscode-extension/` in this repo.
 
-Source: `src/` (TypeScript, fully typed, MIT licensed). Tool payloads are normalized through `src/adapters/` so one engine serves every tool.
+Source: `src/` (TypeScript, fully typed, MIT licensed). Tool payloads are normalized through `src/adapters/` so one engine serves every tool. Signal batch capping is centralized in `src/batch.ts` and shared by the Stop hook and CLI extraction paths.
 
 ---
 
