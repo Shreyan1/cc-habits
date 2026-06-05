@@ -619,9 +619,14 @@ export function processSessionStart(): string | null {
 
   const count = pending.length;
   const noun = count === 1 ? 'habit suggestion' : 'habit suggestions';
+  // Re-sanitize at emit time as defence-in-depth: this text goes straight into
+  // the agent's SessionStart additionalContext. pending.json is sanitized at
+  // write time (toPending), but it is a plain file a user or another process may
+  // hand-edit, so we re-sanitize here exactly as buildInjectionContext does for
+  // habits.md. Never inject pending text into the agent without this pass.
   const lines = pending
     .slice(0, 5)
-    .map(p => `  - [${p.category}] ${p.rule}`);
+    .map(p => `  - [${sanitizeCategory(p.category)}] ${sanitizeRule(p.rule)}`);
   const more = count > 5 ? `  ...and ${count - 5} more\n` : '';
   const msg =
     `cc-habits: ${count} pending ${noun} awaiting review:\n` +
