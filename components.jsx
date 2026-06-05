@@ -36,7 +36,7 @@ const BRIEF_GRID = [
 function PixBriefBlink({ unit = 12, ink = "#102600", accent = "#00B7FF", style }) {
   const [eyeFrame, setEyeFrame] = useState(0); // 0=open 1=half 2=closed
   useEffect(() => {
-    const seq = [[0,2500],[1,100],[2,150],[1,100],[0,150]];
+    const seq = [[0,2500],[1,67],[2,100],[1,67],[0,100]];
     let step = 0;
     let t;
     function tick() {
