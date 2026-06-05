@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import {
   storagePaths, readHabitsMd, parseHabits, writeHabitsMd, serialiseHabits,
-  writeSnapshot, appendHistory, ensureDirs,
+  writeSnapshot, appendHistory, ensureDirs, getPaths, type StorageContext
 } from './storage';
 import { buildDiff, redact, isNoise, detectLanguage } from './hook';
 import { sanitizeFilePath } from './storage';
@@ -35,12 +35,12 @@ function encodeProjectPath(absPath: string): string {
   return absPath.replace(/\//g, '-');
 }
 
-function bootstrappedPath(): string {
-  return path.join(storagePaths.habitsDir, BOOTSTRAPPED_FILE);
+function bootstrappedPath(ctx?: StorageContext): string {
+  return path.join(getPaths(ctx).habitsDir, BOOTSTRAPPED_FILE);
 }
 
-function readBootstrapped(): Set<string> {
-  const p = bootstrappedPath();
+function readBootstrapped(ctx?: StorageContext): Set<string> {
+  const p = bootstrappedPath(ctx);
   if (!fs.existsSync(p)) return new Set();
   try {
     const data = JSON.parse(fs.readFileSync(p, 'utf-8')) as unknown;
@@ -49,11 +49,11 @@ function readBootstrapped(): Set<string> {
   return new Set();
 }
 
-function writeBootstrapped(ids: string[]): void {
-  const existing = readBootstrapped();
+function writeBootstrapped(ids: string[], ctx?: StorageContext): void {
+  const existing = readBootstrapped(ctx);
   ids.forEach(id => existing.add(id));
-  ensureDirs();
-  fs.writeFileSync(bootstrappedPath(), JSON.stringify([...existing], null, 2) + '\n', {
+  ensureDirs(ctx);
+  fs.writeFileSync(bootstrappedPath(ctx), JSON.stringify([...existing], null, 2) + '\n', {
     encoding: 'utf-8',
     mode: 0o600,
   });
@@ -136,9 +136,11 @@ export function extractSignalsFromTranscript(transcriptPath: string, sessionId: 
 export async function bootstrap(opts?: {
   projectDir?: string;
   maxSignals?: number;
+  ctx?: StorageContext;
 }): Promise<BootstrapResult> {
+  const ctx = opts?.ctx;
   const sessions = discoverSessions(opts?.projectDir);
-  const alreadyDone = readBootstrapped();
+  const alreadyDone = readBootstrapped(ctx);
   const newSessions = sessions.filter(s => !alreadyDone.has(s.sessionId));
 
   const empty: BootstrapResult = {
@@ -167,11 +169,11 @@ export async function bootstrap(opts?: {
   const capped = allSignals.length > cap ? allSignals.slice(-cap) : allSignals;
 
   if (capped.length < 3) {
-    writeBootstrapped(processedIds);
+    writeBootstrapped(processedIds, ctx);
     return { ...empty, sessionsFound: sessions.length, sessionsWithEdits, signalsExtracted: capped.length };
   }
 
-  const habitsMd = readHabitsMd();
+  const habitsMd = readHabitsMd(ctx);
   const cats = parseHabits(habitsMd);
 
   const updates = await extractRules(capped, habitsMd);
@@ -193,10 +195,10 @@ export async function bootstrap(opts?: {
   }
 
   const serialised = serialiseHabits(cats);
-  writeHabitsMd(serialised);
-  writeSnapshot(cats);
-  appendHistory({ ts: new Date().toISOString(), session_id: 'bootstrap', habits_md: serialised });
-  writeBootstrapped(processedIds);
+  writeHabitsMd(serialised, ctx);
+  writeSnapshot(cats, ctx);
+  appendHistory({ ts: new Date().toISOString(), session_id: 'bootstrap', habits_md: serialised }, ctx);
+  writeBootstrapped(processedIds, ctx);
 
   return {
     sessionsFound: sessions.length,

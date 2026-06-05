@@ -117,4 +117,49 @@ describe('confidence', () => {
     }]);
     expect(Object.keys(cats)).toHaveLength(0);
   });
+
+  describe('Levenshtein semantic deduplication', () => {
+    it('matches similar rule with high similarity and reinforces it', () => {
+      const cats = makeHabit('Use explicit return types', INITIAL, 1, 0);
+      applyUpdates(cats, [{
+        category: 'Python',
+        rule: 'Use explicit return type',
+        decision: 'reinforce',
+        matched_habit_id: '',
+        reasoning: 'singular suffix match',
+      }]);
+      expect(cats['Python']).toHaveLength(1);
+      expect(cats['Python'][0].rule).toBe('Use explicit return types'); // retains original rule text
+      expect(cats['Python'][0].confidence).toBeCloseTo(INITIAL + REINFORCE_DELTA);
+    });
+
+    it('matches similar rule with close similarity and reinforces it when matched_habit_id is empty', () => {
+      const cats = makeHabit('Prefer explicit type annotations', INITIAL, 1, 0);
+      applyUpdates(cats, [{
+        category: 'Python',
+        rule: 'Prefer explicit TypeScript type annotations',
+        decision: 'reinforce',
+        matched_habit_id: '',
+        reasoning: 'matches via rule similarity',
+      }]);
+      expect(cats['Python']).toHaveLength(1);
+      expect(cats['Python'][0].rule).toBe('Prefer explicit type annotations');
+      expect(cats['Python'][0].confidence).toBeCloseTo(INITIAL + REINFORCE_DELTA);
+    });
+
+    it('does not match and creates a new habit when similarity is below 0.70', () => {
+      const cats = makeHabit('Use explicit return types', INITIAL, 1, 0);
+      applyUpdates(cats, [{
+        category: 'Python',
+        rule: 'Always verify return values in functions',
+        decision: 'create',
+        matched_habit_id: '',
+        reasoning: 'different semantic meaning',
+      }]);
+      expect(cats['Python']).toHaveLength(2);
+      expect(cats['Python'][0].rule).toBe('Use explicit return types');
+      expect(cats['Python'][1].rule).toBe('Always verify return values in functions');
+    });
+  });
 });
+

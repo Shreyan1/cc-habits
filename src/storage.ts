@@ -81,6 +81,28 @@ export const storagePaths = {
   configFile: path.join(defaultRoot(), 'config.yml'),
 };
 
+export interface StorageContext {
+  habitsDir: string;
+  habitsFile: string;
+  memoriesFile: string;
+  logFile: string;
+  errorLog: string;
+  tombstonesFile: string;
+  memoryTombstonesFile: string;
+  memoryIndexFile: string;
+  memoryPendingFile: string;
+  snapshotFile: string;
+  pendingFile: string;
+  historyFile: string;
+  provenanceFile: string;
+  updateCheckFile: string;
+  configFile: string;
+}
+
+export function getPaths(ctx?: StorageContext): StorageContext {
+  return ctx || storagePaths;
+}
+
 const FILE_MODE = 0o600;
 
 const HABITS_HEADER =
@@ -120,17 +142,17 @@ const CANDIDATE_MEMORIES_SECTION_HEADER =
   '> These memories have not been observed enough times or approved by the user. ' +
   'Agents should not apply memories in this section.\n';
 
-export function ensureDirs(): void {
-  fs.mkdirSync(storagePaths.habitsDir, { recursive: true });
+export function ensureDirs(ctx?: StorageContext): void {
+  fs.mkdirSync(getPaths(ctx).habitsDir, { recursive: true });
 }
 
 // Securely (re)write config.yml. Routes through safeWrite so the file is
 // symlink-guarded and written atomically at mode 0600, even when config.yml
 // already exists with looser permissions (writeFileSync would not retighten an
 // existing file, leaving an API key potentially group/world readable). F2 fix.
-export function writeConfigFile(content: string): void {
-  ensureDirs();
-  safeWrite(storagePaths.configFile, content);
+export function writeConfigFile(content: string, ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  safeWrite(getPaths(ctx).configFile, content);
 }
 
 function safeWrite(filePath: string, content: string): void {
@@ -186,43 +208,48 @@ function trimIfNeeded(filePath: string, maxLines: number): void {
   }
 }
 
-export function initHabitsMd(): void {
-  ensureDirs();
-  if (!fs.existsSync(storagePaths.habitsFile)) {
-    safeWrite(storagePaths.habitsFile, HABITS_HEADER);
+export function initHabitsMd(ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.habitsFile)) {
+    safeWrite(paths.habitsFile, HABITS_HEADER);
   }
 }
 
-export function initMemoriesMd(): void {
-  ensureDirs();
-  if (!fs.existsSync(storagePaths.memoriesFile)) {
-    safeWrite(storagePaths.memoriesFile, MEMORIES_HEADER);
+export function initMemoriesMd(ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.memoriesFile)) {
+    safeWrite(paths.memoriesFile, MEMORIES_HEADER);
   }
 }
 
-export function initLog(): void {
-  ensureDirs();
-  if (!fs.existsSync(storagePaths.logFile)) {
-    safeWrite(storagePaths.logFile, '');
+export function initLog(ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.logFile)) {
+    safeWrite(paths.logFile, '');
   }
 }
 
-export function appendSignal(signal: Signal): void {
-  ensureDirs();
-  safeAppend(storagePaths.logFile, JSON.stringify(signal) + '\n');
-  trimIfNeeded(storagePaths.logFile, LOG_ROTATE_LINES);
+export function appendSignal(signal: Signal, ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  const paths = getPaths(ctx);
+  safeAppend(paths.logFile, JSON.stringify(signal) + '\n');
+  trimIfNeeded(paths.logFile, LOG_ROTATE_LINES);
 }
 
-export function readSignals(sessionId?: string): Signal[] {
-  if (!fs.existsSync(storagePaths.logFile)) return [];
+export function readSignals(sessionId?: string, ctx?: StorageContext): Signal[] {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.logFile)) return [];
   // Guard against reading a runaway log file that could exhaust process memory.
-  const stat = fs.statSync(storagePaths.logFile);
+  const stat = fs.statSync(paths.logFile);
   if (stat.size > MAX_LOG_READ_BYTES) {
     // Log the oversized-file event and return empty rather than crash.
-    logError(`readSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`);
+    logError(`readSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
     return [];
   }
-  const lines = fs.readFileSync(storagePaths.logFile, 'utf-8').split('\n');
+  const lines = fs.readFileSync(paths.logFile, 'utf-8').split('\n');
   const signals: Signal[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
@@ -237,24 +264,26 @@ export function readSignals(sessionId?: string): Signal[] {
   return signals;
 }
 
-export function readHabitsMd(): string {
-  if (!fs.existsSync(storagePaths.habitsFile)) return HABITS_HEADER;
-  return fs.readFileSync(storagePaths.habitsFile, 'utf-8');
+export function readHabitsMd(ctx?: StorageContext): string {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.habitsFile)) return HABITS_HEADER;
+  return fs.readFileSync(paths.habitsFile, 'utf-8');
 }
 
-export function writeHabitsMd(content: string): void {
-  ensureDirs();
-  safeWrite(storagePaths.habitsFile, content);
+export function writeHabitsMd(content: string, ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  safeWrite(getPaths(ctx).habitsFile, content);
 }
 
-export function readMemoriesMd(): string {
-  if (!fs.existsSync(storagePaths.memoriesFile)) return MEMORIES_HEADER;
-  return fs.readFileSync(storagePaths.memoriesFile, 'utf-8');
+export function readMemoriesMd(ctx?: StorageContext): string {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.memoriesFile)) return MEMORIES_HEADER;
+  return fs.readFileSync(paths.memoriesFile, 'utf-8');
 }
 
-export function writeMemoriesMd(content: string): void {
-  ensureDirs();
-  safeWrite(storagePaths.memoriesFile, content);
+export function writeMemoriesMd(content: string, ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  safeWrite(getPaths(ctx).memoriesFile, content);
 }
 
 // Tombstones (A2) ──────────────────────────────────────────────────────────
@@ -315,10 +344,11 @@ function isFuzzyMatch(candidate: string, tombstoned: string): boolean {
   return ruleSimilarity(candidate, tombstoned) >= TOMBSTONE_SIMILARITY_THRESHOLD;
 }
 
-export function readTombstones(): string[] {
-  if (!fs.existsSync(storagePaths.tombstonesFile)) return [];
+export function readTombstones(ctx?: StorageContext): string[] {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.tombstonesFile)) return [];
   try {
-    const data = JSON.parse(fs.readFileSync(storagePaths.tombstonesFile, 'utf-8')) as unknown;
+    const data = JSON.parse(fs.readFileSync(paths.tombstonesFile, 'utf-8')) as unknown;
     if (Array.isArray(data)) return data.filter((x): x is string => typeof x === 'string');
   } catch {
     // malformed, treat as empty
@@ -326,31 +356,32 @@ export function readTombstones(): string[] {
   return [];
 }
 
-export function writeTombstones(rules: string[]): void {
-  ensureDirs();
+export function writeTombstones(rules: string[], ctx?: StorageContext): void {
+  ensureDirs(ctx);
   const unique = Array.from(new Set(rules.map(normalizeRule))).filter(Boolean);
-  safeWrite(storagePaths.tombstonesFile, JSON.stringify(unique, null, 2) + '\n');
+  safeWrite(getPaths(ctx).tombstonesFile, JSON.stringify(unique, null, 2) + '\n');
 }
 
-export function addTombstone(rule: string): void {
-  const current = readTombstones();
+export function addTombstone(rule: string, ctx?: StorageContext): void {
+  const current = readTombstones(ctx);
   current.push(normalizeRule(rule));
-  writeTombstones(current);
+  writeTombstones(current, ctx);
 }
 
-export function isTombstoned(rule: string): boolean {
+export function isTombstoned(rule: string, ctx?: StorageContext): boolean {
   const target = normalizeRule(rule);
-  const tombstones = readTombstones();
+  const tombstones = readTombstones(ctx);
   // Fast path: exact normalized match. Fallback: fuzzy near-duplicate match so a
   // lightly reworded variant of a deleted rule is still blocked.
   return tombstones.some(t => t === target || isFuzzyMatch(rule, t));
 }
 
 // Memory tombstones ────────────────────────────────────────────────────────
-export function readMemoryTombstones(): string[] {
-  if (!fs.existsSync(storagePaths.memoryTombstonesFile)) return [];
+export function readMemoryTombstones(ctx?: StorageContext): string[] {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.memoryTombstonesFile)) return [];
   try {
-    const data = JSON.parse(fs.readFileSync(storagePaths.memoryTombstonesFile, 'utf-8')) as unknown;
+    const data = JSON.parse(fs.readFileSync(paths.memoryTombstonesFile, 'utf-8')) as unknown;
     if (Array.isArray(data)) return data.filter((x): x is string => typeof x === 'string');
   } catch {
     // malformed, treat as empty
@@ -358,43 +389,44 @@ export function readMemoryTombstones(): string[] {
   return [];
 }
 
-function writeMemoryTombstones(texts: string[]): void {
-  ensureDirs();
+function writeMemoryTombstones(texts: string[], ctx?: StorageContext): void {
+  ensureDirs(ctx);
   const unique = Array.from(new Set(texts.map(normalizeRule))).filter(Boolean);
-  safeWrite(storagePaths.memoryTombstonesFile, JSON.stringify(unique, null, 2) + '\n');
+  safeWrite(getPaths(ctx).memoryTombstonesFile, JSON.stringify(unique, null, 2) + '\n');
 }
 
-export function addMemoryTombstone(text: string): void {
-  const current = readMemoryTombstones();
+export function addMemoryTombstone(text: string, ctx?: StorageContext): void {
+  const current = readMemoryTombstones(ctx);
   current.push(normalizeRule(text));
-  writeMemoryTombstones(current);
+  writeMemoryTombstones(current, ctx);
 }
 
-export function isMemoryTombstoned(text: string): boolean {
+export function isMemoryTombstoned(text: string, ctx?: StorageContext): boolean {
   const target = normalizeRule(text);
-  const tombstones = readMemoryTombstones();
+  const tombstones = readMemoryTombstones(ctx);
   return tombstones.some(t => t === target || isFuzzyMatch(text, t));
 }
 
 // Snapshot (auto-detect manual deletes) ────────────────────────────────────
-export function readSnapshot(): HabitsMap | null {
-  if (!fs.existsSync(storagePaths.snapshotFile)) return null;
+export function readSnapshot(ctx?: StorageContext): HabitsMap | null {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.snapshotFile)) return null;
   try {
-    return JSON.parse(fs.readFileSync(storagePaths.snapshotFile, 'utf-8')) as HabitsMap;
+    return JSON.parse(fs.readFileSync(paths.snapshotFile, 'utf-8')) as HabitsMap;
   } catch {
     return null;
   }
 }
 
-export function writeSnapshot(cats: HabitsMap): void {
-  ensureDirs();
-  safeWrite(storagePaths.snapshotFile, JSON.stringify(cats, null, 2));
+export function writeSnapshot(cats: HabitsMap, ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  safeWrite(getPaths(ctx).snapshotFile, JSON.stringify(cats, null, 2));
 }
 
 // Compare snapshot to current parsed habits.md. Any rule present in snapshot
 // but absent from current was manually deleted by the user, tombstone it.
-export function detectManualDeletes(current: HabitsMap): string[] {
-  const snapshot = readSnapshot();
+export function detectManualDeletes(current: HabitsMap, ctx?: StorageContext): string[] {
+  const snapshot = readSnapshot(ctx);
   if (snapshot === null) return [];
   const currentRules = new Set<string>();
   for (const habits of Object.values(current)) {
@@ -420,10 +452,11 @@ export interface PendingUpdate {
   ts: string;
 }
 
-export function readPending(): PendingUpdate[] {
-  if (!fs.existsSync(storagePaths.pendingFile)) return [];
+export function readPending(ctx?: StorageContext): PendingUpdate[] {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.pendingFile)) return [];
   try {
-    const data = JSON.parse(fs.readFileSync(storagePaths.pendingFile, 'utf-8')) as unknown;
+    const data = JSON.parse(fs.readFileSync(paths.pendingFile, 'utf-8')) as unknown;
     if (Array.isArray(data)) return data as PendingUpdate[];
   } catch {
     // ignore
@@ -431,14 +464,15 @@ export function readPending(): PendingUpdate[] {
   return [];
 }
 
-export function writePending(updates: PendingUpdate[]): void {
-  ensureDirs();
-  safeWrite(storagePaths.pendingFile, JSON.stringify(updates, null, 2));
+export function writePending(updates: PendingUpdate[], ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  safeWrite(getPaths(ctx).pendingFile, JSON.stringify(updates, null, 2));
 }
 
-export function clearPending(): void {
-  if (fs.existsSync(storagePaths.pendingFile)) {
-    fs.unlinkSync(storagePaths.pendingFile);
+export function clearPending(ctx?: StorageContext): void {
+  const paths = getPaths(ctx);
+  if (fs.existsSync(paths.pendingFile)) {
+    fs.unlinkSync(paths.pendingFile);
   }
 }
 
@@ -449,20 +483,22 @@ export interface HistoryEntry {
   habits_md: string;
 }
 
-export function appendHistory(entry: HistoryEntry): void {
-  ensureDirs();
-  safeAppend(storagePaths.historyFile, JSON.stringify(entry) + '\n');
-  trimIfNeeded(storagePaths.historyFile, HISTORY_ROTATE_LINES);
+export function appendHistory(entry: HistoryEntry, ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  const paths = getPaths(ctx);
+  safeAppend(paths.historyFile, JSON.stringify(entry) + '\n');
+  trimIfNeeded(paths.historyFile, HISTORY_ROTATE_LINES);
 }
 
-export function readHistory(): HistoryEntry[] {
-  if (!fs.existsSync(storagePaths.historyFile)) return [];
-  const stat = fs.statSync(storagePaths.historyFile);
+export function readHistory(ctx?: StorageContext): HistoryEntry[] {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.historyFile)) return [];
+  const stat = fs.statSync(paths.historyFile);
   if (stat.size > MAX_LOG_READ_BYTES) {
-    logError(`readHistory: .history.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`);
+    logError(`readHistory: .history.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
     return [];
   }
-  const lines = fs.readFileSync(storagePaths.historyFile, 'utf-8').split('\n');
+  const lines = fs.readFileSync(paths.historyFile, 'utf-8').split('\n');
   const out: HistoryEntry[] = [];
   for (const line of lines) {
     const t = line.trim();
@@ -483,33 +519,34 @@ export interface ProvenanceRef {
 
 export type ProvenanceMap = Record<string, ProvenanceRef[]>;
 
-export function readProvenance(): ProvenanceMap {
-  if (!fs.existsSync(storagePaths.provenanceFile)) return {};
+export function readProvenance(ctx?: StorageContext): ProvenanceMap {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.provenanceFile)) return {};
   try {
-    return JSON.parse(fs.readFileSync(storagePaths.provenanceFile, 'utf-8')) as ProvenanceMap;
+    return JSON.parse(fs.readFileSync(paths.provenanceFile, 'utf-8')) as ProvenanceMap;
   } catch {
     return {};
   }
 }
 
-export function writeProvenance(m: ProvenanceMap): void {
-  ensureDirs();
-  safeWrite(storagePaths.provenanceFile, JSON.stringify(m, null, 2));
+export function writeProvenance(m: ProvenanceMap, ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  safeWrite(getPaths(ctx).provenanceFile, JSON.stringify(m, null, 2));
 }
 
-export function appendProvenance(ruleKey: string, refs: ProvenanceRef[]): void {
-  const map = readProvenance();
+export function appendProvenance(ruleKey: string, refs: ProvenanceRef[], ctx?: StorageContext): void {
+  const map = readProvenance(ctx);
   const key = ruleKey.trim().replace(/\.$/, '').toLowerCase();
   const existing = map[key] ?? [];
   // Cap per-rule provenance at 10 most-recent entries to bound disk usage.
   const merged = [...existing, ...refs].slice(-10);
   map[key] = merged;
-  writeProvenance(map);
+  writeProvenance(map, ctx);
 }
 
-export function lookupProvenance(rule: string): ProvenanceRef[] {
+export function lookupProvenance(rule: string, ctx?: StorageContext): ProvenanceRef[] {
   const key = rule.trim().replace(/\.$/, '').toLowerCase();
-  const map = readProvenance();
+  const map = readProvenance(ctx);
   if (map[key]) return map[key];
   // Fuzzy: substring match.
   for (const k of Object.keys(map)) {
@@ -799,16 +836,16 @@ export interface MemoryCandidate {
   correction: string;
 }
 
-export function applyMemoryUpdates(candidates: MemoryCandidate[]): number {
+export function applyMemoryUpdates(candidates: MemoryCandidate[], ctx?: StorageContext): number {
   if (candidates.length === 0) return 0;
-  initMemoriesMd();
-  const md = readMemoriesMd();
+  initMemoriesMd(ctx);
+  const md = readMemoriesMd(ctx);
   const sections = parseMemories(md);
   const today = new Date().toISOString().slice(0, 10);
   let newCount = 0;
 
   for (const candidate of candidates) {
-    if (isMemoryTombstoned(candidate.text)) continue;
+    if (isMemoryTombstoned(candidate.text, ctx)) continue;
     const section = candidate.section || 'Repeated mistakes';
     if (!sections[section]) sections[section] = [];
     const normalised = normalizeMemoryText(candidate.text);
@@ -833,16 +870,16 @@ export function applyMemoryUpdates(candidates: MemoryCandidate[]): number {
     }
   }
 
-  writeMemoriesMd(serialiseMemories(sections));
+  writeMemoriesMd(serialiseMemories(sections), ctx);
   return newCount;
 }
 
-export function logError(msg: string): void {
+export function logError(msg: string, ctx?: StorageContext): void {
   try {
-    ensureDirs();
+    ensureDirs(ctx);
     const entry = `[${new Date().toISOString()}] ${msg}\n`;
-    safeAppend(storagePaths.errorLog, entry);
-    trimIfNeeded(storagePaths.errorLog, 1_000);
+    safeAppend(getPaths(ctx).errorLog, entry);
+    trimIfNeeded(getPaths(ctx).errorLog, 1_000);
   } catch {
     // never crash
   }

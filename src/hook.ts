@@ -5,9 +5,10 @@ import {
   serialiseHabits, logError, sanitizeFilePath, detectManualDeletes, writeSnapshot,
   addTombstone, writePending, readPending, clearPending,
   appendHistory, appendProvenance, readMemoriesMd, applyMemoryUpdates, parseMemories,
-  isMemoryTombstoned,
+  isMemoryTombstoned, getPaths, type StorageContext,
   type Memory,
 } from './storage';
+import { acquireLock, releaseLock } from './lock';
 import { normalizeInput, ALLOWED_ADAPTERS, type NormalizedHookInput } from './adapters';
 import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule, sanitizeCategory } from './confidence';
 import type { AppliedChange } from './confidence';
@@ -202,7 +203,7 @@ export function autoApplyWarning(count: number): string | null {
 // persisted `memories_enabled` flag in config.yml. See memoriesEnabled() in config.ts.
 
 // Pure logic ───────────────────────────────────────────────────────────────
-export function processPostToolUse(input: Record<string, unknown> | NormalizedHookInput): void {
+export function processPostToolUse(input: Record<string, unknown> | NormalizedHookInput, ctx?: StorageContext): void {
   if (captureDisabled()) return;
 
   const data = (('filePath' in input) ? input : normalizeInput(input, 'claude-code')) as NormalizedHookInput;
@@ -225,14 +226,14 @@ export function processPostToolUse(input: Record<string, unknown> | NormalizedHo
     diff,
     ...(language ? { language } : {}),
     source: data.source || 'claude-code',
-  });
+  }, ctx);
 
   // Session-start banner: on the first edit of this session, tell the user how
   // many habits are active. One truthful line beats a per-edit cry-wolf signal.
   if (markerEnabled() && (data.source === 'claude-code' || !data.source)) {
     try {
-      const count = readSignals(sessionId).length;
-      const banner = buildSessionBanner(readHabitsMd(), count);
+      const count = readSignals(sessionId, ctx).length;
+      const banner = buildSessionBanner(readHabitsMd(ctx), count);
       if (banner) process.stderr.write(banner + '\n');
     } catch { /* banner is cosmetic; swallow */ }
   }
@@ -252,108 +253,119 @@ export interface StopResult {
   memoryCandidatesCount?: number;
 }
 
-export async function processStop(sessionId: string): Promise<StopResult | null> {
+export async function processStop(sessionId: string, ctx?: StorageContext): Promise<StopResult | null> {
   if (captureDisabled()) return null;
 
-  const signals = readSignals(sessionId);
+  const signals = readSignals(sessionId, ctx);
   if (signals.length < MIN_SIGNALS) return null;
 
   const gated = signals.filter(s => !isNoise(s.diff ?? ''));
   if (gated.length < MIN_SIGNALS) return null;
 
-  const habitsMd = readHabitsMd();
-  const cats = parseHabits(habitsMd);
+  const lockFile = path.join(getPaths(ctx).habitsDir, 'habits.lock');
+  const locked = await acquireLock(lockFile);
+  if (!locked) {
+    logError(`stop: failed to acquire lock for habits file after timeout`, ctx);
+    return null;
+  }
 
-  // A2: detect manual deletes since last write and tombstone them.
-  const deleted = detectManualDeletes(cats);
-  for (const d of deleted) addTombstone(d);
+  try {
+    const habitsMd = readHabitsMd(ctx);
+    const cats = parseHabits(habitsMd);
 
-  // B4: decay stale habits before applying new updates.
-  const decayed = applyDecay(cats);
+    // A2: detect manual deletes since last write and tombstone them.
+    const deleted = detectManualDeletes(cats, ctx);
+    for (const d of deleted) addTombstone(d, ctx);
 
-  // Cap to a signal count AND a byte budget so large diffs (e.g. whole-file git
-  // commits) don't cause a provider 413 on top of the count cap. Shared with the
-  // CLI sync path via batch.ts so both honour the same provider limits.
-  const capped = capBatchCore(gated);
-  if (capped.length < gated.length) {
-    process.stderr.write(
-      `cc-habits: ${gated.length} signals this session, using the most recent ${capped.length}\n`,
+    // B4: decay stale habits before applying new updates.
+    const decayed = applyDecay(cats);
+
+    // Cap to a signal count AND a byte budget so large diffs (e.g. whole-file git
+    // commits) don't cause a provider 413 on top of the count cap. Shared with the
+    // CLI sync path via batch.ts so both honour the same provider limits.
+    const capped = capBatchCore(gated);
+    if (capped.length < gated.length) {
+      process.stderr.write(
+        `cc-habits: ${gated.length} signals this session, using the most recent ${capped.length}\n`,
+      );
+    }
+
+    const updates = await extractRules(capped, habitsMd);
+    const changes: AppliedChange[] = [];
+    const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes });
+
+    // Queue new-habit creates for user review (pending notification path).
+    // The habits ARE written to habits.md in the Learning quarantine section by
+    // applyUpdates above, the pending queue is an additional notification surface
+    // so users can tombstone proposed habits before they graduate. Skip queueing
+    // when CC_HABITS_AUTO=1 (fully-silent auto-apply mode).
+    // Clear stale pending from any previous session first, then write this session's
+    // new items, this ensures `cch pending` always reflects the latest session only.
+    const creates = updates.filter(u => (u.decision ?? '').toLowerCase() === 'create');
+    const pendingCount = creates.length;
+    if (!autoApplyEnabled() && creates.length > 0) {
+      try {
+        clearPending(ctx);
+        const toAdd = toPending(creates);
+        const deduped = toAdd.filter(p => p.rule);
+        if (deduped.length > 0) writePending(deduped, ctx);
+      } catch { /* pending write is best-effort; never block the session */ }
+    } else {
+      const warning = autoApplyWarning(creates.length);
+      if (warning) process.stderr.write(warning + '\n');
+    }
+
+    // B2: record provenance, which signals contributed to each create/reinforce.
+    recordProvenance(updates, gated, sessionId, ctx);
+
+    // B6: attach language tag to any habit touched this session.
+    const sessionLanguages = Array.from(
+      new Set(gated.map(s => s.language).filter((l): l is string => !!l)),
     );
-  }
-
-  const updates = await extractRules(capped, habitsMd);
-  const changes: AppliedChange[] = [];
-  const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes });
-
-  // Queue new-habit creates for user review (pending notification path).
-  // The habits ARE written to habits.md in the Learning quarantine section by
-  // applyUpdates above, the pending queue is an additional notification surface
-  // so users can tombstone proposed habits before they graduate. Skip queueing
-  // when CC_HABITS_AUTO=1 (fully-silent auto-apply mode).
-  // Clear stale pending from any previous session first, then write this session's
-  // new items, this ensures `cch pending` always reflects the latest session only.
-  const creates = updates.filter(u => (u.decision ?? '').toLowerCase() === 'create');
-  const pendingCount = creates.length;
-  if (!autoApplyEnabled() && creates.length > 0) {
-    try {
-      clearPending();
-      const toAdd = toPending(creates);
-      const deduped = toAdd.filter(p => p.rule);
-      if (deduped.length > 0) writePending(deduped);
-    } catch { /* pending write is best-effort; never block the session */ }
-  } else {
-    const warning = autoApplyWarning(creates.length);
-    if (warning) process.stderr.write(warning + '\n');
-  }
-
-  // B2: record provenance, which signals contributed to each create/reinforce.
-  recordProvenance(updates, gated, sessionId);
-
-  // B6: attach language tag to any habit touched this session.
-  const sessionLanguages = Array.from(
-    new Set(gated.map(s => s.language).filter((l): l is string => !!l)),
-  );
-  if (sessionLanguages.length > 0) {
-    for (const habits of Object.values(cats)) {
-      for (const h of habits) {
-        if (h.last_session_id !== sessionId) continue;
-        const existing = new Set(h.languages ?? []);
-        sessionLanguages.forEach(l => existing.add(l));
-        h.languages = Array.from(existing).sort();
+    if (sessionLanguages.length > 0) {
+      for (const habits of Object.values(cats)) {
+        for (const h of habits) {
+          if (h.last_session_id !== sessionId) continue;
+          const existing = new Set(h.languages ?? []);
+          sessionLanguages.forEach(l => existing.add(l));
+          h.languages = Array.from(existing).sort();
+        }
       }
     }
-  }
 
-  const serialised = serialiseHabits(cats);
-  writeHabitsMd(serialised);
-  writeSnapshot(cats);
-  // B1: snapshot the habits.md state for `cc-habits diff`.
-  appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised });
+    const serialised = serialiseHabits(cats);
+    writeHabitsMd(serialised, ctx);
+    writeSnapshot(cats, ctx);
+    // B1: snapshot the habits.md state for `cc-habits diff`.
+    appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised }, ctx);
 
-  // Memory extraction: opt-in via CC_HABITS_MEMORIES=1. Runs after habit
-  // extraction so it never blocks or delays the habits path on failure.
-  let memoryCandidatesCount = 0;
-  if (memoriesEnabled()) {
+    // Memory extraction: opt-in via CC_HABITS_MEMORIES=1. Runs after habit
+    // extraction so it never blocks or delays the habits path on failure.
+    let memoryCandidatesCount = 0;
+    if (memoriesEnabled(ctx)) {
+      try {
+        const memoriesMd = readMemoriesMd(ctx);
+        const candidates = await extractMemoryCandidates(capped, memoriesMd);
+        memoryCandidatesCount = applyMemoryUpdates(candidates, ctx);
+      } catch (e) {
+        logError(`stop: memory extraction failed: ${String(e)}`, ctx);
+      }
+    }
+
+    // Auto-sync targets if configured in config.yml
     try {
-      const memoriesMd = readMemoriesMd();
-      const candidates = await extractMemoryCandidates(capped, memoriesMd);
-      memoryCandidatesCount = applyMemoryUpdates(candidates);
+      const targets = readSyncTargets();
+      if (targets.length > 0) {
+        syncTargets(targets);
+      }
     } catch (e) {
-      logError(`stop: memory extraction failed: ${String(e)}`);
+      logError(`stop: auto-sync failed: ${String(e)}`, ctx);
     }
-  }
 
-  // Auto-sync targets if configured in config.yml
-  try {
-    const targets = readSyncTargets();
-    if (targets.length > 0) {
-      syncTargets(targets);
-    }
-  } catch (e) {
-    logError(`stop: auto-sync failed: ${String(e)}`);
+    return { newCount, updatedCount, decayed, tombstoned: deleted.length, changes, pendingCount, memoryCandidatesCount };
+  } finally {
+    releaseLock(lockFile);
   }
-
-  return { newCount, updatedCount, decayed, tombstoned: deleted.length, changes, pendingCount, memoryCandidatesCount };
 }
 
 // Session summary (transparency surface) ───────────────────────────────────//
@@ -415,7 +427,7 @@ export function formatStopSummary(result: StopResult): string {
 import type { RuleUpdate } from './confidence';
 import type { Signal } from './storage';
 
-function recordProvenance(updates: RuleUpdate[], signals: Signal[], sessionId: string): void {
+function recordProvenance(updates: RuleUpdate[], signals: Signal[], sessionId: string, ctx?: StorageContext): void {
   // For each rule touched in this batch, snapshot up to 3 representative signals.
   const ts = new Date().toISOString();
   const sampleSignals = signals.slice(0, 3);
@@ -429,7 +441,7 @@ function recordProvenance(updates: RuleUpdate[], signals: Signal[], sessionId: s
       snippet: (s.diff ?? '').slice(0, 200),
       decision,
     }));
-    appendProvenance(u.rule, refs);
+    appendProvenance(u.rule, refs, ctx);
   }
 }
 

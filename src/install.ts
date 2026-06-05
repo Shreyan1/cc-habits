@@ -14,6 +14,18 @@ export const installPaths = {
   importLine: `@import ${storagePaths.habitsFile}`,
 };
 
+export interface InstallContext {
+  claudeDir: string;
+  settingsFile: string;
+  claudeMd: string;
+  habitsMdPath: string;
+  importLine: string;
+}
+
+export function getInstallPaths(ctx?: InstallContext): InstallContext {
+  return ctx || installPaths;
+}
+
 // Scenario 1 fix: resolve the absolute path to cc-habits-hook at init time.
 // If installed via nvm, bare "cc-habits-hook" may not be on PATH in non-interactive
 // subshells. Using the absolute path stored at init time avoids this entirely.
@@ -50,12 +62,11 @@ function makeHooks(hookBin: string): { postToolUse: object; stop: object; userPr
   };
 }
 
-// Scenario 2 fix: malformed settings.json (e.g. user added JSON5 comments).
-// Warn and start with an empty config rather than crashing init.
-function loadSettings(): Record<string, unknown> {
-  if (fs.existsSync(installPaths.settingsFile)) {
+function loadSettings(ctx?: InstallContext): Record<string, unknown> {
+  const paths = getInstallPaths(ctx);
+  if (fs.existsSync(paths.settingsFile)) {
     try {
-      return JSON.parse(fs.readFileSync(installPaths.settingsFile, 'utf-8')) as Record<
+      return JSON.parse(fs.readFileSync(paths.settingsFile, 'utf-8')) as Record<
         string,
         unknown
       >;
@@ -68,9 +79,10 @@ function loadSettings(): Record<string, unknown> {
   return {};
 }
 
-function saveSettings(settings: Record<string, unknown>): void {
-  const filePath = installPaths.settingsFile;
-  fs.mkdirSync(installPaths.claudeDir, { recursive: true });
+function saveSettings(settings: Record<string, unknown>, ctx?: InstallContext): void {
+  const paths = getInstallPaths(ctx);
+  const filePath = paths.settingsFile;
+  fs.mkdirSync(paths.claudeDir, { recursive: true });
   // Symlink guard: refuse to overwrite settings.json if it's a symlink. An attacker
   // who pre-places a symlink could redirect our hook registration into another file.
   if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink()) {
@@ -116,7 +128,7 @@ export interface HookRegistration {
   sessionStartAdded?: boolean;
 }
 
-export function registerHooks(hookBin?: string): HookRegistration {
+export function registerHooks(hookBin?: string, ctx?: InstallContext): HookRegistration {
   const bin = hookBin ?? resolveHookBinaryPath();
   const { postToolUse, stop, userPromptSubmit, sessionStart } = makeHooks(bin);
   const postCmd = (postToolUse as { hooks: Array<{ command: string }> }).hooks[0].command;
@@ -124,7 +136,7 @@ export function registerHooks(hookBin?: string): HookRegistration {
   const promptCmd = (userPromptSubmit as { hooks: Array<{ command: string }> }).hooks[0].command;
   const sessionStartCmd = (sessionStart as { hooks: Array<{ command: string }> }).hooks[0].command;
 
-  const settings = loadSettings();
+  const settings = loadSettings(ctx);
   if (!settings['hooks']) settings['hooks'] = {};
   const hooks = settings['hooks'] as Record<string, unknown[]>;
   if (!hooks['PostToolUse']) hooks['PostToolUse'] = [];
@@ -158,7 +170,7 @@ export function registerHooks(hookBin?: string): HookRegistration {
     sessionStartAdded = true;
   }
 
-  saveSettings(settings);
+  saveSettings(settings, ctx);
   return { postAdded, stopAdded, promptAdded, sessionStartAdded };
 }
 
@@ -173,9 +185,10 @@ function atomicWriteText(filePath: string, content: string): void {
   }
 }
 
-export function addImportToClaudeMd(): boolean {
-  const importLine = installPaths.importLine;
-  const filePath = installPaths.claudeMd;
+export function addImportToClaudeMd(ctx?: InstallContext): boolean {
+  const paths = getInstallPaths(ctx);
+  const importLine = paths.importLine;
+  const filePath = paths.claudeMd;
   // Symlink guard: CLAUDE.md could be symlinked to another file by an attacker.
   if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink()) {
     throw new Error(`refusing to write through symlink: ${filePath}`);
@@ -185,7 +198,7 @@ export function addImportToClaudeMd(): boolean {
     if (content.includes(importLine)) return false;
     atomicWriteText(filePath, content.trimEnd() + `\n\n${importLine}\n`);
   } else {
-    fs.mkdirSync(installPaths.claudeDir, { recursive: true });
+    fs.mkdirSync(paths.claudeDir, { recursive: true });
     atomicWriteText(filePath, `${importLine}\n`);
   }
   return true;
@@ -507,8 +520,8 @@ export function registerClineHooks(hooksDir: string, hookBin: string): HookRegis
   return { postAdded, stopAdded, promptAdded: false };
 }
 
-export function deregisterHooks(): { postRemoved: boolean; stopRemoved: boolean; promptRemoved: boolean; sessionStartRemoved: boolean } {
-  const settings = loadSettings();
+export function deregisterHooks(ctx?: InstallContext): { postRemoved: boolean; stopRemoved: boolean; promptRemoved: boolean; sessionStartRemoved: boolean } {
+  const settings = loadSettings(ctx);
   if (!settings['hooks']) return { postRemoved: false, stopRemoved: false, promptRemoved: false, sessionStartRemoved: false };
   const hooks = settings['hooks'] as Record<string, unknown[]>;
 
@@ -528,13 +541,14 @@ export function deregisterHooks(): { postRemoved: boolean; stopRemoved: boolean;
   hooks['UserPromptSubmit'] = promptCleaned;
   hooks['SessionStart'] = sessionStartCleaned;
 
-  saveSettings(settings);
+  saveSettings(settings, ctx);
   return { postRemoved, stopRemoved, promptRemoved, sessionStartRemoved };
 }
 
-export function removeImportFromClaudeMd(): boolean {
-  const importLine = installPaths.importLine;
-  const filePath = installPaths.claudeMd;
+export function removeImportFromClaudeMd(ctx?: InstallContext): boolean {
+  const paths = getInstallPaths(ctx);
+  const importLine = paths.importLine;
+  const filePath = paths.claudeMd;
   if (!fs.existsSync(filePath)) return false;
   const content = fs.readFileSync(filePath, 'utf-8');
   if (!content.includes(importLine)) return false;

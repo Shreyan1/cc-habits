@@ -136,6 +136,36 @@ export function sanitizeCategory(category: string): string {
   return s;
 }
 
+export function levenshtein(s1: string, s2: string): number {
+  if (s1 === s2) return 0;
+  if (s1.length === 0) return s2.length;
+  if (s2.length === 0) return s1.length;
+
+  let prevRow = Array(s1.length + 1);
+  let currRow = Array(s1.length + 1);
+
+  for (let i = 0; i <= s1.length; i++) {
+    prevRow[i] = i;
+  }
+
+  for (let j = 1; j <= s2.length; j++) {
+    currRow[0] = j;
+    for (let i = 1; i <= s1.length; i++) {
+      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      currRow[i] = Math.min(
+        currRow[i - 1] + 1,      // insertion
+        prevRow[i] + 1,          // deletion
+        prevRow[i - 1] + cost    // substitution
+      );
+    }
+    const temp = prevRow;
+    prevRow = currRow;
+    currRow = temp;
+  }
+
+  return prevRow[s1.length];
+}
+
 function findHabit(cats: HabitsMap, matchedId: string, ruleText: string): Habit | null {
   const normId = normalize(matchedId);
   const normRule = normalize(ruleText);
@@ -146,7 +176,37 @@ function findHabit(cats: HabitsMap, matchedId: string, ruleText: string): Habit 
       if (normRule && stored === normRule) return h;
     }
   }
-  return null;
+
+  let bestMatch: Habit | null = null;
+  let bestSimilarity = 0;
+
+  for (const habits of Object.values(cats)) {
+    for (const h of habits) {
+      const stored = normalize(h.rule ?? '');
+      if (!stored) continue;
+
+      if (normId) {
+        const dist = levenshtein(normId, stored);
+        const maxLen = Math.max(normId.length, stored.length);
+        const sim = maxLen > 0 ? 1 - dist / maxLen : 0;
+        if (sim >= 0.70 && sim > bestSimilarity) {
+          bestSimilarity = sim;
+          bestMatch = h;
+        }
+      }
+      if (normRule) {
+        const dist = levenshtein(normRule, stored);
+        const maxLen = Math.max(normRule.length, stored.length);
+        const sim = maxLen > 0 ? 1 - dist / maxLen : 0;
+        if (sim >= 0.70 && sim > bestSimilarity) {
+          bestSimilarity = sim;
+          bestMatch = h;
+        }
+      }
+    }
+  }
+
+  return bestMatch;
 }
 
 // Confidence decay (B4) ─────────────────────────────────────────────────────
