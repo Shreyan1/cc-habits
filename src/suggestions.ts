@@ -9,7 +9,7 @@ export const KNOWN_COMMANDS = [
   'init', 'bootstrap', 'view', 'log', 'reset', 'pending', 'tombstone', 'tombstones',
   'diff', 'explain', 'lint', 'export', 'import', 'sync', 'memories',
   'migrate', 'capture', 'git-capture', 'learn', 'shell-init', 'tools',
-  'faq', 'on', 'off',
+  'faq', 'on', 'off', 'uninstall',
 ];
 
 export function levenshtein(a: string, b: string): number {

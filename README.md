@@ -464,6 +464,7 @@ cc-habits tombstone                   # list all tombstoned (permanently blocked
 cc-habits tombstone "<rule>"          # block a rule from ever being re-learned
 cc-habits faq                         # print common questions and answers
 cc-habits reset --yes                 # delete habits.md, memories.md, log.jsonl, pending, snapshot
+cc-habits uninstall [--yes]           # remove all hooks, imports, and local data, fully uninstall
 cc-habits shell-init                  # print a claude/gemini shell wrapper, add via: eval "$(cc-habits shell-init)"
 cc-habits help                        # interactive arrow-key menu (falls back to text when piped)
 cc-habits --version                   # print installed version
@@ -500,6 +501,7 @@ cc-habits --version                   # print installed version
 11. **Symlink- and traversal-safe writes.** Every file write refuses to follow symlinks and sanitizes paths against `../` traversal and control characters. Storage files (including `config.yml` and your API key) are written `0600` (owner-only), and are retightened even if the file already existed with looser permissions.
 12. **Shell-free git capture.** `cch git-capture` (and the auto post-commit hook) run git via argument arrays, never a shell, and validate the commit range. A repository file with a hostile name cannot execute code during capture.
 13. **Reviewed by default.** New habits are quarantined and queued for your review. `CC_HABITS_AUTO=1` opts into silent auto-apply, and cc-habits prints a warning whenever it does so, so the bypass is never hidden.
+14. **Process-aware concurrency lock.** All stop-hook extraction updates are wrapped in an atomic process-aware locking protocol (`habits.lock`) to prevent write-after-read race conditions during concurrent multi-window coding sessions.
 
 ---
 
@@ -564,10 +566,10 @@ cc-habits is designed to never add perceptible latency to your coding sessions. 
 
 ### Test suite
 
-503 tests across 28 files, including dedicated security, red-team, pentest, hardening, and injection suites. CI runs the full suite on Linux, macOS, and Windows in approximately 1.3 seconds.
+538 tests across 30 files, including dedicated security, red-team, pentest, hardening, injection, and LLM-specific (prompt-injection / memory-poisoning) suites. CI runs the full suite on Linux, macOS, and Windows in approximately 1.5 seconds.
 
 ```bash
-npm test    # 503 tests, ~1.3s on macOS M-series
+npm test    # 538 tests, ~1.5s on macOS M-series
 ```
 
 ---
@@ -577,6 +579,7 @@ npm test    # 503 tests, ~1.3s on macOS M-series
 ```
 ~/.cc-habits/
 ├── habits.md              ← learned habits (auto-updated, auto-imported)
+├── habits.lock            ← process-aware concurrency lock file
 ├── memories.md            ← agent mistake memory (CC_HABITS_MEMORIES=1)
 ├── log.jsonl              ← signal log (append-only)
 ├── config.yml             ← API key (written by cc-habits init)
