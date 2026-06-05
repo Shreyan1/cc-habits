@@ -172,19 +172,22 @@ function buildIconLines(): string[] {
 const visLen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, '').length;
 
 function renderBrandedCard(subtitle: string, statusText: string): void {
-  // Centre every line around a shared axis as wide as the longest element (the
-  // 40-column tagline) plus a left margin, so the icon and the title sit centred
-  // over the tagline rather than left-aligned against it.
+  // Text lines are centred over FIELD using per-line visible-width measurement.
   const FIELD = 40;
   const MARGIN = 4;
-  const centre = (content: string): string => {
+  const centreText = (content: string): string => {
     const pad = Math.max(0, FIELD - visLen(content));
-    const left = Math.floor(pad / 2);
-    return ' '.repeat(MARGIN + left) + content;
+    return ' '.repeat(MARGIN + Math.floor(pad / 2)) + content;
   };
 
-  // Clamp the dynamic fields so an unusually long subtitle or model name stays
-  // within the centring field.
+  // Icon lines must all share one fixed left offset derived from the full grid
+  // width (27 cols). Per-line centering would break intra-icon alignment because
+  // short lines (the handle) have more embedded leading space than wide lines
+  // (the body), causing the handle to over-pad and appear shifted right.
+  const ICON_WIDTH = 27;
+  const iconLeft = MARGIN + Math.floor((FIELD - ICON_WIDTH) / 2);
+
+  // Clamp dynamic fields to stay within the centering field.
   const sub = subtitle.slice(0, FIELD - 'cc-habits · '.length);
   const stat = statusText.slice(0, FIELD);
 
@@ -193,11 +196,12 @@ function renderBrandedCard(subtitle: string, statusText: string): void {
   const status = c(DIM, stat);
 
   process.stdout.write('\n');
-  for (const line of buildIconLines()) process.stdout.write(centre(line) + '\n');
+  const prefix = ' '.repeat(iconLeft);
+  for (const line of buildIconLines()) process.stdout.write(prefix + line + '\n');
   process.stdout.write('\n');
-  process.stdout.write(centre(title) + '\n');
-  process.stdout.write(centre(tagline) + '\n');
-  process.stdout.write(centre(status) + '\n');
+  process.stdout.write(centreText(title) + '\n');
+  process.stdout.write(centreText(tagline) + '\n');
+  process.stdout.write(centreText(status) + '\n');
   process.stdout.write('\n');
 }
 
