@@ -54,15 +54,18 @@ function providerHint(e: unknown): string | undefined {
 const MAX_BATCH_SIGNALS = 50;
 const MAX_BATCH_BYTES   = 180_000; // ~180 KB, well under Groq's 200 KB request limit
 
-function capBatch(signals: Signal[]): { batch: Signal[]; desc: string } {
+export function capBatch(signals: Signal[]): { batch: Signal[]; desc: string } {
   const countCapped = signals.slice(-MAX_BATCH_SIGNALS);
   let byteTotal = 0;
   let byteIdx = countCapped.length;
-  // Walk newest-first and drop from the front until we are under the byte budget.
+  // Walk newest-first and stop when the next one would exceed the budget.
   for (let i = countCapped.length - 1; i >= 0; i--) {
-    byteTotal += (countCapped[i]!.diff ?? '').length;
-    if (byteTotal <= MAX_BATCH_BYTES) { byteIdx = i; break; }
-    if (i === 0) { byteIdx = countCapped.length; break; }
+    const len = (countCapped[i]!.diff ?? '').length;
+    if (byteTotal + len > MAX_BATCH_BYTES && byteTotal > 0) {
+      break;
+    }
+    byteTotal += len;
+    byteIdx = i;
   }
   const batch = countCapped.slice(byteIdx);
   const total = signals.length;
