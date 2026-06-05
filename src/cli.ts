@@ -83,10 +83,10 @@ const OLLAMA_DEFAULT_MODEL = 'llama3.2';
 
 const BOLD   = '\x1b[1m';
 const DIM    = '\x1b[2m';
-const GREEN  = '\x1b[32m';
-const YELLOW = '\x1b[33m';
-const RED    = '\x1b[31m';
-const CYAN   = '\x1b[36m';
+const GREEN  = '\x1b[38;2;181;255;28m';  // Acid Lime (#B5FF1C)
+const YELLOW = '\x1b[38;2;168;85;247m';  // Purple/Learning (#A855F7)
+const RED    = '\x1b[38;2;255;45;111m';  // Neon Pink/Negatives (#FF2D6F)
+const CYAN   = '\x1b[38;2;0;183;255m';   // Accent Cyan (#00B7FF)
 const RESET  = '\x1b[0m';
 
 const NO_COLOR = !process.stdout.isTTY || !!process.env['NO_COLOR'];
