@@ -105,50 +105,100 @@ const CONSENT_NOTICE = `
   Review the full privacy policy: https://github.com/Shreyan1/cc-habits/blob/main/PRIVACY.md
 `;
 
-function renderBrandedCard(subtitle: string, statusText: string): void {
-  const INNER = 56;
-  const borderChar = c(DIM + CYAN, '│');
-  const horiz = '─'.repeat(INNER);
-  const topBorder = c(DIM + CYAN, `┌${horiz}┐`);
-  const bottomBorder = c(DIM + CYAN, `└${horiz}┘`);
+// The cc-habits app icon, transcribed from the official "CC Habits Icon" SVG at
+// one cell per 10px: a rounded-square lime frame with a sprout on top, a `>` wink
+// eye, a solid block eye, and a wide smile. 'G' = lime, 'B' = block-eye, '.' = empty.
+// Rendered to half-block glyphs (two source rows per terminal row) so the proportions
+// survive the 1:2 character aspect ratio. The icon is its own frame, so the card draws
+// no extra border around it.
+const ICON_GRID: string[] = [
+  '...........................',
+  '...........GGGGGG..........',
+  '..........GGGGGGGG.........',
+  '..........GG....GG.........',
+  '..........GG....GG.........',
+  '...GGGGGGGGGGGGGGGGGGGGGG..',
+  '..GGGGGGGGGGGGGGGGGGGGGGGG.',
+  '.GGG....................GGG',
+  '.GG......................GG',
+  '.GG......................GG',
+  '.GG....GG................GG',
+  '.GG......GG..............GG',
+  '.GG........GG............GG',
+  '.GG......GG....BBBBBB....GG',
+  '.GG....GG......BBBBBB....GG',
+  '.GG......................GG',
+  '.GG......................GG',
+  '.GG......G........G......GG',
+  '.GG......G........G......GG',
+  '.GG......GGGGGGGGGG......GG',
+  '.GG......................GG',
+  '.GG......................GG',
+  '.GGG....................GGG',
+  '..GGGGGGGGGGGGGGGGGGGGGGGG.',
+  '...GGGGGGGGGGGGGGGGGGGGGG..',
+];
 
-  // Visible width of a pre-coloured string, ignoring ANSI escape sequences. Every
-  // glyph used in the card (block elements, box drawing, ASCII) is one column wide.
-  // eslint-disable-next-line no-control-regex
-  const visLen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, '').length;
-  // Pad a pre-coloured line out to the inner width so the right border always lines
-  // up, regardless of how long the (coloured) content is.
-  const row = (content: string): string => {
-    const pad = Math.max(0, INNER - visLen(content));
-    return `  ${borderChar}${content}${' '.repeat(pad)}${borderChar}`;
+// Build the icon as coloured half-block lines. Each output row packs two source
+// rows: the upper pixel as the glyph foreground, the lower as the background, so a
+// single ▀ can show two different colours stacked in one character cell.
+function buildIconLines(): string[] {
+  const colourOf = (ch: string): string => (ch === 'B' ? CYAN : GREEN);
+  const lines: string[] = [];
+  for (let r = 0; r < ICON_GRID.length; r += 2) {
+    const top = ICON_GRID[r]!;
+    const bot = ICON_GRID[r + 1] ?? '';
+    let out = '';
+    for (let col = 0; col < top.length; col++) {
+      const t = top[col] !== '.' ? top[col]! : '';
+      const b = bot[col] && bot[col] !== '.' ? bot[col]! : '';
+      if (!t && !b) { out += ' '; continue; }
+      if (t && b) {
+        out += colourOf(t) === colourOf(b)
+          ? c(colourOf(t), '█')
+          : (NO_COLOR ? '█' : `${colourOf(t)}\x1b[48;2;20;160;220m▀${RESET}`);
+      } else if (t) {
+        out += c(colourOf(t), '▀');
+      } else {
+        out += c(colourOf(b), '▄');
+      }
+    }
+    lines.push(out.replace(/\s+$/, ''));
+  }
+  return lines;
+}
+
+// Visible width of a pre-coloured string, ignoring ANSI escape sequences.
+// eslint-disable-next-line no-control-regex
+const visLen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, '').length;
+
+function renderBrandedCard(subtitle: string, statusText: string): void {
+  // Centre every line around a shared axis as wide as the longest element (the
+  // 40-column tagline) plus a left margin, so the icon and the title sit centred
+  // over the tagline rather than left-aligned against it.
+  const FIELD = 40;
+  const MARGIN = 4;
+  const centre = (content: string): string => {
+    const pad = Math.max(0, FIELD - visLen(content));
+    const left = Math.floor(pad / 2);
+    return ' '.repeat(MARGIN + left) + content;
   };
 
-  // Official winking-face logo: exactly 12 visible columns on every row.
-  const logo1 = '    ' + c(GREEN, '▄██▄') + '    ';
-  const logo2 = '  ' + c(GREEN, '▄██████▄') + '  ';
-  const logo3 = ' ' + c(GREEN, '▐█ > ') + c(CYAN, '██') + c(GREEN, ' █▌') + ' ';
-  const logo4 = ' ' + c(GREEN, '▐█ ╰──╯ █▌') + ' ';
-  const logo5 = '  ' + c(GREEN, '▀██████▀') + '  ';
+  // Clamp the dynamic fields so an unusually long subtitle or model name stays
+  // within the centring field.
+  const sub = subtitle.slice(0, FIELD - 'cc-habits · '.length);
+  const stat = statusText.slice(0, FIELD);
 
-  // Trim dynamic fields so a long subtitle or model name can never overflow the
-  // border. The logo is 12 cols + a 3-col gutter, leaving INNER - 15 for text.
-  const textBudget = INNER - 12 - 3;
-  const sub = subtitle.slice(0, textBudget);
-  const status = statusText.slice(0, textBudget);
-  const gutter = '   ';
-
-  const lines = [
-    logo1,
-    logo2 + gutter + c(BOLD + CYAN, 'cc-habits') + ' · ' + c(BOLD, sub),
-    logo3 + gutter + c(DIM, 'One tool-agnostic developer memory layer'),
-    logo4,
-    logo5 + gutter + c(DIM, status),
-  ];
+  const title = c(BOLD + CYAN, 'cc-habits') + c(DIM, ' · ') + c(BOLD, sub);
+  const tagline = c(DIM, 'One tool-agnostic developer memory layer');
+  const status = c(DIM, stat);
 
   process.stdout.write('\n');
-  process.stdout.write(`  ${topBorder}\n`);
-  for (const line of lines) process.stdout.write(row(line) + '\n');
-  process.stdout.write(`  ${bottomBorder}\n`);
+  for (const line of buildIconLines()) process.stdout.write(centre(line) + '\n');
+  process.stdout.write('\n');
+  process.stdout.write(centre(title) + '\n');
+  process.stdout.write(centre(tagline) + '\n');
+  process.stdout.write(centre(status) + '\n');
   process.stdout.write('\n');
 }
 
