@@ -96,6 +96,14 @@ function hookAlreadyRegistered(hooksList: unknown[], command: string): boolean {
   return false;
 }
 
+function cleanOldHabitsHooks(hooksList: unknown[]): unknown[] {
+  return hooksList.filter(entry => {
+    const e = entry as Record<string, unknown>;
+    const subHooks = (e['hooks'] ?? []) as Array<Record<string, unknown>>;
+    return !subHooks.some(h => typeof h['command'] === 'string' && h['command'].includes('cc-habits-hook'));
+  });
+}
+
 export function makeHooksForTest(hookBin: string): { postToolUse: object; stop: object; userPromptSubmit: object; sessionStart: object } {
   return makeHooks(hookBin);
 }
@@ -130,18 +138,22 @@ export function registerHooks(hookBin?: string): HookRegistration {
   let sessionStartAdded = false;
 
   if (!hookAlreadyRegistered(hooks['PostToolUse'], postCmd)) {
+    hooks['PostToolUse'] = cleanOldHabitsHooks(hooks['PostToolUse']);
     hooks['PostToolUse'].push(postToolUse);
     postAdded = true;
   }
   if (!hookAlreadyRegistered(hooks['Stop'], stopCmd)) {
+    hooks['Stop'] = cleanOldHabitsHooks(hooks['Stop']);
     hooks['Stop'].push(stop);
     stopAdded = true;
   }
   if (!hookAlreadyRegistered(hooks['UserPromptSubmit'], promptCmd)) {
+    hooks['UserPromptSubmit'] = cleanOldHabitsHooks(hooks['UserPromptSubmit']);
     hooks['UserPromptSubmit'].push(userPromptSubmit);
     promptAdded = true;
   }
   if (!hookAlreadyRegistered(hooks['SessionStart'], sessionStartCmd)) {
+    hooks['SessionStart'] = cleanOldHabitsHooks(hooks['SessionStart']);
     hooks['SessionStart'].push(sessionStart);
     sessionStartAdded = true;
   }
@@ -300,18 +312,22 @@ export function registerJsonHooks(targetFile: string, toolId: string, hookBin: s
   };
 
   if (!hookAlreadyRegistered(hooks[GEMINI_POST_EVENT], postCmd)) {
+    hooks[GEMINI_POST_EVENT] = cleanOldHabitsHooks(hooks[GEMINI_POST_EVENT]);
     hooks[GEMINI_POST_EVENT].push(postHook);
     postAdded = true;
   }
   if (!hookAlreadyRegistered(hooks[GEMINI_STOP_EVENT], stopCmd)) {
+    hooks[GEMINI_STOP_EVENT] = cleanOldHabitsHooks(hooks[GEMINI_STOP_EVENT]);
     hooks[GEMINI_STOP_EVENT].push(stopHook);
     stopAdded = true;
   }
   if (!hookAlreadyRegistered(hooks[GEMINI_PROMPT_EVENT], promptCmd)) {
+    hooks[GEMINI_PROMPT_EVENT] = cleanOldHabitsHooks(hooks[GEMINI_PROMPT_EVENT]);
     hooks[GEMINI_PROMPT_EVENT].push(promptHook);
     promptAdded = true;
   }
   if (!hookAlreadyRegistered(hooks[GEMINI_SESSION_START_EVENT], sessionStartCmd)) {
+    hooks[GEMINI_SESSION_START_EVENT] = cleanOldHabitsHooks(hooks[GEMINI_SESSION_START_EVENT]);
     hooks[GEMINI_SESSION_START_EVENT].push(sessionStartHook);
     sessionStartAdded = true;
   }
@@ -374,10 +390,12 @@ export function registerCodexHooks(targetFile: string, hookBin: string): HookReg
   };
 
   if (!hookAlreadyRegistered(hooks['PostToolUse'], postCmd)) {
+    hooks['PostToolUse'] = cleanOldHabitsHooks(hooks['PostToolUse']);
     hooks['PostToolUse'].push(postHook);
     postAdded = true;
   }
   if (!hookAlreadyRegistered(hooks['Stop'], stopCmd)) {
+    hooks['Stop'] = cleanOldHabitsHooks(hooks['Stop']);
     hooks['Stop'].push(stopHook);
     stopAdded = true;
   }
