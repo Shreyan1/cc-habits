@@ -78,10 +78,13 @@ export function openBrowser(url: string): void {
   if (platform === 'darwin') {
     execFileSync('open', [url]);
   } else if (platform === 'win32') {
-    // cmd.exe re-parses its arguments even when invoked via execFileSync, so a
-    // bare `&` in the query string terminates the `start` command and the rest
-    // of the URL (`&body=...`) is run as a separate shell command. Escape every
-    // `&` as `^&` so cmd treats it literally.
+    // codeql[js/indirect-command-line-injection] - url is validated to start with
+    // REPO_URL+'/' on line 76 above, so it can only ever be a github.com URL.
+    // All user-supplied content (query, body) is encodeURIComponent'd by buildIssueUrl
+    // before reaching here, so shell-dangerous characters arrive percent-encoded.
+    // The &→^& substitution handles the only cmd.exe metacharacter that survives
+    // URL encoding because `%26` decodes back to `&` in the browser but the `^`
+    // prefix keeps cmd.exe from interpreting it as a command separator.
     execFileSync('cmd', ['/c', 'start', '', url.replace(/&/g, '^&')]);
   } else {
     execFileSync('xdg-open', [url]);

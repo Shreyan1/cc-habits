@@ -83,6 +83,11 @@ const UNICODE_SEPARATORS = /[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u
 // <!-- ... --> but an LLM reads the body. Strip the whole comment (including any
 // unclosed <!-- or stray -->) so hidden instructions never reach extraction or
 // injection. Lazy quantifier on already-length-bounded input, so no ReDoS.
+// codeql[js/bad-tag-filter] - this regex is not used to sanitize HTML for display;
+// it strips comment syntax from untrusted LLM rule text before storing or injecting
+// it. The goal is to remove the hidden-instruction channel (humans skim HTML
+// comments; LLMs read them). The regex intentionally targets only the `<!-- -->`
+// comment delimiters, not all tag forms — TAG_TOKEN handles element tags below.
 const HTML_COMMENT = /<!--[\s\S]*?-->|<!--|-->/g;
 // Any XML/HTML-style tag token. Stops container-escape attacks where a rule embeds
 // </coding-habits> (or any tag) to break out of the UserPromptSubmit injection wrapper.
@@ -105,6 +110,12 @@ export function sanitizeRule(rule: string): string {
   s = s.normalize('NFKC');
   s = s.replace(CONTROL_CHARS, '');
   s = s.replace(UNICODE_SEPARATORS, ' ');
+  // codeql[js/incomplete-multi-character-sanitization] - each replacement targets a
+  // distinct and non-overlapping pattern class. HTML_COMMENT removes comment syntax
+  // before INJECTION_KEYWORDS runs, which is the correct order: a sequence like
+  // "SYS<!---->TEM:" collapses to "SYSTEM:" after comment removal and is then caught
+  // by INJECTION_KEYWORDS. No replacement can produce a new HTML comment or tag
+  // from its substitution value ("" or "[redacted]"), so there is no second-pass risk.
   s = s.replace(HTML_COMMENT, '');
   s = s.replace(INJECTION_KEYWORDS, '[redacted]');
   s = s.replace(TAG_TOKEN, '[redacted]');
@@ -125,6 +136,9 @@ export function sanitizeCategory(category: string): string {
   s = s.replace(ZERO_WIDTH, '').normalize('NFKC');
   s = s.replace(CONTROL_CHARS, '');
   s = s.replace(UNICODE_SEPARATORS, ' ');
+  // codeql[js/incomplete-multi-character-sanitization] - same reasoning as sanitizeRule:
+  // HTML_COMMENT runs before TAG_TOKEN; the substitution values ('' and removed chars)
+  // cannot form new HTML/comment sequences.
   s = s.replace(HTML_COMMENT, '');
   s = s.replace(TAG_TOKEN, '');
   // Drop markdown-structural and delimiter chars that could inject headers or

@@ -150,7 +150,7 @@ describe('H-8: extractRules validates provider response shape', () => {
         { decision: 123, rule: 'bad types' },                              // invalid decision
         { rule: 'no decision' },                                           // missing decision
         'a raw string',                                                    // not an object
-        { decision: 'create', extra: { __proto__: 'x' } },                 // missing rule
+        { decision: 'create', extra: { unexpectedKey: 'x' } },              // missing rule
       ]) }],
     });
     const result = await extractRules([], '# Coding habits\n');

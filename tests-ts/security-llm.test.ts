@@ -391,6 +391,10 @@ describe('P2-A: DoS and cost exhaustion', () => {
     // memories.md trigger terms can be influenced by untrusted repo content.
     // A trigger built into a regex must be escaped so it cannot (a) throw on an
     // invalid pattern or (b) introduce catastrophic backtracking.
+    // codeql[js/redos] - these strings are never used directly as regexes; they are
+    // passed to scoreMemoryRelevance which escapes all metacharacters via
+    // cleanTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&') before building the regex.
+    // The test verifies that the escaping prevents both throws and ReDoS.
     const evilTriggers = [
       '(a+)+$',            // classic catastrophic-backtracking shape
       '(.*a){25}',         // exponential alternation
