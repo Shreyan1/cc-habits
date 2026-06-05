@@ -12,6 +12,7 @@ import { normalizeInput, ALLOWED_ADAPTERS, type NormalizedHookInput } from './ad
 import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule, sanitizeCategory } from './confidence';
 import type { AppliedChange } from './confidence';
 import { extractRules, extractMemoryCandidates } from './extractor';
+import { capBatchCore } from './batch';
 import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
 import { memoriesEnabled, isGloballyDisabled } from './config';
 import { readSyncTargets, syncTargets } from './sync';
@@ -21,9 +22,6 @@ const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit']);
 const MIN_SIGNALS = 3;
 const MIN_DIFF_LEN = 20;
 const MAX_DIFF_BYTES = 4096;
-// Cap signals sent to the extractor to avoid provider 413 / context-limit errors.
-// 50 signals is plenty of signal for a single session; anything beyond is noise.
-const MAX_SIGNALS_PER_EXTRACTION = 50;
 // Bound stdin reads: a legitimate Claude Code hook payload is always small.
 // 4 MB is generous even for a large Write payload; anything bigger is anomalous.
 const MAX_STDIN_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -273,22 +271,10 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   // B4: decay stale habits before applying new updates.
   const decayed = applyDecay(cats);
 
-  // Cap to MAX_SIGNALS_PER_EXTRACTION signals AND a byte budget so large diffs
-  // (e.g. whole-file git commits) don't cause a provider 413 on top of the count cap.
-  const MAX_HOOK_BATCH_BYTES = 180_000; // ~180 KB, well under Groq's 200 KB request limit
-  const countCapped = gated.slice(-MAX_SIGNALS_PER_EXTRACTION);
-  let byteTotal = 0;
-  let byteIdx = countCapped.length;
-  // Walk newest-first and stop when the next one would exceed the budget.
-  for (let i = countCapped.length - 1; i >= 0; i--) {
-    const len = (countCapped[i]!.diff ?? '').length;
-    if (byteTotal + len > MAX_HOOK_BATCH_BYTES && byteTotal > 0) {
-      break;
-    }
-    byteTotal += len;
-    byteIdx = i;
-  }
-  const capped = countCapped.slice(byteIdx);
+  // Cap to a signal count AND a byte budget so large diffs (e.g. whole-file git
+  // commits) don't cause a provider 413 on top of the count cap. Shared with the
+  // CLI sync path via batch.ts so both honour the same provider limits.
+  const capped = capBatchCore(gated);
   if (capped.length < gated.length) {
     process.stderr.write(
       `cc-habits: ${gated.length} signals this session, using the most recent ${capped.length}\n`,

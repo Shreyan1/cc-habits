@@ -46,33 +46,11 @@ function providerHint(e: unknown): string | undefined {
   return undefined;
 }
 
-// Cap a signal batch to at most 50 entries AND at most MAX_BATCH_BYTES of total
-// diff content. Groq and some other providers return 413 when the request body
-// exceeds their hard limit; a count cap alone is not enough when diffs are large
-// (e.g. committing big files). Returns both the final batch and a description
-// of how it was trimmed for the log message.
-const MAX_BATCH_SIGNALS = 50;
-const MAX_BATCH_BYTES   = 180_000; // ~180 KB, well under Groq's 200 KB request limit
-
-export function capBatch(signals: Signal[]): { batch: Signal[]; desc: string } {
-  const countCapped = signals.slice(-MAX_BATCH_SIGNALS);
-  let byteTotal = 0;
-  let byteIdx = countCapped.length;
-  // Walk newest-first and stop when the next one would exceed the budget.
-  for (let i = countCapped.length - 1; i >= 0; i--) {
-    const len = (countCapped[i]!.diff ?? '').length;
-    if (byteTotal + len > MAX_BATCH_BYTES && byteTotal > 0) {
-      break;
-    }
-    byteTotal += len;
-    byteIdx = i;
-  }
-  const batch = countCapped.slice(byteIdx);
-  const total = signals.length;
-  const sent  = batch.length;
-  if (sent === total) return { batch, desc: `${total}` };
-  return { batch, desc: `${sent} of ${total} (capped to fit provider limits)` };
-}
+// Signal batch capping lives in batch.ts so the Stop hook (hook.ts) and this CLI
+// path share one definition of the limits. Imported for local use here and
+// re-exported so existing importers (tests) keep working.
+import { capBatch } from './batch';
+export { capBatch };
 
 // Config file path is derived from storagePaths so CC_HABITS_DIR overrides
 // both data files AND the provider config in one environment variable.
@@ -128,29 +106,48 @@ const CONSENT_NOTICE = `
 `;
 
 function renderBrandedCard(subtitle: string, statusText: string): void {
+  const INNER = 56;
   const borderChar = c(DIM + CYAN, '│');
-  const topBorder = c(DIM + CYAN, '┌────────────────────────────────────────────────────────┐');
-  const bottomBorder = c(DIM + CYAN, '└────────────────────────────────────────────────────────┘');
+  const horiz = '─'.repeat(INNER);
+  const topBorder = c(DIM + CYAN, `┌${horiz}┐`);
+  const bottomBorder = c(DIM + CYAN, `└${horiz}┘`);
 
+  // Visible width of a pre-coloured string, ignoring ANSI escape sequences. Every
+  // glyph used in the card (block elements, box drawing, ASCII) is one column wide.
+  // eslint-disable-next-line no-control-regex
+  const visLen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, '').length;
+  // Pad a pre-coloured line out to the inner width so the right border always lines
+  // up, regardless of how long the (coloured) content is.
+  const row = (content: string): string => {
+    const pad = Math.max(0, INNER - visLen(content));
+    return `  ${borderChar}${content}${' '.repeat(pad)}${borderChar}`;
+  };
+
+  // Official winking-face logo: exactly 12 visible columns on every row.
   const logo1 = '    ' + c(GREEN, '▄██▄') + '    ';
   const logo2 = '  ' + c(GREEN, '▄██████▄') + '  ';
   const logo3 = ' ' + c(GREEN, '▐█ > ') + c(CYAN, '██') + c(GREEN, ' █▌') + ' ';
   const logo4 = ' ' + c(GREEN, '▐█ ╰──╯ █▌') + ' ';
   const logo5 = '  ' + c(GREEN, '▀██████▀') + '  ';
 
-  const line1 = logo1 + ' '.repeat(44);
-  const line2 = logo2 + '     ' + c(BOLD + CYAN, 'cc-habits') + ' · ' + c(BOLD, subtitle.padEnd(27));
-  const line3 = logo3 + '   ' + c(DIM, 'One tool-agnostic developer memory layer  ');
-  const line4 = logo4 + ' '.repeat(44);
-  const line5 = logo5 + '    ' + c(DIM, statusText.padEnd(40));
+  // Trim dynamic fields so a long subtitle or model name can never overflow the
+  // border. The logo is 12 cols + a 3-col gutter, leaving INNER - 15 for text.
+  const textBudget = INNER - 12 - 3;
+  const sub = subtitle.slice(0, textBudget);
+  const status = statusText.slice(0, textBudget);
+  const gutter = '   ';
+
+  const lines = [
+    logo1,
+    logo2 + gutter + c(BOLD + CYAN, 'cc-habits') + ' · ' + c(BOLD, sub),
+    logo3 + gutter + c(DIM, 'One tool-agnostic developer memory layer'),
+    logo4,
+    logo5 + gutter + c(DIM, status),
+  ];
 
   process.stdout.write('\n');
   process.stdout.write(`  ${topBorder}\n`);
-  process.stdout.write(`  ${borderChar}${line1}${borderChar}\n`);
-  process.stdout.write(`  ${borderChar}${line2}${borderChar}\n`);
-  process.stdout.write(`  ${borderChar}${line3}${borderChar}\n`);
-  process.stdout.write(`  ${borderChar}${line4}${borderChar}\n`);
-  process.stdout.write(`  ${borderChar}${line5}${borderChar}\n`);
+  for (const line of lines) process.stdout.write(row(line) + '\n');
   process.stdout.write(`  ${bottomBorder}\n`);
   process.stdout.write('\n');
 }
