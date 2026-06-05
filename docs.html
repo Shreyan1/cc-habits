@@ -182,7 +182,7 @@ ollama serve &amp;
           <pre class="code"><code>PostToolUse (Write|Edit|MultiEdit)
   → captures the diff
   → appends to ~/.cc-habits/log.jsonl
-  → exits in &lt;50ms, never blocks a session
+  → exits in ~5ms of work (full hook ~70ms p50, dominated by Node startup)
 
 Stop (session end)
   → reads session signals from log.jsonl
@@ -343,6 +343,10 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
 <strong><em>cch import</em></strong> &lt;file&gt;               # merge a portable habits file
 <strong><em>cch sync</em></strong> [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline
 <strong><em>cch pending</em></strong> [--approve|--discard]  # review queued updates
+<strong><em>cch faq</em></strong> [query]               # search the built-in FAQ, or browse categories
+<strong><em>cch on</em></strong>                        # re-enable capture after cch off
+<strong><em>cch off</em></strong>                        # pause all capture globally (reversible)
+<strong><em>cch uninstall</em></strong>                  # remove all hooks and config
 <strong><em>cch tombstone</em></strong> "&lt;rule&gt;"          # block a rule permanently
 <strong><em>cch tombstones</em></strong>                  # list tombstoned rules
 <strong><em>cch reset</em></strong> --yes                 # wipe habits.md, log.jsonl, pending
