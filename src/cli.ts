@@ -22,7 +22,7 @@ import { captureFromCli } from './capture';
 import { runGitCapture, shouldTriggerGitLearn } from './git-collector';
 import { extractRules, extractMemoryCandidates } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
-import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent, setGloballyDisabled } from './config';
+import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent, setGloballyDisabled, getConfigValue, isGloballyDisabled } from './config';
 import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools, isCliOnPath } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
@@ -127,8 +127,30 @@ const CONSENT_NOTICE = `
   Review the full privacy policy: https://github.com/Shreyan1/cc-habits/blob/main/PRIVACY.md
 `;
 
+function renderBrandedCard(subtitle: string, statusText: string): void {
+  const borderChar = c(DIM + CYAN, '│');
+  const topBorder = c(DIM + CYAN, '┌────────────────────────────────────────────────────────┐');
+  const bottomBorder = c(DIM + CYAN, '└────────────────────────────────────────────────────────┘');
+
+  const line1 = '    ' + c(GREEN, '▄▄▄▄') + '                                                ';
+  const line2 = '   ' + c(GREEN, '▐ ▀▀ ▌') + '     ' + c(BOLD + CYAN, 'cc-habits') + ' · ' + c(BOLD, subtitle.padEnd(30));
+  const line3 = ' ' + c(GREEN, '▄████████▄') + '   ' + c(DIM, 'One tool-agnostic developer memory layer  ');
+  const line4 = ' ' + c(GREEN, '▐  █  █  ▌') + '                                             ';
+  const line5 = '  ' + c(GREEN, '▀▀▀▀▀▀▀▀') + '    ' + c(DIM, statusText.padEnd(42));
+
+  process.stdout.write('\n');
+  process.stdout.write(`  ${topBorder}\n`);
+  process.stdout.write(`  ${borderChar}${line1}${borderChar}\n`);
+  process.stdout.write(`  ${borderChar}${line2}${borderChar}\n`);
+  process.stdout.write(`  ${borderChar}${line3}${borderChar}\n`);
+  process.stdout.write(`  ${borderChar}${line4}${borderChar}\n`);
+  process.stdout.write(`  ${borderChar}${line5}${borderChar}\n`);
+  process.stdout.write(`  ${bottomBorder}\n`);
+  process.stdout.write('\n');
+}
+
 export async function cmdInit(providerFlag?: string): Promise<number> {
-  process.stdout.write(c(BOLD, 'cc-habits: initialising...\n'));
+  renderBrandedCard('initialising...', 'Setting up hooks and configurations');
 
   // L5: consent gate — show once, skip if already recorded, abort on N.
   if (!consentGiven()) {
@@ -278,7 +300,6 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
 
   // Enable memory learning by default for new installs. If the user already has
   // an explicit setting (from a previous init or manual edit) leave it alone.
-  const { getConfigValue } = await import('./config');
   if (!getConfigValue('memories_enabled')) {
     setMemoriesEnabled(true);
     process.stdout.write(`  ${tick} Memory learning enabled by default.\n`);
@@ -432,9 +453,16 @@ export function cmdView(): number {
   const learningHabits = totalHabits - activeHabits;
   const totalSignals = allSignals.length;
 
-  process.stdout.write('\n');
-  process.stdout.write(c(BOLD + CYAN, '  cc-habits') + c(BOLD, ' · your coding habits\n'));
-  process.stdout.write('\n');
+  const provider = getConfigValue('provider') || 'not set';
+  const model = getConfigValue(
+    provider === 'ollama' ? 'ollama_model' :
+    provider === 'openai' ? 'openai_model' :
+    provider === 'groq' ? 'groq_model' : ''
+  );
+  const providerDisplay = provider === 'not set' ? 'no provider' : `${provider}${model ? ` ${model}` : ''}`;
+  const statusDisplay = isGloballyDisabled() ? 'Disabled' : `Active  ·  ${providerDisplay}`;
+
+  renderBrandedCard('your coding habits', statusDisplay);
 
   if (totalHabits === 0) {
     process.stdout.write(c(DIM, '  No habits learned yet.\n'));
