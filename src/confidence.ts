@@ -191,6 +191,13 @@ function findHabit(cats: HabitsMap, matchedId: string, ruleText: string): Habit 
     }
   }
 
+  // NOTE: This fuzzy matching step performs Levenshtein distance calculations.
+  // Complexity: O(N) comparisons where N is the total number of habits.
+  // Across a batch of M updates, the total complexity is O(N * M * L^2) where L is the average rule length.
+  // Given current scale (N ~ tens, M < 10, L ~ 50-100 characters), this is highly efficient (< 1ms).
+  // If the habit file size scales to thousands of rules, consider:
+  // 1. Filtering candidates by length differences or simple word overlap first.
+  // 2. Indexing rules (e.g., using a prefix tree or trigram index).
   let bestMatch: Habit | null = null;
   let bestSimilarity = 0;
 

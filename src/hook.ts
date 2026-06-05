@@ -256,12 +256,6 @@ export interface StopResult {
 export async function processStop(sessionId: string, ctx?: StorageContext): Promise<StopResult | null> {
   if (captureDisabled()) return null;
 
-  const signals = readSignals(sessionId, ctx);
-  if (signals.length < MIN_SIGNALS) return null;
-
-  const gated = signals.filter(s => !isNoise(s.diff ?? ''));
-  if (gated.length < MIN_SIGNALS) return null;
-
   const lockFile = path.join(getPaths(ctx).habitsDir, 'habits.lock');
   const locked = await acquireLock(lockFile);
   if (!locked) {
@@ -270,6 +264,11 @@ export async function processStop(sessionId: string, ctx?: StorageContext): Prom
   }
 
   try {
+    const signals = readSignals(sessionId, ctx);
+    if (signals.length < MIN_SIGNALS) return null;
+
+    const gated = signals.filter(s => !isNoise(s.diff ?? ''));
+    if (gated.length < MIN_SIGNALS) return null;
     const habitsMd = readHabitsMd(ctx);
     const cats = parseHabits(habitsMd);
 
