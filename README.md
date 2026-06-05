@@ -566,10 +566,10 @@ cc-habits is designed to never add perceptible latency to your coding sessions. 
 
 ### Test suite
 
-538 tests across 30 files, including dedicated security, red-team, pentest, hardening, injection, and LLM-specific (prompt-injection / memory-poisoning) suites. CI runs the full suite on Linux, macOS, and Windows in approximately 1.5 seconds.
+540 tests across 30 files, including dedicated security, red-team, pentest, hardening, injection, and LLM-specific (prompt-injection / memory-poisoning) suites. CI runs the full suite on Linux, macOS, and Windows in approximately 1.5 seconds.
 
 ```bash
-npm test    # 538 tests, ~1.5s on macOS M-series
+npm test    # 540 tests, ~1.5s on macOS M-series
 ```
 
 ---
