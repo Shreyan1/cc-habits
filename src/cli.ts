@@ -106,8 +106,11 @@ const CONSENT_NOTICE = `
 `;
 
 // The cc-habits app icon, transcribed from the official "CC Habits Icon" SVG at
-// one cell per 10px: a rounded-square lime frame with a sprout on top, a `>` wink
-// eye, a solid block eye, and a wide smile. 'G' = lime, 'B' = block-eye, '.' = empty.
+// one cell per 10px: a briefcase (wide rounded rectangle) with a handle on top, a
+// `>` wink eye, a solid block eye, and a wide smile. 'G' = lime, 'B' = block-eye,
+// '.' = empty. The SVG's empty interior bands above the eyes and below the smile are
+// dropped (four rows) so the body reads as a clear horizontal rectangle rather than a
+// square; the four removed rows are paired, keeping the half-block row pairing intact.
 // Rendered to half-block glyphs (two source rows per terminal row) so the proportions
 // survive the 1:2 character aspect ratio. The icon is its own frame, so the card draws
 // no extra border around it.
@@ -120,8 +123,6 @@ const ICON_GRID: string[] = [
   '...GGGGGGGGGGGGGGGGGGGGGG..',
   '..GGGGGGGGGGGGGGGGGGGGGGGG.',
   '.GGG....................GGG',
-  '.GG......................GG',
-  '.GG......................GG',
   '.GG....GG................GG',
   '.GG......GG..............GG',
   '.GG........GG............GG',
@@ -132,8 +133,6 @@ const ICON_GRID: string[] = [
   '.GG......G........G......GG',
   '.GG......G........G......GG',
   '.GG......GGGGGGGGGG......GG',
-  '.GG......................GG',
-  '.GG......................GG',
   '.GGG....................GGG',
   '..GGGGGGGGGGGGGGGGGGGGGGGG.',
   '...GGGGGGGGGGGGGGGGGGGGGG..',
