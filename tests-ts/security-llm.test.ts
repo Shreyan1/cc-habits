@@ -396,7 +396,7 @@ describe('P2-A: DoS and cost exhaustion', () => {
     // cleanTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&') before building the regex.
     // The test verifies that the escaping prevents both throws and ReDoS.
     const evilTriggers = [
-      '(a+)+$',            // classic catastrophic-backtracking shape
+      '(a+)+$',            // codeql[js/redos] - never used raw; scoreMemoryRelevance escapes all metacharacters before new RegExp()
       '(.*a){25}',         // exponential alternation
       '[',                 // invalid regex if unescaped
       '\\',                // trailing backslash

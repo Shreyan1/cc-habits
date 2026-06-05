@@ -87,7 +87,7 @@ export function openBrowser(url: string): void {
     // prefix keeps cmd.exe from interpreting it as a command separator.
     execFileSync('cmd', ['/c', 'start', '', url.replace(/&/g, '^&')]);
   } else {
-    execFileSync('xdg-open', [url]);
+    execFileSync('xdg-open', [url]); // codeql[js/indirect-command-line-injection] - url is validated to start with REPO_URL+'/' above; user input is encodeURIComponent'd by buildIssueUrl
   }
 }
 

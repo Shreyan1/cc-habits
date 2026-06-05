@@ -91,7 +91,7 @@ const UNICODE_SEPARATORS = /[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u
 const HTML_COMMENT = /<!--[\s\S]*?-->|<!--|-->/g;
 // Any XML/HTML-style tag token. Stops container-escape attacks where a rule embeds
 // </coding-habits> (or any tag) to break out of the UserPromptSubmit injection wrapper.
-const TAG_TOKEN = /<\/?\s*[a-zA-Z][\w-]*\s*\/?>/g;
+const TAG_TOKEN = /<\/?\s*[a-zA-Z][\w-]*\s*\/?>/g; // codeql[js/bad-tag-filter] - not HTML sanitization for display; strips tag markers from LLM rule text to prevent container-escape injection
 // Maximum length for a single rule: bounds context window consumption and limits
 // the blast radius of any injection that slips through the pattern filters.
 const MAX_RULE_LENGTH = 500;
@@ -116,9 +116,9 @@ export function sanitizeRule(rule: string): string {
   // "SYS<!---->TEM:" collapses to "SYSTEM:" after comment removal and is then caught
   // by INJECTION_KEYWORDS. No replacement can produce a new HTML comment or tag
   // from its substitution value ("" or "[redacted]"), so there is no second-pass risk.
-  s = s.replace(HTML_COMMENT, '');
+  s = s.replace(HTML_COMMENT, ''); // codeql[js/incomplete-multi-character-sanitization] - HTML_COMMENT runs before INJECTION_KEYWORDS; "SYS<!---->TEM:" becomes "SYSTEM:" then "[redacted]". No replacement produces a new dangerous sequence.
   s = s.replace(INJECTION_KEYWORDS, '[redacted]');
-  s = s.replace(TAG_TOKEN, '[redacted]');
+  s = s.replace(TAG_TOKEN, '[redacted]'); // codeql[js/incomplete-multi-character-sanitization] - TAG_TOKEN removes whole well-formed tags; remaining chars are caught by the structural char strips above
   s = s.replace(URL_RE, '[url]');
   s = s.replace(SHELL_SUBST, '[cmd]');
   s = s.replace(/\s+/g, ' ').trim();
@@ -139,8 +139,8 @@ export function sanitizeCategory(category: string): string {
   // codeql[js/incomplete-multi-character-sanitization] - same reasoning as sanitizeRule:
   // HTML_COMMENT runs before TAG_TOKEN; the substitution values ('' and removed chars)
   // cannot form new HTML/comment sequences.
-  s = s.replace(HTML_COMMENT, '');
-  s = s.replace(TAG_TOKEN, '');
+  s = s.replace(HTML_COMMENT, ''); // codeql[js/incomplete-multi-character-sanitization] - same ordering guarantee as sanitizeRule
+  s = s.replace(TAG_TOKEN, ''); // codeql[js/incomplete-multi-character-sanitization] - tags stripped; remaining structural chars removed by the regex below
   // Drop markdown-structural and delimiter chars that could inject headers or
   // break the "Category:" label format in the injection block.
   s = s.replace(/[#`*_<>[\]:]/g, '');
