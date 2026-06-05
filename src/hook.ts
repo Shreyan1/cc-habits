@@ -279,10 +279,14 @@ export async function processStop(sessionId: string): Promise<StopResult | null>
   const countCapped = gated.slice(-MAX_SIGNALS_PER_EXTRACTION);
   let byteTotal = 0;
   let byteIdx = countCapped.length;
+  // Walk newest-first and stop when the next one would exceed the budget.
   for (let i = countCapped.length - 1; i >= 0; i--) {
-    byteTotal += (countCapped[i]!.diff ?? '').length;
-    if (byteTotal <= MAX_HOOK_BATCH_BYTES) { byteIdx = i; break; }
-    if (i === 0) { byteIdx = countCapped.length; break; }
+    const len = (countCapped[i]!.diff ?? '').length;
+    if (byteTotal + len > MAX_HOOK_BATCH_BYTES && byteTotal > 0) {
+      break;
+    }
+    byteTotal += len;
+    byteIdx = i;
   }
   const capped = countCapped.slice(byteIdx);
   if (capped.length < gated.length) {
