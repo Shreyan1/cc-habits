@@ -83,10 +83,10 @@ const OLLAMA_DEFAULT_MODEL = 'llama3.2';
 
 const BOLD   = '\x1b[1m';
 const DIM    = '\x1b[2m';
-const GREEN  = '\x1b[38;2;181;255;28m';  // Acid Lime (#B5FF1C)
-const YELLOW = '\x1b[38;2;168;85;247m';  // Purple/Learning (#A855F7)
-const RED    = '\x1b[38;2;255;45;111m';  // Neon Pink/Negatives (#FF2D6F)
-const CYAN   = '\x1b[38;2;0;183;255m';   // Accent Cyan (#00B7FF)
+const GREEN  = '\x1b[38;2;150;210;30m';  // Softer Acid Lime (#96D21E)
+const YELLOW = '\x1b[38;2;140;90;215m';  // Softer Purple/Learning (#8C5AD7)
+const RED    = '\x1b[38;2;215;60;105m';  // Softer Neon Pink/Negatives (#D73C69)
+const CYAN   = '\x1b[38;2;20;160;220m';   // Softer Accent Cyan (#14A0DC)
 const RESET  = '\x1b[0m';
 
 const NO_COLOR = !process.stdout.isTTY || !!process.env['NO_COLOR'];
@@ -132,11 +132,17 @@ function renderBrandedCard(subtitle: string, statusText: string): void {
   const topBorder = c(DIM + CYAN, '┌────────────────────────────────────────────────────────┐');
   const bottomBorder = c(DIM + CYAN, '└────────────────────────────────────────────────────────┘');
 
-  const line1 = '    ' + c(GREEN, '▄▄▄▄') + '                                                ';
-  const line2 = '   ' + c(GREEN, '▐ ▀▀ ▌') + '     ' + c(BOLD + CYAN, 'cc-habits') + ' · ' + c(BOLD, subtitle.padEnd(30));
-  const line3 = ' ' + c(GREEN, '▄████████▄') + '   ' + c(DIM, 'One tool-agnostic developer memory layer  ');
-  const line4 = ' ' + c(GREEN, '▐  █  █  ▌') + '                                             ';
-  const line5 = '  ' + c(GREEN, '▀▀▀▀▀▀▀▀') + '    ' + c(DIM, statusText.padEnd(42));
+  const logo1 = '    ' + c(GREEN, '▄██▄') + '    ';
+  const logo2 = '  ' + c(GREEN, '▄██████▄') + '  ';
+  const logo3 = ' ' + c(GREEN, '▐█ > ') + c(CYAN, '██') + c(GREEN, ' █▌') + ' ';
+  const logo4 = ' ' + c(GREEN, '▐█ ╰──╯ █▌') + ' ';
+  const logo5 = '  ' + c(GREEN, '▀██████▀') + '  ';
+
+  const line1 = logo1 + ' '.repeat(44);
+  const line2 = logo2 + '     ' + c(BOLD + CYAN, 'cc-habits') + ' · ' + c(BOLD, subtitle.padEnd(27));
+  const line3 = logo3 + '   ' + c(DIM, 'One tool-agnostic developer memory layer  ');
+  const line4 = logo4 + ' '.repeat(44);
+  const line5 = logo5 + '    ' + c(DIM, statusText.padEnd(40));
 
   process.stdout.write('\n');
   process.stdout.write(`  ${topBorder}\n`);
