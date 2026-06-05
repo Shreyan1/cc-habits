@@ -507,3 +507,196 @@ export function registerClineHooks(hooksDir: string, hookBin: string): HookRegis
   return { postAdded, stopAdded, promptAdded: false };
 }
 
+export function deregisterHooks(): { postRemoved: boolean; stopRemoved: boolean; promptRemoved: boolean; sessionStartRemoved: boolean } {
+  const settings = loadSettings();
+  if (!settings['hooks']) return { postRemoved: false, stopRemoved: false, promptRemoved: false, sessionStartRemoved: false };
+  const hooks = settings['hooks'] as Record<string, unknown[]>;
+
+  const cleanHook = (list: unknown[] | undefined): [unknown[], boolean] => {
+    if (!list) return [[], false];
+    const cleaned = cleanOldHabitsHooks(list);
+    return [cleaned, cleaned.length !== list.length];
+  };
+
+  const [postCleaned, postRemoved] = cleanHook(hooks['PostToolUse']);
+  const [stopCleaned, stopRemoved] = cleanHook(hooks['Stop']);
+  const [promptCleaned, promptRemoved] = cleanHook(hooks['UserPromptSubmit']);
+  const [sessionStartCleaned, sessionStartRemoved] = cleanHook(hooks['SessionStart']);
+
+  hooks['PostToolUse'] = postCleaned;
+  hooks['Stop'] = stopCleaned;
+  hooks['UserPromptSubmit'] = promptCleaned;
+  hooks['SessionStart'] = sessionStartCleaned;
+
+  saveSettings(settings);
+  return { postRemoved, stopRemoved, promptRemoved, sessionStartRemoved };
+}
+
+export function removeImportFromClaudeMd(): boolean {
+  const importLine = installPaths.importLine;
+  const filePath = installPaths.claudeMd;
+  if (!fs.existsSync(filePath)) return false;
+  const content = fs.readFileSync(filePath, 'utf-8');
+  if (!content.includes(importLine)) return false;
+  const cleaned = content.replace(importLine, '').trim();
+  if (cleaned === '') {
+    fs.unlinkSync(filePath);
+  } else {
+    atomicWriteText(filePath, cleaned + '\n');
+  }
+  return true;
+}
+
+export function uninstallLocalGitHook(): boolean {
+  try {
+    if (!fs.existsSync('.git')) return false;
+
+    const stat = fs.statSync('.git');
+    let hooksDir = '';
+    if (stat.isDirectory()) {
+      hooksDir = path.join('.git', 'hooks');
+    } else {
+      try {
+        const gitDir = execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf-8' }).trim();
+        hooksDir = path.join(gitDir, 'hooks');
+      } catch {
+        return false;
+      }
+    }
+
+    const hookFile = path.join(hooksDir, 'post-commit');
+    if (!fs.existsSync(hookFile)) return false;
+    const content = fs.readFileSync(hookFile, 'utf-8');
+    if (!content.includes('cc-habits') && !content.includes('cch')) return false;
+
+    const lines = content.split('\n').filter(line => 
+      !line.includes('cc-habits git-capture') && !line.includes('cch git-capture')
+    );
+
+    const nonShebang = lines.filter(line => line.trim() && !line.startsWith('#!'));
+    if (nonShebang.length === 0) {
+      fs.unlinkSync(hookFile);
+    } else {
+      fs.writeFileSync(hookFile, lines.join('\n'), { mode: 0o755 });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function uninstallGlobalGitTemplateHook(): boolean {
+  try {
+    const templateDir = path.join(os.homedir(), '.git-templates');
+    const hookFile = path.join(templateDir, 'hooks', 'post-commit');
+    if (!fs.existsSync(hookFile)) return false;
+    const content = fs.readFileSync(hookFile, 'utf-8');
+    if (!content.includes('cc-habits') && !content.includes('cch')) return false;
+
+    const lines = content.split('\n').filter(line => 
+      !line.includes('cc-habits git-capture') && !line.includes('cch git-capture')
+    );
+
+    const nonShebang = lines.filter(line => line.trim() && !line.startsWith('#!'));
+    if (nonShebang.length === 0) {
+      fs.unlinkSync(hookFile);
+      try {
+        fs.rmdirSync(path.join(templateDir, 'hooks'));
+        fs.rmdirSync(templateDir);
+      } catch { /* best-effort */ }
+    } else {
+      fs.writeFileSync(hookFile, lines.join('\n'), { mode: 0o755 });
+    }
+
+    try {
+      const current = execFileSync('git', ['config', '--global', 'init.templateDir'], { encoding: 'utf-8' }).trim();
+      if (current === templateDir) {
+        execFileSync('git', ['config', '--global', '--unset', 'init.templateDir']);
+      }
+    } catch { /* ignore */ }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function deregisterJsonHooks(targetFile: string): HookRegistration {
+  let settings: Record<string, any> = {};
+  if (fs.existsSync(targetFile)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(targetFile, 'utf-8'));
+    } catch {
+      return { postAdded: false, stopAdded: false, promptAdded: false };
+    }
+  }
+
+  if (!settings['hooks']) return { postAdded: false, stopAdded: false, promptAdded: false };
+  const hooks = settings['hooks'] as Record<string, unknown[]>;
+
+  const clean = (event: string): boolean => {
+    if (!hooks[event]) return false;
+    const origLen = hooks[event].length;
+    hooks[event] = cleanOldHabitsHooks(hooks[event]);
+    return hooks[event].length !== origLen;
+  };
+
+  const postRemoved = clean(GEMINI_POST_EVENT) || clean('PostToolUse');
+  const stopRemoved = clean(GEMINI_STOP_EVENT) || clean('Stop');
+  const promptRemoved = clean(GEMINI_PROMPT_EVENT) || clean('UserPromptSubmit');
+  const sessionStartRemoved = clean(GEMINI_SESSION_START_EVENT) || clean('SessionStart');
+
+  if (postRemoved || stopRemoved || promptRemoved || sessionStartRemoved) {
+    const tmpPath = `${targetFile}.tmp.${process.pid}`;
+    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+    fs.renameSync(tmpPath, targetFile);
+  }
+
+  return {
+    postAdded: postRemoved,
+    stopAdded: stopRemoved,
+    promptAdded: promptRemoved,
+    sessionStartAdded: sessionStartRemoved,
+  };
+}
+
+export function deregisterKimiHooks(targetFile: string): boolean {
+  if (!fs.existsSync(targetFile)) return false;
+  const content = fs.readFileSync(targetFile, 'utf-8');
+  if (!content.includes('cc-habits-hook') && !content.includes('cc-habits')) return false;
+
+  const blocks = content.split('\n[[hooks]]');
+  const cleanedBlocks = blocks.filter((block, idx) => {
+    if (idx === 0) return true;
+    return !block.includes('cc-habits-hook') && !block.includes('cc-habits');
+  });
+
+  const cleaned = cleanedBlocks.join('\n[[hooks]]').trim() + '\n';
+  fs.writeFileSync(targetFile, cleaned, 'utf-8');
+  return true;
+}
+
+export function deregisterClineHooks(hooksDir: string): boolean {
+  const postFile = path.join(hooksDir, 'PostToolUse');
+  const stopFile = path.join(hooksDir, 'Stop');
+  let removed = false;
+
+  const cleanFile = (file: string, term: string) => {
+    if (!fs.existsSync(file)) return;
+    const content = fs.readFileSync(file, 'utf-8');
+    if (!content.includes(term)) return;
+    const lines = content.split('\n').filter(line => !line.includes(term));
+    const nonShebang = lines.filter(line => line.trim() && !line.startsWith('#!'));
+    if (nonShebang.length === 0) {
+      fs.unlinkSync(file);
+      removed = true;
+    } else {
+      fs.writeFileSync(file, lines.join('\n'), { mode: 0o755 });
+      removed = true;
+    }
+  };
+
+  cleanFile(postFile, 'post-tool-use');
+  cleanFile(stopFile, 'stop');
+  return removed;
+}
+

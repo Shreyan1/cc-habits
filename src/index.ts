@@ -3,7 +3,7 @@ import {
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
   cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdMemoriesToggle,
   cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdShellInit, cmdSessionBanner, cmdTools, VERSION,
-  cmdOn, cmdOff,
+  cmdOn, cmdOff, cmdUninstall,
   c, BOLD, DIM, CYAN
 } from './cli';
 import { cmdFaq } from './faq';
@@ -59,6 +59,7 @@ Usage:
     cc-habits off                     Disable cc-habits (pause capture and prompt injection)
     cc-habits shell-init              Print shell wrapper for claude/gemini (eval "$(cc-habits shell-init)")
     cc-habits migrate [--force]       Migrate storage from old ~/.claude/habits/ to ~/.cc-habits/
+    cc-habits uninstall [--yes]       Uninstall cc-habits completely and delete all local files
 
   Habits Lifecycle:
     cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
@@ -145,6 +146,7 @@ async function main(): Promise<void> {
         { label: 'off                     Disable cc-habits', args: ['off'] },
         { label: 'shell-init              Print shell wrapper', args: ['shell-init'] },
         { label: 'migrate                 Migrate storage location', args: ['migrate'] },
+        { label: 'uninstall               Uninstall cc-habits completely', args: ['uninstall'] },
         
         // Habits Lifecycle
         { label: 'bootstrap               Learn habits from past sessions', args: ['bootstrap'] },
@@ -241,6 +243,8 @@ async function main(): Promise<void> {
     code = cmdLog(Number.isFinite(limit as number) ? limit : undefined);
   } else if (command === 'reset') {
     code = cmdReset(args.includes('--yes'));
+  } else if (command === 'uninstall') {
+    code = await cmdUninstall(args.includes('--yes'));
   } else if (command === 'pending') {
     if (args.includes('--approve')) code = cmdPending('approve');
     else if (args.includes('--discard')) code = cmdPending('discard');

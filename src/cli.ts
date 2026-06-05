@@ -11,7 +11,7 @@ import {
 } from './storage';
 import { applyUpdates, pendingToUpdates, applyDecay, toPending, type AppliedChange } from './confidence';
 import { runSelectMenu } from './menu';
-import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath } from './install';
+import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
 import { exportProfile, importHabits, fetchProfile } from './portable';
@@ -917,6 +917,100 @@ export function cmdReset(yes: boolean): number {
     process.stdout.write('  nothing to delete\n');
   }
   process.stdout.write('cc-habits: reset complete. Hooks and tombstones remain.\n');
+  return 0;
+}
+
+export async function cmdUninstall(yes: boolean): Promise<number> {
+  if (!yes) {
+    const confirm = await promptYesNo('  Are you sure you want to completely uninstall cc-habits and delete all learned data? [y/N] ');
+    if (!confirm) {
+      process.stdout.write('  Uninstall cancelled.\n');
+      return 0;
+    }
+  }
+
+  process.stdout.write('\n  Uninstalling cc-habits...\n\n');
+
+  const tick = '✓';
+  const dash = '~';
+
+  // 1. Deregister Claude Code hooks
+  try {
+    const { postRemoved, stopRemoved, promptRemoved, sessionStartRemoved } = deregisterHooks();
+    if (postRemoved || stopRemoved || promptRemoved || sessionStartRemoved) {
+      process.stdout.write(`  ${tick} Removed hooks from Claude Code (~/.claude/settings.json)\n`);
+    }
+  } catch (e) {
+    process.stdout.write(`  ${dash} Claude Code hooks clean skipped: ${String(e)}\n`);
+  }
+
+  // 2. Remove Claude MD @import
+  try {
+    if (removeImportFromClaudeMd()) {
+      process.stdout.write(`  ${tick} Removed @import from ~/.claude/CLAUDE.md\n`);
+    }
+  } catch (e) {
+    process.stdout.write(`  ${dash} CLAUDE.md import clean skipped: ${String(e)}\n`);
+  }
+
+  // 3. Clean other tools
+  try {
+    const detected = detectInstalledTools();
+    for (const tool of detected) {
+      try {
+        if (tool.id === 'gemini') {
+          const { postAdded } = deregisterJsonHooks(tool.settingsPath);
+          if (postAdded) process.stdout.write(`  ${tick} Removed hooks from Gemini CLI (${tool.settingsPath})\n`);
+        } else if (tool.id === 'codex') {
+          const jsonFile = path.join(path.dirname(tool.settingsPath), 'hooks.json');
+          const { postAdded } = deregisterJsonHooks(jsonFile);
+          if (postAdded) process.stdout.write(`  ${tick} Removed hooks from Codex CLI (${jsonFile})\n`);
+        } else if (tool.id === 'kimi') {
+          if (deregisterKimiHooks(tool.settingsPath)) {
+            process.stdout.write(`  ${tick} Removed hooks from Kimi Code CLI (${tool.settingsPath})\n`);
+          }
+        } else if (tool.id === 'cline') {
+          if (deregisterClineHooks(tool.settingsPath)) {
+            process.stdout.write(`  ${tick} Removed hooks from Cline/RooCode (${tool.settingsPath})\n`);
+          }
+        }
+      } catch (e) {
+        process.stdout.write(`  ${dash} Clean hooks for ${tool.name} skipped: ${String(e)}\n`);
+      }
+    }
+  } catch {
+    // best-effort if detect fails
+  }
+
+  // 4. Git capture hooks
+  try {
+    if (uninstallLocalGitHook()) {
+      process.stdout.write(`  ${tick} Removed local Git capture hook\n`);
+    }
+  } catch (e) {
+    process.stdout.write(`  ${dash} Local Git hook clean skipped: ${String(e)}\n`);
+  }
+
+  try {
+    if (uninstallGlobalGitTemplateHook()) {
+      process.stdout.write(`  ${tick} Removed global Git template capture hook\n`);
+    }
+  } catch (e) {
+    process.stdout.write(`  ${dash} Global Git hook clean skipped: ${String(e)}\n`);
+  }
+
+  // 5. Delete entire ~/.cc-habits directory
+  const storeDir = storagePaths.habitsDir;
+  if (fs.existsSync(storeDir)) {
+    try {
+      fs.rmSync(storeDir, { recursive: true, force: true });
+      process.stdout.write(`  ${tick} Deleted storage directory: ${storeDir}\n`);
+    } catch (e) {
+      process.stdout.write(`  ${dash} Failed to delete storage directory ${storeDir}: ${String(e)}\n`);
+    }
+  }
+
+  process.stdout.write('\n  cc-habits has been cleanly and completely uninstalled from your system.\n');
   return 0;
 }
 

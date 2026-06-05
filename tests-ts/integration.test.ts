@@ -9,7 +9,7 @@ import {
 } from '../src/storage';
 import { installPaths } from '../src/install';
 import { processPostToolUse, processStop, isNoise, redact } from '../src/hook';
-import { cmdInit, cmdView, cmdReset, cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones } from '../src/cli';
+import { cmdInit, cmdView, cmdReset, cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdUninstall } from '../src/cli';
 import * as extractor from '../src/extractor';
 import * as detect from '../src/detect';
 
@@ -555,5 +555,56 @@ describe('Scenario 3: large diff capping', () => {
     const sig = readSignals(SESSION)[0];
     expect(sig.diff.length).toBeLessThan(5000);
     expect(sig.diff).toContain('(truncated)');
+  });
+});
+
+describe('CLI uninstall', () => {
+  it('cleans up hooks, imports, and deletes storage directory', async () => {
+    const siblingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-claude-'));
+    const origClaudeDir = installPaths.claudeDir;
+    const origSettingsFile = installPaths.settingsFile;
+    const origClaudeMd = installPaths.claudeMd;
+
+    installPaths.claudeDir = siblingDir;
+    installPaths.settingsFile = path.join(siblingDir, 'settings.json');
+    installPaths.claudeMd = path.join(siblingDir, 'CLAUDE.md');
+
+    try {
+      process.env['ANTHROPIC_API_KEY'] = 'test-key';
+      await cmdInit();
+      
+      // Assert settings have hooks
+      let settings = JSON.parse(fs.readFileSync(installPaths.settingsFile, 'utf-8'));
+      expect(settings.hooks.PostToolUse).toBeDefined();
+      expect(settings.hooks.PostToolUse.length).toBeGreaterThan(0);
+      
+      // Assert CLAUDE.md has @import
+      let claudeMd = fs.readFileSync(installPaths.claudeMd, 'utf-8');
+      expect(claudeMd).toContain('@import');
+      
+      // Run uninstall
+      const code = await cmdUninstall(true);
+      expect(code).toBe(0);
+      
+      // settings.json should have hooks cleaned
+      settings = JSON.parse(fs.readFileSync(installPaths.settingsFile, 'utf-8'));
+      const postCmds = (settings.hooks.PostToolUse || []).flatMap((e: any) => (e.hooks || []).map((h: any) => h.command));
+      expect(postCmds.some((c: string) => c.includes('cc-habits-hook'))).toBe(false);
+      
+      // CLAUDE.md should not exist or not have import
+      if (fs.existsSync(installPaths.claudeMd)) {
+        claudeMd = fs.readFileSync(installPaths.claudeMd, 'utf-8');
+        expect(claudeMd).not.toContain('@import');
+      }
+      
+      // Storage directory should be deleted
+      expect(fs.existsSync(storagePaths.habitsFile)).toBe(false);
+      expect(fs.existsSync(storagePaths.logFile)).toBe(false);
+    } finally {
+      installPaths.claudeDir = origClaudeDir;
+      installPaths.settingsFile = origSettingsFile;
+      installPaths.claudeMd = origClaudeMd;
+      fs.rmSync(siblingDir, { recursive: true, force: true });
+    }
   });
 });
