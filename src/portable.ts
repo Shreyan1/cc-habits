@@ -192,7 +192,7 @@ export function importHabits(incomingContent: string): ImportResult {
     return { ...habitResult, memoriesImported };
   }
 
-  // No profile header — treat the entire content as a plain habits.md (backward compat).
+  // No profile header, treat the entire content as a plain habits.md (backward compat).
   return mergeHabitsFromMd(incomingContent);
 }
 

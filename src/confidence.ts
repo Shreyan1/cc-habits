@@ -87,7 +87,7 @@ const UNICODE_SEPARATORS = /[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u
 // it strips comment syntax from untrusted LLM rule text before storing or injecting
 // it. The goal is to remove the hidden-instruction channel (humans skim HTML
 // comments; LLMs read them). The regex intentionally targets only the `<!-- -->`
-// comment delimiters, not all tag forms — TAG_TOKEN handles element tags below.
+// comment delimiters, not all tag forms, TAG_TOKEN handles element tags below.
 const HTML_COMMENT = /<!--[\s\S]*?-->|<!--|-->/g;
 // Any XML/HTML-style tag token. Stops container-escape attacks where a rule embeds
 // </coding-habits> (or any tag) to break out of the UserPromptSubmit injection wrapper.

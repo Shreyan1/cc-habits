@@ -366,7 +366,7 @@ describe('P2-A: DoS and cost exhaustion', () => {
   });
 
   it('capBatch enforces MAX_BATCH_BYTES = 180 KB even with fewer signals', () => {
-    // Three signals each 100 KB — should be capped to the most recent one
+    // Three signals each 100 KB, should be capped to the most recent one
     const bigDiff = 'x'.repeat(100_000);
     const signals = [
       { ts: '2026-01-01T00:00:00Z', session_id: 'x', type: 'edit' as const, file: 'a.ts', diff: bigDiff },
@@ -458,7 +458,7 @@ describe('Cross-session contamination: tombstone persistence', () => {
 
   it('habits below the quarantine threshold are never injected even at high confidence', () => {
     // A habit with sessions_seen = 1 should never reach injection regardless
-    // of its confidence score — this is the single most important quarantine gate.
+    // of its confidence score, this is the single most important quarantine gate.
     const md = `# Coding habits
 
 ## Security

@@ -19,7 +19,7 @@ describe('existing patterns (regression)', () => {
   });
 
   it('redacts Luhn-valid credit card numbers', () => {
-    // 4111111111111111 is the canonical test Visa number — Luhn-valid
+    // 4111111111111111 is the canonical test Visa number, Luhn-valid
     expect(redact('card = "4111111111111111"')).toContain('<REDACTED:card>');
     expect(redact('card = "4111111111111111"')).not.toContain('4111111111111111');
   });
@@ -137,7 +137,7 @@ describe('JWT tokens', () => {
   });
 
   it('does not redact a short eyJ fragment that is not a full JWT', () => {
-    // Only 2 parts, not 3 — not a JWT
+    // Only 2 parts, not 3, not a JWT
     expect(redact('eyJhbGci.eyJzdWIi')).not.toContain('<REDACTED:jwt>');
   });
 });
@@ -394,7 +394,7 @@ describe('combined redaction in a realistic diff', () => {
 
 // ── performance (ReDoS bounds) ────────────────────────────────────────────────
 
-describe('performance (bounded by 4 KB diff cap — no ReDoS risk)', () => {
+describe('performance (bounded by 4 KB diff cap, no ReDoS risk)', () => {
   it('DB_CONN_RE finishes in <100ms on 4 KB of colons and slashes', () => {
     const adversarial = ('a://b:' + 'x'.repeat(400) + '@' + 'y'.repeat(400) + '/').repeat(3);
     const start = Date.now();

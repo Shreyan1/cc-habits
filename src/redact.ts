@@ -2,7 +2,7 @@
 //
 // Called on every diff before it is stored in log.jsonl or sent to an LLM
 // provider. Runs AFTER the diff is capped at MAX_DIFF_BYTES (4 KB) so every
-// regex here operates on a bounded input — ReDoS risk is contained.
+// regex here operates on a bounded input, ReDoS risk is contained.
 //
 // Architecture: HYBRID, the industry standard (see OpenPipe pii-redaction,
 // PredictionGuard, GitGuardian). Deterministic regex + checksums for STRUCTURED
@@ -17,7 +17,7 @@
 //      checksum. Checksums (Luhn, NHS Mod-11, IBAN Mod-97) keep false positives
 //      near zero on otherwise-ambiguous digit strings.
 //   2. Context-gated patterns: redact a value only when its KEY is in a curated
-//      sensitive-key denylist. Over-redaction here is SAFE — cc-habits learns
+//      sensitive-key denylist. Over-redaction here is SAFE, cc-habits learns
 //      code STYLE, not values, so blanking a value barely affects extraction.
 //   3. Never let a pattern match inside an already-redacted token (idempotency).
 //   4. Cheap and synchronous: no async, no network, no state.

@@ -43,14 +43,14 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Getting Started',
     question: 'How do I install and set up cc-habits for the first time?',
     keywords: ['install', 'setup', 'start', 'begin', 'first', 'new', 'npm', 'initialize', 'init', 'configure', 'configuration', 'installing', 'setting'],
-    answer: '1. Install globally: `npm install -g cc-habits`\n2. Run `cch init` inside your project directory. This installs Claude Code hooks, creates habits.md, and walks you through picking a provider (Anthropic, OpenAI, Groq, or Ollama).\n3. Start a Claude Code session — habits will be captured automatically.'
+    answer: '1. Install globally: `npm install -g cc-habits`\n2. Run `cch init` inside your project directory. This installs Claude Code hooks, creates habits.md, and walks you through picking a provider (Anthropic, OpenAI, Groq, or Ollama).\n3. Start a Claude Code session, habits will be captured automatically.'
   },
   {
     id: 'what-is-cch-alias',
     category: 'Getting Started',
     question: 'What is "cch"? Is it different from "cc-habits"?',
     keywords: ['cch', 'alias', 'shorthand', 'command', 'name', 'short', 'abbreviation', 'call', 'difference'],
-    answer: '`cch` is the short alias for `cc-habits`. They run the exact same binary. Use whichever you prefer — all examples in the docs work with either.'
+    answer: '`cch` is the short alias for `cc-habits`. They run the exact same binary. Use whichever you prefer, all examples in the docs work with either.'
   },
   {
     id: 'supported-tools',
@@ -88,14 +88,14 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Providers',
     question: 'Ollama connection timeout or model not found error',
     keywords: ['ollama', 'timeout', 'offline', '11434', 'connection', 'gemma', 'llama', 'refused', 'error', 'not found', 'failed', 'connect', 'start'],
-    answer: '1. Ensure Ollama is running: `ollama serve`\n2. Verify the model is downloaded: `ollama pull llama3.2`\n3. Check your config points to the right URL — default is `http://localhost:11434`\n4. Run `cch init --provider ollama` to reconfigure if the URL changed.'
+    answer: '1. Ensure Ollama is running: `ollama serve`\n2. Verify the model is downloaded: `ollama pull llama3.2`\n3. Check your config points to the right URL, default is `http://localhost:11434`\n4. Run `cch init --provider ollama` to reconfigure if the URL changed.'
   },
   {
     id: 'api-key-not-found',
     category: 'Providers',
     question: 'Error: ANTHROPIC_API_KEY not set / API key not found',
     keywords: ['api', 'key', 'anthropic', 'not set', 'missing', 'error', 'openai', 'groq', 'export', 'variable', 'environment', 'auth', 'token'],
-    answer: 'cc-habits needs an API key to extract habits. Three ways to provide it:\n1. Run `cch init` — it will prompt you to paste the key and saves it to `~/.cc-habits/config.yml` (mode 0600).\n2. Export it in your shell: `export ANTHROPIC_API_KEY=sk-ant-...`\n3. Add the export to `~/.zshrc` or `~/.bashrc` for persistence.'
+    answer: 'cc-habits needs an API key to extract habits. Three ways to provide it:\n1. Run `cch init`, it will prompt you to paste the key and saves it to `~/.cc-habits/config.yml` (mode 0600).\n2. Export it in your shell: `export ANTHROPIC_API_KEY=sk-ant-...`\n3. Add the export to `~/.zshrc` or `~/.bashrc` for persistence.'
   },
   {
     id: 'switch-provider',
@@ -107,14 +107,14 @@ export const FAQ_DATABASE: FAQEntry[] = [
   {
     id: 'rate-limit-429',
     category: 'Providers',
-    question: 'Provider rate-limited (HTTP 429) — habits not updating',
+    question: 'Provider rate-limited (HTTP 429), habits not updating',
     keywords: ['rate', 'limit', '429', 'error', 'retry', 'throttle', 'too many', 'requests', 'blocked', 'limit-reached', 'slow'],
     answer: 'cc-habits hit the provider\'s rate limit. Nothing was changed. Options:\n1. Wait 60 seconds and retry the command that triggered learning.\n2. Switch to Ollama (`CC_HABITS_PROVIDER=ollama`) which has no rate limit.\n3. Switch to Groq which has a generous free tier.\ncc-habits automatically retries on transient 429s before giving up.'
   },
   {
     id: 'payload-too-large-413',
     category: 'Providers',
-    question: 'Provider payload too large (HTTP 413) — extraction batch rejected',
+    question: 'Provider payload too large (HTTP 413), extraction batch rejected',
     keywords: ['413', 'payload', 'too large', 'batch', 'size', 'limit', 'error', 'rejected', 'failed', 'huge', 'diff'],
     answer: 'The signal batch was too large for your provider (common with Groq\'s 200 KB limit). cc-habits caps batches at 50 signals and ~180 KB, but large diffs can still exceed limits. Fix:\n1. Switch to Anthropic or OpenAI which accept larger payloads.\n2. Or run `cch reset --yes` to clear the signal backlog, then continue capturing fresh signals.'
   },
@@ -123,7 +123,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Providers',
     question: 'Can I use cc-habits for free without an API key?',
     keywords: ['free', 'cost', 'price', 'groq', 'ollama', 'no key', 'free-tier', 'cheap', 'payment', 'charge'],
-    answer: 'Yes. Two free options:\n1. **Ollama** — fully local, no key needed: `cch init --provider ollama` (requires Ollama installed and a model pulled).\n2. **Groq** — free API tier, very fast: sign up at console.groq.com for a free key, then `cch init --provider groq`.'
+    answer: 'Yes. Two free options:\n1. **Ollama**, fully local, no key needed: `cch init --provider ollama` (requires Ollama installed and a model pulled).\n2. **Groq**, free API tier, very fast: sign up at console.groq.com for a free key, then `cch init --provider groq`.'
   },
 
   // ── Hooks & Capture ────────────────────────────────────────────────────────
@@ -131,9 +131,9 @@ export const FAQ_DATABASE: FAQEntry[] = [
   {
     id: 'hooks-not-firing',
     category: 'Hooks & Capture',
-    question: 'Hooks are not firing — no signals being captured',
+    question: 'Hooks are not firing, no signals being captured',
     keywords: ['hook', 'capture', 'signal', 'not working', 'missing', 'fire', 'trigger', 'detect', 'fail', 'passive', 'not learning'],
-    answer: 'Common causes:\n1. You did not run `cch init` in this project — hooks are registered per project in `~/.claude/settings.json`.\n2. The hook binary path changed (e.g. after a Node version switch or nvm change). Run `cch init` again to re-register with the current absolute path.\n3. Check the hook is present: `cat ~/.claude/settings.json | grep cc-habits`\n4. Check for errors: `cch log --limit 5`'
+    answer: 'Common causes:\n1. You did not run `cch init` in this project, hooks are registered per project in `~/.claude/settings.json`.\n2. The hook binary path changed (e.g. after a Node version switch or nvm change). Run `cch init` again to re-register with the current absolute path.\n3. Check the hook is present: `cat ~/.claude/settings.json | grep cc-habits`\n4. Check for errors: `cch log --limit 5`'
   },
   {
     id: 'nvm-hook-path',
@@ -147,7 +147,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Hooks & Capture',
     question: 'What data is captured and stored in the signal log?',
     keywords: ['capture', 'signal', 'log', 'data', 'diff', 'privacy', 'stored', 'what', 'content', 'confidential', 'files', 'safety'],
-    answer: 'Each signal records: timestamp, session ID, file path, source tool, language, and a 4 KB diff snippet. PII and secrets are redacted before storage (emails, API keys, card numbers, AWS keys, PEM blocks, etc.). The full list of redacted patterns is in RESPONSIBLE_AI.md. Nothing is uploaded — signals stay in `~/.cc-habits/log.jsonl`.'
+    answer: 'Each signal records: timestamp, session ID, file path, source tool, language, and a 4 KB diff snippet. PII and secrets are redacted before storage (emails, API keys, card numbers, AWS keys, PEM blocks, etc.). The full list of redacted patterns is in RESPONSIBLE_AI.md. Nothing is uploaded, signals stay in `~/.cc-habits/log.jsonl`.'
   },
   {
     id: 'log-size',
@@ -190,9 +190,9 @@ export const FAQ_DATABASE: FAQEntry[] = [
   {
     id: 'not-enough-signals',
     category: 'Learning & Habits',
-    question: '"Not enough signals to learn" — learning does nothing',
+    question: '"Not enough signals to learn", learning does nothing',
     keywords: ['signals', 'not enough', 'learn', 'minimum', '3', 'few', 'empty', 'failed', 'insufficient'],
-    answer: 'cc-habits needs at least 3 signals per session to run extraction (to avoid learning from noise). If you see this:\n1. Make sure hooks are firing — run a session with several file edits.\n2. Use `cch log` to verify signals are being captured.\n3. You can also run `cch bootstrap` to learn from past Claude Code session transcripts.'
+    answer: 'cc-habits needs at least 3 signals per session to run extraction (to avoid learning from noise). If you see this:\n1. Make sure hooks are firing, run a session with several file edits.\n2. Use `cch log` to verify signals are being captured.\n3. You can also run `cch bootstrap` to learn from past Claude Code session transcripts.'
   },
   {
     id: 'confidence-explained',
@@ -234,7 +234,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Learning & Habits',
     question: 'How do I skip the pending review and apply habits automatically?',
     keywords: ['auto', 'automatic', 'skip', 'pending', 'review', 'CC_HABITS_AUTO', 'auto-approve', 'bypass'],
-    answer: 'Set `CC_HABITS_AUTO=1` in your shell or in your `.bashrc`/`.zshrc`. With this flag, newly proposed habits are applied directly to habits.md without going through the pending queue. Use with caution — you lose the review step that prevents bad rules from accumulating.'
+    answer: 'Set `CC_HABITS_AUTO=1` in your shell or in your `.bashrc`/`.zshrc`. With this flag, newly proposed habits are applied directly to habits.md without going through the pending queue. Use with caution, you lose the review step that prevents bad rules from accumulating.'
   },
 
   // ── Viewing & Diffing ──────────────────────────────────────────────────────
@@ -268,7 +268,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Memories',
     question: 'What are "memories" and how are they different from habits?',
     keywords: ['memories', 'memory', 'difference', 'habit', 'what', 'habits-vs-memories', 'concept'],
-    answer: 'Habits are style rules extracted from code edits (e.g. "use ternary operators"). Memories are higher-level observations extracted from session patterns (e.g. "user often works in monorepos with shared types"). Memories are opt-in — enable them with `cch memories --enable` or `CC_HABITS_MEMORIES=1`.'
+    answer: 'Habits are style rules extracted from code edits (e.g. "use ternary operators"). Memories are higher-level observations extracted from session patterns (e.g. "user often works in monorepos with shared types"). Memories are opt-in, enable them with `cch memories --enable` or `CC_HABITS_MEMORIES=1`.'
   },
   {
     id: 'enable-memories',
@@ -415,7 +415,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Troubleshooting',
     question: 'My habits are not being injected into Claude Code sessions',
     keywords: ['inject', 'context', 'session', 'not working', 'not showing', 'claude', 'CLAUDE.md', 'import', 'injection-failed', 'missing-habits'],
-    answer: 'Habits are injected via an `@import ~/.cc-habits/habits.md` line in `~/.claude/CLAUDE.md`. Check:\n1. Run `cat ~/.claude/CLAUDE.md | grep cc-habits` — the import line must be there.\n2. If missing, run `cch init` to re-register.\n3. Run `cch view` to confirm habits.md has content.\n4. Habits only appear after the first successful `cch learn` run.'
+    answer: 'Habits are injected via an `@import ~/.cc-habits/habits.md` line in `~/.claude/CLAUDE.md`. Check:\n1. Run `cat ~/.claude/CLAUDE.md | grep cc-habits`, the import line must be there.\n2. If missing, run `cch init` to re-register.\n3. Run `cch view` to confirm habits.md has content.\n4. Habits only appear after the first successful `cch learn` run.'
   },
   {
     id: 'git-not-found',
@@ -443,7 +443,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Troubleshooting',
     question: 'I see a "pending habit suggestion" banner at the start of every session',
     keywords: ['banner', 'pending', 'session', 'start', 'notification', 'every time', 'disable-banner', 'stop-banner'],
-    answer: 'That is the SessionStart hook surfacing un-reviewed pending habits. It will keep appearing until you review them:\n- `cch pending` — view what is pending\n- `cch pending --approve` — accept and apply to habits.md\n- `cch pending --discard` — drop without applying'
+    answer: 'That is the SessionStart hook surfacing un-reviewed pending habits. It will keep appearing until you review them:\n- `cch pending`, view what is pending\n- `cch pending --approve`, accept and apply to habits.md\n- `cch pending --discard`, drop without applying'
   },
 
   // ── Advanced ───────────────────────────────────────────────────────────────

@@ -535,7 +535,7 @@ cc-habits auto-migrates your old store to `~/.cc-habits/` on first run, and rewr
 All signals go into one global pool. Contradicting signals lower a habit's confidence; if it drops below 0.30 it is pruned. Explicit per-project profiles are on the roadmap.
 
 **Won't Anthropic, Cursor, or OpenAI just build this themselves?**
-Every platform will build memory for their own runtime. Anthropic will build Claude memory. Cursor will build Cursor memory. None of them will build the neutral cross-platform layer, because that requires cooperating with competitors. The moment they ship memory, it becomes single-vendor and opaque — which is exactly what cc-habits is not. The value of a neutral memory layer compounds with ecosystem fragmentation: the more AI coding tools exist, the stronger the case for one shared memory layer across all of them. That is structurally impossible for any single platform to provide.
+Every platform will build memory for their own runtime. Anthropic will build Claude memory. Cursor will build Cursor memory. None of them will build the neutral cross-platform layer, because that requires cooperating with competitors. The moment they ship memory, it becomes single-vendor and opaque, which is exactly what cc-habits is not. The value of a neutral memory layer compounds with ecosystem fragmentation: the more AI coding tools exist, the stronger the case for one shared memory layer across all of them. That is structurally impossible for any single platform to provide.
 
 ---
 

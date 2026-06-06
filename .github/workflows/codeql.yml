@@ -31,7 +31,7 @@ jobs:
           languages: javascript-typescript
           # Only flag HIGH + CRITICAL by default. The queries pack covers
           # injection, path traversal, ReDoS, insecure deserialization, and
-          # prototype pollution — the threat classes cc-habits cares about.
+          # prototype pollution, the threat classes cc-habits cares about.
           queries: security-and-quality
 
       - uses: actions/setup-node@v4
