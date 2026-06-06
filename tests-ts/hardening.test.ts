@@ -21,6 +21,11 @@ import { sanitizeRule, sanitizeCategory } from '../src/confidence';
 import { buildInjectionContext } from '../src/hook';
 import { storagePaths } from '../src/storage';
 
+const mockCreate = vi.hoisted(() => vi.fn());
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: vi.fn().mockImplementation(function() { return { messages: { create: mockCreate } }; }),
+}));
+
 // H-1: zero-width characters must not split a denylisted keyword ───────────────
 describe('H-1: zero-width keyword bypass is closed', () => {
   it('strips a zero-width space inserted mid-SYSTEM', () => {
@@ -127,10 +132,6 @@ describe('H-7: poisoned habits.md cannot escape the injection wrapper', () => {
 
 // H-8: malicious provider JSON is dropped ─────────────────────────────────────
 describe('H-8: extractRules validates provider response shape', () => {
-  const mockCreate = vi.hoisted(() => vi.fn());
-  vi.mock('@anthropic-ai/sdk', () => ({
-    default: vi.fn().mockImplementation(function() { return { messages: { create: mockCreate } }; }),
-  }));
 
   beforeEach(() => {
     process.env['CC_HABITS_PROVIDER'] = 'anthropic';

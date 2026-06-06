@@ -12,6 +12,6 @@ export default defineConfig({
     globalSetup: ['./vitest.global.ts'],
     // Run tests serially, storage paths are module-level mutable state
     pool: 'forks',
-    poolOptions: { forks: { singleFork: true } },
+    maxWorkers: 1,
   },
 });
