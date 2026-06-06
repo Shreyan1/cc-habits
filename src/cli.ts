@@ -28,7 +28,7 @@ import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools, isCliOnPath } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 
-export const VERSION = '0.6.1';
+export const VERSION = '0.6.2';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.

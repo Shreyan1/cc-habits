@@ -81,7 +81,7 @@ function readFirstLine(filePath: string): string {
     if (fd !== null) {
       try {
         fs.closeSync(fd);
-      } catch {}
+      } catch { }
     }
   }
 }
