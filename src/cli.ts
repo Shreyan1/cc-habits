@@ -16,7 +16,7 @@ import { computeDiff } from './diff';
 import { explainHabit } from './explain';
 import { exportProfile, importHabits, fetchProfile } from './portable';
 import { lintPath } from './lint';
-import { discoverSessions, bootstrap } from './bootstrap';
+import { discoverSessions, bootstrap, type SessionFile } from './bootstrap';
 import { syncTargets, SyncTarget, readSyncTargets } from './sync';
 import { runMigration } from './migrate';
 import { captureFromCli } from './capture';
@@ -45,6 +45,40 @@ function providerHint(e: unknown): string | undefined {
       '  Tip: switch to Anthropic or OpenAI which accept larger payloads, or run `cch reset --yes` to clear the signal log.';
   }
   return undefined;
+}
+
+function formatSessionBreakdown(sessions: SessionFile[]): string {
+  const counts: Record<string, number> = { 'Claude Code': 0, 'Codex CLI': 0, 'Gemini CLI': 0 };
+
+  for (const s of sessions) {
+    if (s.tool === 'claude-code') {
+      counts['Claude Code']++;
+    } else if (s.tool === 'codex') {
+      counts['Codex CLI']++;
+    } else if (s.tool === 'gemini') {
+      counts['Gemini CLI']++;
+    }
+  }
+
+  const parts: string[] = [];
+
+  if (counts['Claude Code'] > 0) {
+    parts.push(`${counts['Claude Code']} Claude Code`);
+  }
+
+  if (counts['Codex CLI'] > 0) {
+    parts.push(`${counts['Codex CLI']} Codex CLI`);
+  }
+
+  if (counts['Gemini CLI'] > 0) {
+    parts.push(`${counts['Gemini CLI']} Gemini CLI`);
+  }
+
+  if (parts.length === 0) {
+    return '';
+  }
+
+  return ` (${parts.join(', ')})`;
 }
 
 // Signal batch capping lives in batch.ts so the Stop hook (hook.ts) and this CLI
@@ -210,7 +244,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     if (sessions.length > 0) {
       process.stdout.write('\n');
       process.stdout.write(
-        `  Found ${c(BOLD, String(sessions.length))} Claude Code session${sessions.length === 1 ? '' : 's'} for this project.\n`,
+        `  Found ${c(BOLD, String(sessions.length))} session${sessions.length === 1 ? '' : 's'}${formatSessionBreakdown(sessions)} for this project.\n`,
       );
       const yes = await promptYesNo('  Bootstrap habits from past sessions? [y/N] ');
       if (yes) {
@@ -866,14 +900,14 @@ export async function cmdBootstrap(): Promise<number> {
   const sessions = discoverSessions();
 
   if (sessions.length === 0) {
-    process.stdout.write(c(DIM, '  No Claude Code sessions found for this project.\n'));
-    process.stdout.write(c(DIM, '  Start a Claude Code session, make some edits, then try again.\n'));
+    process.stdout.write(c(DIM, '  No developer tool sessions found for this project.\n'));
+    process.stdout.write(c(DIM, '  Start a session using Claude Code, Codex, or Gemini, make some edits, then try again.\n'));
     return 0;
   }
 
   process.stdout.write('\n');
   process.stdout.write(
-    `  ${c(BOLD, String(sessions.length))} session${sessions.length === 1 ? '' : 's'} found. ` +
+    `  ${c(BOLD, String(sessions.length))} session${sessions.length === 1 ? '' : 's'} found${formatSessionBreakdown(sessions)}. ` +
     c(DIM, 'Extracting patterns...\n'),
   );
 

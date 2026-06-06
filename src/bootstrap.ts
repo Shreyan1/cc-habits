@@ -5,11 +5,13 @@ import {
   storagePaths, readHabitsMd, parseHabits, writeHabitsMd, serialiseHabits,
   writeSnapshot, appendHistory, ensureDirs, getPaths, type StorageContext
 } from './storage';
-import { buildDiff, redact, isNoise, detectLanguage } from './hook';
+import { buildDiff, redact, isNoise, detectLanguage, buildDiffFromNormalized } from './hook';
 import { sanitizeFilePath } from './storage';
 import { applyUpdates } from './confidence';
 import { extractRules } from './extractor';
 import type { Signal } from './storage';
+import { fromCodex } from './adapters/codex';
+import { fromGemini } from './adapters/gemini';
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 const MAX_BOOTSTRAP_SIGNALS = 40;
@@ -24,9 +26,10 @@ export interface BootstrapResult {
   categories: string[];
 }
 
-interface SessionFile {
+export interface SessionFile {
   sessionId: string;
   filePath: string;
+  tool: 'claude-code' | 'codex' | 'gemini';
 }
 
 // Claude Code stores project sessions at ~/.claude/projects/<encoded-path>/
@@ -59,22 +62,143 @@ function writeBootstrapped(ids: string[], ctx?: StorageContext): void {
   });
 }
 
-export function discoverSessions(projectDir?: string): SessionFile[] {
-  const cwd = projectDir ?? process.cwd();
-  const encoded = encodeProjectPath(path.resolve(cwd));
-  const sessionsDir = path.join(CLAUDE_PROJECTS_DIR, encoded);
-
-  if (!fs.existsSync(sessionsDir) || !fs.statSync(sessionsDir).isDirectory()) return [];
-
-  return fs.readdirSync(sessionsDir)
-    .filter(f => f.endsWith('.jsonl'))
-    .map(f => ({
-      sessionId: f.replace('.jsonl', ''),
-      filePath: path.join(sessionsDir, f),
-    }));
+function readFirstLine(filePath: string): string {
+  const chunkSize = 65536; // 64KB
+  const buffer = Buffer.alloc(chunkSize);
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const bytesRead = fs.readSync(fd, buffer, 0, chunkSize, 0);
+    const content = buffer.toString('utf-8', 0, bytesRead);
+    const index = content.indexOf('\n');
+    if (index !== -1) {
+      return content.substring(0, index);
+    }
+    return content;
+  } catch {
+    return '';
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+  }
 }
 
-export function extractSignalsFromTranscript(transcriptPath: string, sessionId: string): Signal[] {
+function findJsonlFiles(dir: string): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(dir)) return results;
+  try {
+    const list = fs.readdirSync(dir);
+    for (const file of list) {
+      const filePath = path.join(dir, file);
+      const stat = fs.statSync(filePath);
+      if (stat && stat.isDirectory()) {
+        results.push(...findJsonlFiles(filePath));
+      } else if (file.endsWith('.jsonl')) {
+        results.push(filePath);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return results;
+}
+
+function isProjectSubpath(targetCwd: string, projectDir: string): boolean {
+  try {
+    const resolvedCwd = path.resolve(targetCwd);
+    const resolvedProj = path.resolve(projectDir);
+    return resolvedCwd === resolvedProj || resolvedCwd.startsWith(resolvedProj + path.sep);
+  } catch {
+    return false;
+  }
+}
+
+export function discoverSessions(projectDir?: string): SessionFile[] {
+  const cwd = projectDir ?? process.cwd();
+  const resolvedProj = path.resolve(cwd);
+  const sessions: SessionFile[] = [];
+
+  // 1. Claude Code
+  const encoded = encodeProjectPath(resolvedProj);
+  const claudeDir = path.join(CLAUDE_PROJECTS_DIR, encoded);
+  if (fs.existsSync(claudeDir) && fs.statSync(claudeDir).isDirectory()) {
+    try {
+      const files = fs.readdirSync(claudeDir).filter(f => f.endsWith('.jsonl'));
+      for (const f of files) {
+        sessions.push({
+          sessionId: f.replace('.jsonl', ''),
+          filePath: path.join(claudeDir, f),
+          tool: 'claude-code',
+        });
+      }
+    } catch { /* ignore */ }
+  }
+
+  // 2. Gemini CLI
+  const geminiTmpDir = path.join(os.homedir(), '.gemini', 'tmp');
+  if (fs.existsSync(geminiTmpDir) && fs.statSync(geminiTmpDir).isDirectory()) {
+    try {
+      const subdirs = fs.readdirSync(geminiTmpDir);
+      for (const dir of subdirs) {
+        const subpath = path.join(geminiTmpDir, dir);
+        if (!fs.statSync(subpath).isDirectory()) continue;
+        const projectRootFile = path.join(subpath, '.project_root');
+        if (!fs.existsSync(projectRootFile)) continue;
+        const content = fs.readFileSync(projectRootFile, 'utf-8').trim();
+        if (content && isProjectSubpath(content, resolvedProj)) {
+          const chatsDir = path.join(subpath, 'chats');
+          if (fs.existsSync(chatsDir) && fs.statSync(chatsDir).isDirectory()) {
+            const files = fs.readdirSync(chatsDir).filter(f => f.endsWith('.jsonl'));
+            for (const f of files) {
+              sessions.push({
+                sessionId: f.replace('.jsonl', ''),
+                filePath: path.join(chatsDir, f),
+                tool: 'gemini',
+              });
+            }
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // 3. Codex CLI
+  const codexSessionsDir = path.join(os.homedir(), '.codex', 'sessions');
+  if (fs.existsSync(codexSessionsDir) && fs.statSync(codexSessionsDir).isDirectory()) {
+    try {
+      const jsonlFiles = findJsonlFiles(codexSessionsDir);
+      for (const filePath of jsonlFiles) {
+        const firstLine = readFirstLine(filePath);
+        if (!firstLine) continue;
+        try {
+          const obj = JSON.parse(firstLine);
+          if (obj.type === 'session_meta' && obj.payload) {
+            const sessionCwd = obj.payload.cwd;
+            if (sessionCwd && isProjectSubpath(sessionCwd, resolvedProj)) {
+              const baseName = path.basename(filePath);
+              sessions.push({
+                sessionId: baseName.replace('.jsonl', ''),
+                filePath,
+                tool: 'codex',
+              });
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
+
+  return sessions;
+}
+
+export function extractSignalsFromTranscript(
+  transcriptPath: string,
+  sessionId: string,
+  tool: 'claude-code' | 'codex' | 'gemini' = 'claude-code'
+): Signal[] {
   const signals: Signal[] = [];
   let content: string;
   try {
@@ -94,39 +218,121 @@ export function extractSignalsFromTranscript(transcriptPath: string, sessionId: 
       continue;
     }
 
-    if (obj['type'] !== 'assistant') continue;
+    if (tool === 'claude-code') {
+      if (obj['type'] !== 'assistant') continue;
 
-    const msg = obj['message'] as Record<string, unknown> | undefined;
-    if (!msg) continue;
-    const blocks = msg['content'] as unknown[];
-    if (!Array.isArray(blocks)) continue;
+      const msg = obj['message'] as Record<string, unknown> | undefined;
+      if (!msg) continue;
+      const blocks = msg['content'] as unknown[];
+      if (!Array.isArray(blocks)) continue;
 
-    for (const block of blocks) {
-      const b = block as Record<string, unknown>;
-      if (b['type'] !== 'tool_use') continue;
+      for (const block of blocks) {
+        const b = block as Record<string, unknown>;
+        if (b['type'] !== 'tool_use') continue;
 
-      const toolName = String(b['name'] ?? '');
-      if (toolName !== 'Write' && toolName !== 'Edit' && toolName !== 'MultiEdit') continue;
+        const toolName = String(b['name'] ?? '');
+        if (toolName !== 'Write' && toolName !== 'Edit' && toolName !== 'MultiEdit') continue;
 
-      const toolInput = (b['input'] ?? {}) as Record<string, unknown>;
-      const rawPath = String(toolInput['file_path'] ?? toolInput['path'] ?? '');
-      const safePath = sanitizeFilePath(rawPath);
+        const toolInput = (b['input'] ?? {}) as Record<string, unknown>;
+        const rawPath = String(toolInput['file_path'] ?? toolInput['path'] ?? '');
+        const safePath = sanitizeFilePath(rawPath);
 
-      let diff = buildDiff(toolName, safePath, toolInput);
-      if (!diff || isNoise(diff)) continue;
-      diff = redact(diff);
+        let diff = buildDiff(toolName, safePath, toolInput);
+        if (!diff || isNoise(diff)) continue;
+        diff = redact(diff);
 
-      const language = detectLanguage(safePath);
-      const ts = String(obj['timestamp'] ?? new Date().toISOString());
+        const language = detectLanguage(safePath);
+        const ts = String(obj['timestamp'] ?? new Date().toISOString());
 
-      signals.push({
-        ts,
-        session_id: sessionId,
-        type: 'edit',
-        file: redact(safePath),
-        diff,
-        ...(language ? { language } : {}),
-      });
+        signals.push({
+          ts,
+          session_id: sessionId,
+          type: 'edit',
+          file: redact(safePath),
+          diff,
+          ...(language ? { language } : {}),
+        });
+      }
+    } else if (tool === 'gemini') {
+      if (obj['type'] === 'gemini' && Array.isArray(obj['toolCalls'])) {
+        for (const call of obj['toolCalls']) {
+          const toolName = String(call['name'] ?? '');
+          if (toolName !== 'write_file' && toolName !== 'edit_file' && toolName !== 'replace_file_content' && toolName !== 'modify_file') continue;
+
+          const rawInput = {
+            tool_name: toolName,
+            tool_input: call['args'] ?? {},
+            session_id: sessionId,
+          };
+
+          const norm = fromGemini(rawInput);
+          const safePath = sanitizeFilePath(norm.filePath);
+          if (!safePath) continue;
+
+          let diff = buildDiffFromNormalized(norm);
+          if (!diff || isNoise(diff)) continue;
+          diff = redact(diff);
+
+          const language = detectLanguage(safePath);
+          const ts = String(obj['timestamp'] ?? new Date().toISOString());
+
+          signals.push({
+            ts,
+            session_id: sessionId,
+            type: 'edit',
+            file: redact(safePath),
+            diff,
+            ...(language ? { language } : {}),
+          });
+        }
+      }
+    } else if (tool === 'codex') {
+      const payload = obj['payload'] as Record<string, unknown> | undefined;
+      const isFunctionCall = obj['type'] === 'function_call' || (obj['type'] === 'response_item' && payload?.['type'] === 'function_call');
+      if (isFunctionCall) {
+        const call = (obj['type'] === 'function_call' ? obj : payload) as Record<string, unknown>;
+        const toolName = String(call['name'] ?? call['tool'] ?? '');
+        if (toolName === 'write_file' || toolName === 'edit_file' || toolName === 'replace_file_content' || toolName === 'modify_file' || toolName === 'create_file') {
+          let args: Record<string, unknown> = {};
+          try {
+            const argsStr = String(call['arguments'] ?? '{}');
+            args = JSON.parse(argsStr) as Record<string, unknown>;
+          } catch {
+            // ignore
+          }
+
+          const rawInput = {
+            tool: toolName,
+            tool_name: toolName,
+            file_path: args['file_path'] ?? args['path'] ?? args['file'],
+            content: args['content'],
+            old_string: args['old_string'],
+            new_string: args['new_string'],
+            diff: args['diff'],
+            session_id: sessionId
+          };
+
+          const norm = fromCodex(rawInput);
+          const safePath = sanitizeFilePath(norm.filePath);
+          if (!safePath) continue;
+
+          let diff = buildDiffFromNormalized(norm);
+          if (!diff || isNoise(diff)) continue;
+          diff = redact(diff);
+
+          const language = detectLanguage(safePath);
+          const ts = String(obj['timestamp'] ?? new Date().toISOString());
+
+          signals.push({
+            ts,
+            session_id: sessionId,
+            type: 'edit',
+            file: redact(safePath),
+            diff,
+            ...(language ? { language } : {}),
+          });
+        }
+      }
     }
   }
 
@@ -159,7 +365,7 @@ export async function bootstrap(opts?: {
   const processedIds: string[] = [];
 
   for (const session of newSessions) {
-    const sigs = extractSignalsFromTranscript(session.filePath, session.sessionId);
+    const sigs = extractSignalsFromTranscript(session.filePath, session.sessionId, session.tool);
     if (sigs.length > 0) sessionsWithEdits++;
     allSignals.push(...sigs);
     processedIds.push(session.sessionId);

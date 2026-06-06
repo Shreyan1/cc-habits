@@ -163,6 +163,58 @@ describe('extractSignalsFromTranscript', () => {
     const signals = extractSignalsFromTranscript('/nonexistent/path.jsonl', 'sess-x');
     expect(signals).toHaveLength(0);
   });
+
+  it('extracts tool calls from Gemini CLI transcripts', () => {
+    const transcript = path.join(tmpDir, 'gemini-session.jsonl');
+    const lines = [
+      JSON.stringify({
+        type: 'gemini',
+        timestamp: '2026-06-06T10:00:00Z',
+        toolCalls: [
+          {
+            name: 'edit_file',
+            args: {
+              file_path: 'src/app.ts',
+              old_string: 'const x = 1 here this',
+              new_string: 'const x: number = 1 here',
+            },
+          },
+        ],
+      }),
+    ];
+    fs.writeFileSync(transcript, lines.join('\n'));
+
+    const signals = extractSignalsFromTranscript(transcript, 'gemini-sess', 'gemini');
+    expect(signals).toHaveLength(1);
+    expect(signals[0].session_id).toBe('gemini-sess');
+    expect(signals[0].file).toContain('app.ts');
+    expect(signals[0].diff).toContain('+const x: number = 1 here');
+    expect(signals[0].language).toBe('ts');
+  });
+
+  it('extracts tool calls from Codex CLI transcripts', () => {
+    const transcript = path.join(tmpDir, 'codex-session.jsonl');
+    const lines = [
+      JSON.stringify({
+        type: 'function_call',
+        name: 'edit_file',
+        arguments: JSON.stringify({
+          file_path: 'src/utils.ts',
+          old_string: 'let msg = "hello" concat',
+          new_string: 'const msg = `hello` there',
+        }),
+        timestamp: '2026-06-06T10:00:00Z',
+      }),
+    ];
+    fs.writeFileSync(transcript, lines.join('\n'));
+
+    const signals = extractSignalsFromTranscript(transcript, 'codex-sess', 'codex');
+    expect(signals).toHaveLength(1);
+    expect(signals[0].session_id).toBe('codex-sess');
+    expect(signals[0].file).toContain('utils.ts');
+    expect(signals[0].diff).toContain('+const msg = `hello` there');
+    expect(signals[0].language).toBe('ts');
+  });
 });
 
 // Session discovery ───────────────────────────────────────────────────────
@@ -181,6 +233,57 @@ describe('discoverSessions', () => {
     const files = fs.readdirSync(sessDir).filter(f => f.endsWith('.jsonl'));
     expect(files).toHaveLength(2);
     expect(encoded).toBe('-tmp-test-project');
+  });
+
+  it('discovers Gemini CLI sessions', () => {
+    const projectPath = path.join(tmpDir, 'my-gemini-project');
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    const geminiTmp = path.join(tmpDir, '.gemini', 'tmp');
+    const projectSessionDir = path.join(geminiTmp, 'proj-hash');
+    const chatsDir = path.join(projectSessionDir, 'chats');
+    fs.mkdirSync(chatsDir, { recursive: true });
+
+    fs.writeFileSync(path.join(projectSessionDir, '.project_root'), projectPath);
+    fs.writeFileSync(path.join(chatsDir, 'session-1.jsonl'), '{}');
+
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(tmpDir);
+    try {
+      const found = discoverSessions(projectPath);
+      expect(found).toHaveLength(1);
+      expect(found[0].tool).toBe('gemini');
+      expect(found[0].sessionId).toBe('session-1');
+      expect(found[0].filePath).toBe(path.join(chatsDir, 'session-1.jsonl'));
+    } finally {
+      homedirSpy.mockRestore();
+    }
+  });
+
+  it('discovers Codex CLI sessions matching the project directory', () => {
+    const projectPath = path.join(tmpDir, 'my-codex-project');
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    const codexSessions = path.join(tmpDir, '.codex', 'sessions');
+    fs.mkdirSync(codexSessions, { recursive: true });
+
+    const metaLine = JSON.stringify({ type: 'session_meta', payload: { cwd: projectPath } });
+    const sessionFile = path.join(codexSessions, 'rollout-abc.jsonl');
+    fs.writeFileSync(sessionFile, metaLine + '\n{}');
+
+    const otherMetaLine = JSON.stringify({ type: 'session_meta', payload: { cwd: '/some/other/path' } });
+    const otherSessionFile = path.join(codexSessions, 'rollout-def.jsonl');
+    fs.writeFileSync(otherSessionFile, otherMetaLine + '\n{}');
+
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(tmpDir);
+    try {
+      const found = discoverSessions(projectPath);
+      expect(found).toHaveLength(1);
+      expect(found[0].tool).toBe('codex');
+      expect(found[0].sessionId).toBe('rollout-abc');
+      expect(found[0].filePath).toBe(sessionFile);
+    } finally {
+      homedirSpy.mockRestore();
+    }
   });
 });
 
