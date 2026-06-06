@@ -48,7 +48,7 @@ function providerHint(e: unknown): string | undefined {
 }
 
 function formatSessionBreakdown(sessions: SessionFile[]): string {
-  const counts: Record<string, number> = { 'Claude Code': 0, 'Codex CLI': 0, 'Gemini CLI': 0 };
+  const counts: Record<string, number> = { 'Claude Code': 0, 'Codex CLI': 0, 'Gemini CLI': 0, 'Kimi Code CLI': 0 };
 
   for (const s of sessions) {
     if (s.tool === 'claude-code') {
@@ -57,6 +57,8 @@ function formatSessionBreakdown(sessions: SessionFile[]): string {
       counts['Codex CLI']++;
     } else if (s.tool === 'gemini') {
       counts['Gemini CLI']++;
+    } else if (s.tool === 'kimi') {
+      counts['Kimi Code CLI']++;
     }
   }
 
@@ -72,6 +74,10 @@ function formatSessionBreakdown(sessions: SessionFile[]): string {
 
   if (counts['Gemini CLI'] > 0) {
     parts.push(`${counts['Gemini CLI']} Gemini CLI`);
+  }
+
+  if (counts['Kimi Code CLI'] > 0) {
+    parts.push(`${counts['Kimi Code CLI']} Kimi Code CLI`);
   }
 
   if (parts.length === 0) {
@@ -901,7 +907,7 @@ export async function cmdBootstrap(): Promise<number> {
 
   if (sessions.length === 0) {
     process.stdout.write(c(DIM, '  No developer tool sessions found for this project.\n'));
-    process.stdout.write(c(DIM, '  Start a session using Claude Code, Codex, or Gemini, make some edits, then try again.\n'));
+    process.stdout.write(c(DIM, '  Start a session using Claude Code, Codex, Gemini, or Kimi, make some edits, then try again.\n'));
     return 0;
   }
 

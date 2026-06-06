@@ -215,6 +215,38 @@ describe('extractSignalsFromTranscript', () => {
     expect(signals[0].diff).toContain('+const msg = `hello` there');
     expect(signals[0].language).toBe('ts');
   });
+
+  it('extracts tool calls from Kimi Code CLI transcripts', () => {
+    const transcript = path.join(tmpDir, 'kimi-session.jsonl');
+    const lines = [
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              name: 'StrReplaceFile',
+              input: {
+                file_path: 'src/app.ts',
+                old_string: 'let x = 1;',
+                new_string: 'const x: number = 1;',
+              },
+            },
+          ],
+        },
+        timestamp: '2026-06-06T10:00:00Z',
+      }),
+    ];
+    fs.writeFileSync(transcript, lines.join('\n'));
+
+    const signals = extractSignalsFromTranscript(transcript, 'kimi-sess', 'kimi');
+    expect(signals).toHaveLength(1);
+    expect(signals[0].session_id).toBe('kimi-sess');
+    expect(signals[0].file).toContain('app.ts');
+    expect(signals[0].diff).toContain('+const x: number = 1;');
+    expect(signals[0].language).toBe('ts');
+  });
 });
 
 // Session discovery ───────────────────────────────────────────────────────
@@ -281,6 +313,62 @@ describe('discoverSessions', () => {
       expect(found[0].tool).toBe('codex');
       expect(found[0].sessionId).toBe('rollout-abc');
       expect(found[0].filePath).toBe(sessionFile);
+    } finally {
+      homedirSpy.mockRestore();
+    }
+  });
+
+  it('discovers Kimi Code CLI sessions via session_index.jsonl', () => {
+    const projectPath = path.join(tmpDir, 'my-kimi-project');
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    const kimiHome = path.join(tmpDir, '.kimi');
+    fs.mkdirSync(kimiHome, { recursive: true });
+
+    const indexLine = JSON.stringify({
+      sessionId: 'kimi-sess-1',
+      sessionDir: 'sessions/key/kimi-sess-1',
+      workDir: projectPath,
+    });
+    fs.writeFileSync(path.join(kimiHome, 'session_index.jsonl'), indexLine + '\n');
+
+    const wireDir = path.join(kimiHome, 'sessions', 'key', 'kimi-sess-1', 'agents', 'main');
+    fs.mkdirSync(wireDir, { recursive: true });
+    fs.writeFileSync(path.join(wireDir, 'wire.jsonl'), '{}');
+
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(tmpDir);
+    try {
+      const found = discoverSessions(projectPath);
+      expect(found).toHaveLength(1);
+      expect(found[0].tool).toBe('kimi');
+      expect(found[0].sessionId).toBe('kimi-sess-1');
+      expect(found[0].filePath).toBe(path.join(wireDir, 'wire.jsonl'));
+    } finally {
+      homedirSpy.mockRestore();
+    }
+  });
+
+  it('discovers Kimi Code CLI sessions via fallback directory scanning', () => {
+    const projectPath = path.join(tmpDir, 'my-kimi-project-2');
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    const kimiHome = path.join(tmpDir, '.kimi');
+    const sessionDir = path.join(kimiHome, 'sessions', 'key', 'kimi-sess-2');
+    const wireDir = path.join(sessionDir, 'agents', 'main');
+    fs.mkdirSync(wireDir, { recursive: true });
+
+    fs.writeFileSync(path.join(sessionDir, 'state.json'), JSON.stringify({
+      workDir: projectPath,
+    }));
+    fs.writeFileSync(path.join(wireDir, 'wire.jsonl'), '{}');
+
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(tmpDir);
+    try {
+      const found = discoverSessions(projectPath);
+      expect(found).toHaveLength(1);
+      expect(found[0].tool).toBe('kimi');
+      expect(found[0].sessionId).toBe('kimi-sess-2');
+      expect(found[0].filePath).toBe(path.join(wireDir, 'wire.jsonl'));
     } finally {
       homedirSpy.mockRestore();
     }

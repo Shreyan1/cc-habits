@@ -29,7 +29,7 @@ export interface BootstrapResult {
 export interface SessionFile {
   sessionId: string;
   filePath: string;
-  tool: 'claude-code' | 'codex' | 'gemini';
+  tool: 'claude-code' | 'codex' | 'gemini' | 'kimi';
 }
 
 // Claude Code stores project sessions at ~/.claude/projects/<encoded-path>/
@@ -97,6 +97,26 @@ function findJsonlFiles(dir: string): string[] {
       if (stat && stat.isDirectory()) {
         results.push(...findJsonlFiles(filePath));
       } else if (file.endsWith('.jsonl')) {
+        results.push(filePath);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return results;
+}
+
+function findWireJsonlFiles(dir: string): string[] {
+  const results: string[] = [];
+  if (!fs.existsSync(dir)) return results;
+  try {
+    const list = fs.readdirSync(dir);
+    for (const file of list) {
+      const filePath = path.join(dir, file);
+      const stat = fs.statSync(filePath);
+      if (stat && stat.isDirectory()) {
+        results.push(...findWireJsonlFiles(filePath));
+      } else if (file === 'wire.jsonl') {
         results.push(filePath);
       }
     }
@@ -191,13 +211,78 @@ export function discoverSessions(projectDir?: string): SessionFile[] {
     } catch { /* ignore */ }
   }
 
+  // 4. Kimi Code CLI
+  const kimiDirs = [
+    process.env['KIMI_CODE_HOME'] || path.join(os.homedir(), '.kimi'),
+    process.env['KIMI_CODE_HOME'] || path.join(os.homedir(), '.kimi-code'),
+  ];
+  for (const kimiDir of [...new Set(kimiDirs)]) {
+    const indexFile = path.join(kimiDir, 'session_index.jsonl');
+    if (fs.existsSync(indexFile)) {
+      try {
+        const content = fs.readFileSync(indexFile, 'utf-8');
+        for (const line of content.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const obj = JSON.parse(trimmed);
+            const workDir = obj.workDir ?? obj.work_dir ?? obj.cwd;
+            const sessionId = obj.sessionId ?? obj.session_id;
+            if (workDir && sessionId && isProjectSubpath(workDir, resolvedProj)) {
+              let sessionDir = obj.sessionDir ?? obj.session_dir;
+              if (sessionDir) {
+                const resolvedSessionDir = path.isAbsolute(sessionDir) ? sessionDir : path.resolve(kimiDir, sessionDir);
+                const wirePath = path.join(resolvedSessionDir, 'agents', 'main', 'wire.jsonl');
+                if (fs.existsSync(wirePath)) {
+                  sessions.push({
+                    sessionId,
+                    filePath: wirePath,
+                    tool: 'kimi',
+                  });
+                }
+              }
+            }
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Fallback: scan sessions/ directories directly if index is missing or doesn't have all entries
+    const sessionsDir = path.join(kimiDir, 'sessions');
+    if (fs.existsSync(sessionsDir) && fs.statSync(sessionsDir).isDirectory()) {
+      try {
+        const wireFiles = findWireJsonlFiles(sessionsDir);
+        for (const wirePath of wireFiles) {
+          const sessionDir = path.dirname(path.dirname(path.dirname(wirePath)));
+          const statePath = path.join(sessionDir, 'state.json');
+          if (fs.existsSync(statePath)) {
+            try {
+              const stateObj = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+              const workDir = stateObj.workDir ?? stateObj.work_dir ?? stateObj.cwd;
+              if (workDir && isProjectSubpath(workDir, resolvedProj)) {
+                const sessionId = path.basename(sessionDir);
+                if (!sessions.some(s => s.sessionId === sessionId)) {
+                  sessions.push({
+                    sessionId,
+                    filePath: wirePath,
+                    tool: 'kimi',
+                  });
+                }
+              }
+            } catch { /* ignore */ }
+          }
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
   return sessions;
 }
 
 export function extractSignalsFromTranscript(
   transcriptPath: string,
   sessionId: string,
-  tool: 'claude-code' | 'codex' | 'gemini' = 'claude-code'
+  tool: 'claude-code' | 'codex' | 'gemini' | 'kimi' = 'claude-code'
 ): Signal[] {
   const signals: Signal[] = [];
   let content: string;
@@ -218,7 +303,7 @@ export function extractSignalsFromTranscript(
       continue;
     }
 
-    if (tool === 'claude-code') {
+    if (tool === 'claude-code' || tool === 'kimi') {
       if (obj['type'] !== 'assistant') continue;
 
       const msg = obj['message'] as Record<string, unknown> | undefined;
@@ -230,7 +315,13 @@ export function extractSignalsFromTranscript(
         const b = block as Record<string, unknown>;
         if (b['type'] !== 'tool_use') continue;
 
-        const toolName = String(b['name'] ?? '');
+        let toolName = String(b['name'] ?? '');
+        if (toolName === 'WriteFile' || toolName === 'write_file') {
+          toolName = 'Write';
+        } else if (toolName === 'StrReplaceFile' || toolName === 'str_replace' || toolName === 'replace') {
+          toolName = 'Edit';
+        }
+
         if (toolName !== 'Write' && toolName !== 'Edit' && toolName !== 'MultiEdit') continue;
 
         const toolInput = (b['input'] ?? {}) as Record<string, unknown>;
