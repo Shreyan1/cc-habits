@@ -6,7 +6,7 @@ import {
   readTombstones, addTombstone, initMemoriesMd, readMemoriesMd, writeMemoriesMd,
   parseMemories, serialiseMemories, addMemoryTombstone, readMemoryTombstones,
   readHistory, appendHistory, logError, detectManualDeletes, applyMemoryUpdates,
-  writePending, writeConfigFile,
+  writePending, writeConfigFile, getRuleHash,
   type Memory, type Signal,
 } from './storage';
 import { applyUpdates, pendingToUpdates, applyDecay, toPending, type AppliedChange } from './confidence';
@@ -17,6 +17,7 @@ import { explainHabit } from './explain';
 import { exportProfile, importHabits, fetchProfile } from './portable';
 import { lintPath } from './lint';
 import { discoverSessions, bootstrap, type SessionFile } from './bootstrap';
+import { scanRepo, type RepoScanResult } from './repo-scan';
 import { syncTargets, SyncTarget, readSyncTargets } from './sync';
 import { runMigration } from './migrate';
 import { captureFromCli } from './capture';
@@ -119,9 +120,9 @@ const CONFIG_FILE = storagePaths.configFile;
 const CONSENT_NOTICE = `
   cc-habits captures code diffs from your AI coding sessions and sends them to
   your chosen LLM provider (Anthropic, OpenAI, Groq, or a local Ollama model)
-  to extract your coding habits.
+  to extract your coding habits. It also scans your repository on setup and manual command.
 
-  What leaves your machine: code diffs (redacted for emails, card numbers, IDs).
+  What leaves your machine: redacted diffs and sampled file contents.
   What stays local:         habits.md, log.jsonl, memories.md, config.yml.
   What cc-habits stores:    nothing. There are no cc-habits servers.
 
@@ -131,7 +132,7 @@ const CONSENT_NOTICE = `
 export async function cmdInit(providerFlag?: string): Promise<number> {
   renderBrandedCard('initialising...', 'Setting up hooks and configurations');
 
-  // L5: consent gate — show once, skip if already recorded, abort on N.
+  // L5: consent gate, show once, skip if already recorded, abort on N.
   if (!consentGiven()) {
     process.stdout.write(CONSENT_NOTICE);
     const agreed = await promptYesNoDefaultTrue('  Proceed with installation? [Y/n] ');
@@ -192,9 +193,16 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
         const register = await promptYesNoDefaultTrue('  Register hooks in Codex CLI? [Y/n] ');
         if (register) {
           process.stdout.write('\n');
-          const { postAdded, stopAdded } = registerCodexHooks(tool.settingsPath, hookBin);
-          process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
-          process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+          const { postAdded, promptAdded } = registerCodexHooks(tool.settingsPath, hookBin);
+          process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook (captures edits) ${postAdded ? 'registered' : 'already registered'}\n`);
+          process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook (compiles habits) ${promptAdded ? 'registered' : 'already registered'}\n`);
+          // Codex registers newly-added hooks as untrusted/disabled until the
+          // user approves them, so a freshly written hook does NOT fire yet.
+          process.stdout.write('\n');
+          process.stdout.write(c(YELLOW, '    ! Codex disables new hooks until you trust them.\n'));
+          process.stdout.write(c(DIM,    '      Open Codex: it will prompt that "hooks are new or changed" —\n'));
+          process.stdout.write(c(DIM,    '      approve the cc-habits hooks (or enable them in Codex\'s Hooks view).\n'));
+          process.stdout.write(c(DIM,    '      Until then Codex captures nothing; `cch bootstrap` still learns from past sessions.\n'));
         }
       } else if (tool.id === 'kimi') {
         const register = await promptYesNoDefaultTrue('  Register hooks in Kimi Code CLI? [Y/n] ');
@@ -301,6 +309,19 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     process.stdout.write(c(DIM, '  To disable at any time: cch memories --disable\n'));
   }
 
+  process.stdout.write('\n');
+
+  // One-time cold scan of this repository: infer habits from its source and
+  // memories from its CLAUDE.md/AGENTS.md, applied directly. Runs once per repo
+  // (guarded); re-run any time with `cch learn --repo`.
+  process.stdout.write(c(DIM, '  Scanning this repository for habits...\n'));
+  try {
+    const scan = await scanRepo();
+    renderRepoScan(scan);
+  } catch (e) {
+    process.stdout.write(c(DIM, `  Repo scan skipped: ${String(e).slice(0, 80)}\n`));
+  }
+
   process.stdout.write('\n\n');
   process.stdout.write(
     c(BOLD, 'cc-habits is ready.') + ' Start a coding session or commit changes to begin learning.\n',
@@ -309,7 +330,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
 }
 
 // view ─────────────────────────────────────────────────────────────────────
-export function cmdView(): number {
+export function renderHabitsView(): number {
   const habitsMd = readHabitsMd();
   const allSignals = readSignals();
   const cats = parseHabits(habitsMd);
@@ -334,13 +355,22 @@ export function cmdView(): number {
     process.stdout.write(c(DIM, '  No habits learned yet.\n'));
     process.stdout.write(c(DIM, '  Use Claude Code for a session, then check back.\n'));
   } else {
+    const memoriesMd = readMemoriesMd();
+    const memories = parseMemories(memoriesMd);
+    const totalMemories = Object.values(memories).flat().length;
+
     const hw = activeHabits === 1 ? 'habit' : 'habits';
     const cw = Object.keys(cats).length === 1 ? 'category' : 'categories';
     const sw = totalSignals === 1 ? 'signal' : 'signals';
+    const memSuffix = memoriesEnabled() && totalMemories > 0
+      ? `  ·  ${c(BOLD, String(totalMemories))} memor${totalMemories === 1 ? 'y' : 'ies'}`
+      : '';
+
     process.stdout.write(
       `  ${c(BOLD, String(activeHabits))} active ${hw} across ` +
       `${c(BOLD, String(Object.keys(cats).length))} ${cw}  ·  ` +
-      c(DIM, `${learningHabits} learning  ·  ${totalSignals} ${sw} processed`) + '\n',
+      c(DIM, `${learningHabits} learning  ·  ${totalSignals} ${sw} processed`) +
+      c(DIM, memSuffix) + '\n',
     );
     process.stdout.write('\n');
 
@@ -365,7 +395,9 @@ export function cmdView(): number {
     for (const sig of allSignals.slice(-5)) {
       const ts = term((sig.ts ?? '').slice(0, 10));
       const f = term(sig.file ?? '');
-      const diffLines = (sig.diff ?? '').split('\n').filter(ln => ln.startsWith('+') || ln.startsWith('-'));
+      const diffLines = (sig.diff ?? '')
+        .split('\n')
+        .filter(ln => (ln.startsWith('+') && !ln.startsWith('+++')) || (ln.startsWith('-') && !ln.startsWith('---')));
       const removed = term(diffLines.find(ln => ln.startsWith('-'))?.slice(1).trim().slice(0, 45) ?? '');
       const added   = term(diffLines.find(ln => ln.startsWith('+'))?.slice(1).trim().slice(0, 45) ?? '');
       process.stdout.write(`  ${c(DIM, ts)}  ${c(CYAN, f)}\n`);
@@ -381,6 +413,23 @@ export function cmdView(): number {
   return 0;
 }
 
+export async function cmdView(): Promise<number> {
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const choice = await runSelectMenu(
+      `  ${c(BOLD + CYAN, 'Select what you would like to view (use ↑/↓ keys):')}`,
+      [
+        { label: 'habits    Show current habits and recent signals', value: 'habits' },
+        { label: 'memories  Show coding memories', value: 'memories' },
+      ]
+    );
+    if (!choice) return 0;
+    if (choice.value === 'memories') {
+      return cmdMemories();
+    }
+  }
+  return renderHabitsView();
+}
+
 
 
 // memories ────────────────────────────────────────────────────────────────
@@ -392,24 +441,66 @@ export function cmdMemoriesDelete(text: string): number {
   }
   initMemoriesMd();
   const sections = parseMemories(readMemoriesMd());
-  const normalised = text.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ');
+
+  let targetText = text.trim();
+  if (/^cch[a-f0-9]{8}$/i.test(targetText)) {
+    let foundHash = false;
+    for (const sectionMemories of Object.values(sections)) {
+      const match = sectionMemories.find(m => getRuleHash(m.text) === targetText.toLowerCase());
+      if (match) {
+        targetText = match.text;
+        foundHash = true;
+        break;
+      }
+    }
+    if (!foundHash) {
+      process.stderr.write(`  Error: memory hash ${text} not found in memories.md\n`);
+      return 1;
+    }
+  }
+
+  const normalised = targetText.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ');
   let found = false;
+  let foundText = targetText;
+
+  const matchNormalised = (mText: string, targetNormalised: string): boolean => {
+    return mText.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ') === targetNormalised;
+  };
+
   for (const sectionMemories of Object.values(sections)) {
-    const idx = sectionMemories.findIndex(
-      m => m.text.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ') === normalised,
-    );
+    const idx = sectionMemories.findIndex(m => matchNormalised(m.text, normalised));
     if (idx >= 0) {
+      foundText = sectionMemories[idx].text;
       sectionMemories.splice(idx, 1);
       found = true;
       break;
     }
   }
-  addMemoryTombstone(text);
+
+  if (!found && normalised.endsWith(' candidate')) {
+    const fallbackNormalised = normalised.slice(0, normalised.length - ' candidate'.length).trim();
+    for (const sectionMemories of Object.values(sections)) {
+      const idx = sectionMemories.findIndex(m => matchNormalised(m.text, fallbackNormalised));
+      if (idx >= 0) {
+        foundText = sectionMemories[idx].text;
+        sectionMemories.splice(idx, 1);
+        found = true;
+        break;
+      }
+    }
+  }
+
+  let tombstoneText = foundText;
+  if (!found && targetText.trim().toLowerCase().endsWith(' (candidate)')) {
+    tombstoneText = targetText.trim().slice(0, targetText.trim().length - ' (candidate)'.length).trim();
+  }
+
+  addMemoryTombstone(tombstoneText);
   writeMemoriesMd(serialiseMemories(sections));
   if (found) {
-    process.stdout.write(`  memory deleted and tombstoned: ${text}\n`);
+    process.stdout.write(`  memory deleted and tombstoned: ${tombstoneText}\n`);
   } else {
-    process.stdout.write(`  tombstoned (not found in memories.md): ${text}\n`);
+    process.stdout.write(`  tombstoned (not found in memories.md): ${tombstoneText}\n`);
   }
   return 0;
 }
@@ -514,7 +605,9 @@ export function cmdLog(limit = 20): number {
     const ts = term((sig.ts ?? '').slice(0, 19).replace('T', ' '));
     const lang = sig.language ? c(DIM, ` (${term(sig.language)})`) : '';
     process.stdout.write(`  ${c(DIM, ts)}  ${c(CYAN, term(sig.file ?? ''))}${lang}\n`);
-    const diffLines = (sig.diff ?? '').split('\n').filter(ln => ln.startsWith('+') || ln.startsWith('-'));
+    const diffLines = (sig.diff ?? '')
+      .split('\n')
+      .filter(ln => (ln.startsWith('+') && !ln.startsWith('+++')) || (ln.startsWith('-') && !ln.startsWith('---')));
     for (const ln of diffLines.slice(0, 4)) {
       if (ln.startsWith('+')) process.stdout.write(`    ${c(GREEN, term(ln.slice(0, 80)))}\n`);
       else process.stdout.write(`    ${c(RED, term(ln.slice(0, 80)))}\n`);
@@ -770,8 +863,25 @@ export function cmdTombstone(rule: string): number {
   if (!rule || !rule.trim()) {
     return cmdTombstones();
   }
-  addTombstone(rule);
-  process.stdout.write(`  tombstoned: ${rule}\n`);
+  let targetRule = rule.trim();
+  if (/^cch[a-f0-9]{8}$/i.test(targetRule)) {
+    const cats = parseHabits(readHabitsMd());
+    let found = false;
+    for (const habits of Object.values(cats)) {
+      const match = habits.find(h => getRuleHash(h.rule) === targetRule.toLowerCase());
+      if (match) {
+        targetRule = match.rule;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      process.stderr.write(`  Error: habit hash ${rule} not found in habits.md\n`);
+      return 1;
+    }
+  }
+  addTombstone(targetRule);
+  process.stdout.write(`  tombstoned: ${targetRule}\n`);
   process.stdout.write(c(DIM, '  This rule will not be re-learned.\n'));
   return 0;
 }
@@ -847,7 +957,10 @@ export function cmdExplain(query: string): number {
   process.stdout.write(c(BOLD, '  Contributing signals:\n\n'));
   for (const ref of exp.refs) {
     process.stdout.write(`  ${c(CYAN, term(ref.file))}  ${c(DIM, term(ref.ts.slice(0, 19)))}  ${c(YELLOW, term(ref.decision))}\n`);
-    const lines = ref.snippet.split('\n').slice(0, 4);
+    const lines = ref.snippet
+      .split('\n')
+      .filter(ln => !ln.startsWith('---') && !ln.startsWith('+++'))
+      .slice(0, 4);
     for (const ln of lines) {
       if (ln.startsWith('+')) process.stdout.write(`    ${c(GREEN, term(ln.slice(0, 80)))}\n`);
       else if (ln.startsWith('-')) process.stdout.write(`    ${c(RED, term(ln.slice(0, 80)))}\n`);
@@ -1087,6 +1200,86 @@ export async function cmdGitCapture(range?: string): Promise<number> {
   return 0;
 }
 
+// repo scan ─────────────────────────────────────────────────────────────────
+// Render the outcome of a one-time repository scan. Shared by `cch init` and the
+// manual `cch learn --repo`.
+export function renderRepoScan(scan: RepoScanResult): void {
+  if (!scan.scanned) {
+    if (scan.reason === 'already scanned') {
+      process.stdout.write(c(DIM, '  This repo was already scanned. Re-run with `cch learn --repo`.\n'));
+    } else if (scan.reason === 'no LLM provider configured') {
+      process.stdout.write(c(DIM, '  Repo scan skipped: no LLM provider configured (run `cch init`).\n'));
+    } else {
+      process.stdout.write(c(DIM, `  Repo scan skipped: ${scan.reason ?? 'nothing to analyze'}.\n`));
+    }
+    return;
+  }
+
+  const learned = scan.habitsLearned + scan.memoriesLearned;
+  const memoriesUpdated = scan.memoriesUpdated ?? 0;
+  if (learned === 0 && scan.habitsUpdated === 0 && memoriesUpdated === 0) {
+    process.stdout.write(c(DIM, `  Scanned ${scan.filesAnalyzed} file${scan.filesAnalyzed === 1 ? '' : 's'}; no new habits found yet.\n`));
+    return;
+  }
+
+  const bits: string[] = [];
+  if (scan.habitsLearned > 0) bits.push(`${c(BOLD, String(scan.habitsLearned))} new habit${scan.habitsLearned === 1 ? '' : 's'}`);
+  if (scan.habitsUpdated > 0) bits.push(`${scan.habitsUpdated} reinforced`);
+  if (scan.memoriesLearned > 0) bits.push(`${c(BOLD, String(scan.memoriesLearned))} memor${scan.memoriesLearned === 1 ? 'y' : 'ies'}`);
+  if (memoriesUpdated > 0) bits.push(`${memoriesUpdated} memor${memoriesUpdated === 1 ? 'y' : 'ies'} reinforced`);
+  process.stdout.write(
+    `  ✓ Learned ${bits.join(', ')} from ${scan.filesAnalyzed} file${scan.filesAnalyzed === 1 ? '' : 's'}` +
+    `${scan.docsAnalyzed > 0 ? ` and ${scan.docsAnalyzed} doc${scan.docsAnalyzed === 1 ? '' : 's'}` : ''}.\n`,
+  );
+
+  if (scan.details) {
+    if (scan.details.learnedHabits.length > 0) {
+      process.stdout.write('\n  ' + c(BOLD + GREEN, 'New habits:') + '\n');
+      for (const h of scan.details.learnedHabits) {
+        process.stdout.write(`    • [${c(CYAN, h.category)}] ${h.rule}\n`);
+      }
+    }
+    if (scan.details.reinforcedHabits.length > 0) {
+      process.stdout.write('\n  ' + c(BOLD + CYAN, 'Reinforced habits:') + '\n');
+      for (const h of scan.details.reinforcedHabits) {
+        process.stdout.write(`    • [${c(CYAN, h.category)}] ${h.rule}\n`);
+      }
+    }
+    if (scan.details.learnedMemories.length > 0) {
+      process.stdout.write('\n  ' + c(BOLD + YELLOW, 'New memories:') + '\n');
+      for (const m of scan.details.learnedMemories) {
+        process.stdout.write(`    • ${m}\n`);
+      }
+    }
+    if (scan.details.reinforcedMemories && scan.details.reinforcedMemories.length > 0) {
+      process.stdout.write('\n  ' + c(BOLD + CYAN, 'Reinforced memories:') + '\n');
+      for (const m of scan.details.reinforcedMemories) {
+        process.stdout.write(`    • ${m}\n`);
+      }
+    }
+    process.stdout.write('\n');
+  }
+}
+
+// `cch learn --repo` (alias `cch learn this`): re-run the repo scan on demand,
+// forcing past the once-per-repo guard.
+export async function cmdLearnRepo(opts: { force?: boolean } = {}): Promise<number> {
+  process.stdout.write(c(DIM, '  Scanning this repository...\n'));
+  try {
+    const scan = await scanRepo({ force: opts.force ?? true });
+    renderRepoScan(scan);
+    return 0;
+  } catch (e) {
+    const hint = providerHint(e);
+    if (hint) {
+      process.stdout.write(c(YELLOW, `  ${hint}\n`));
+      return 0;
+    }
+    process.stderr.write(`cc-habits learn --repo: ${String(e)}\n`);
+    return 1;
+  }
+}
+
 // learn ────────────────────────────────────────────────────────────────────
 export async function cmdLearn(opts: { session?: string; since?: number } = {}): Promise<number> {
   const allSignals = readSignals();
@@ -1112,8 +1305,8 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
   }
   
   if (filtered.length < 3) {
-    process.stdout.write(`  not enough signals to learn (need at least 3, found ${filtered.length}).\n`);
-    return 0;
+    process.stdout.write(`  not enough signals in capture log (found ${filtered.length}). Falling back to repository scan...\n\n`);
+    return cmdLearnRepo({ force: true });
   }
   
   const { batch: capped, desc: batchDesc } = capBatch(filtered);
@@ -1186,11 +1379,13 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
   appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised });
   
   let memoryCandidatesCount = 0;
+  const addedMemories: string[] = [];
+  const updatedMemories: string[] = [];
   if (memoriesEnabled()) {
     try {
       const memoriesMd = readMemoriesMd();
       const candidates = await extractMemoryCandidates(capped, memoriesMd);
-      memoryCandidatesCount = applyMemoryUpdates(candidates);
+      memoryCandidatesCount = applyMemoryUpdates(candidates, undefined, addedMemories, updatedMemories);
     } catch (e) {
       const hint = providerHint(e);
       if (hint) process.stdout.write(c(YELLOW, `  memory extraction skipped: ${hint}\n`));
@@ -1214,7 +1409,10 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
     tombstoned: deleted.length,
     changes,
     pendingCount,
-    memoryCandidatesCount
+    memoryCandidatesCount,
+    addedMemories,
+    memoryCandidatesUpdated: updatedMemories.length,
+    updatedMemories,
   });
   process.stdout.write(summary + '\n');
   return 0;

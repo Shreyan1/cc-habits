@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import crypto from 'crypto';
 
 // Read guard: if a log file somehow exceeds this we skip the read entirely.
 const MAX_LOG_READ_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -836,7 +837,12 @@ export interface MemoryCandidate {
   correction: string;
 }
 
-export function applyMemoryUpdates(candidates: MemoryCandidate[], ctx?: StorageContext): number {
+export function applyMemoryUpdates(
+  candidates: MemoryCandidate[],
+  ctx?: StorageContext,
+  addedMemories?: string[],
+  updatedMemories?: string[],
+): number {
   if (candidates.length === 0) return 0;
   initMemoriesMd(ctx);
   const md = readMemoriesMd(ctx);
@@ -855,9 +861,11 @@ export function applyMemoryUpdates(candidates: MemoryCandidate[], ctx?: StorageC
       existing.sessions_seen = Math.min((existing.sessions_seen ?? 1) + 1, 99);
       existing.confidence = Math.min(+(existing.confidence + 0.10).toFixed(2), 0.95);
       existing.last_seen = today;
+      updatedMemories?.push(existing.text);
     } else {
+      const cleanedText = candidate.text.replace(/\.$/, '');
       sections[section].push({
-        text: candidate.text.replace(/\.$/, ''),
+        text: cleanedText,
         trigger: candidate.trigger,
         correction: candidate.correction,
         confidence: 0.50,
@@ -867,6 +875,7 @@ export function applyMemoryUpdates(candidates: MemoryCandidate[], ctx?: StorageC
         last_seen: today,
       });
       newCount++;
+      addedMemories?.push(cleanedText);
     }
   }
 
@@ -895,4 +904,9 @@ export function sanitizeFilePath(p: string): string {
   // Block path traversal: replace `..` segments with `_` so the displayed
   // path is unambiguous and cannot be re-interpreted by other tools.
   return cleaned.split('/').map(seg => seg === '..' ? '_' : seg).join('/');
+}
+
+export function getRuleHash(text: string): string {
+  const clean = text.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  return 'cch' + crypto.createHash('sha256').update(clean).digest('hex').slice(0, 8);
 }

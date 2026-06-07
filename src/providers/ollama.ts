@@ -7,8 +7,12 @@ export class OllamaProvider implements Provider {
   constructor(private url: string, private model: string) {}
 
   async generate(prompt: string, opts: { maxTokens: number; timeoutMs: number }): Promise<string> {
+    // Local Ollama requires model connection/loading overhead (cold start).
+    // Differentiate timeout: use 180 seconds for repository/doc scans (timeoutMs >= 90000),
+    // and a dedicated 60 seconds connection/generation timeout for regular prompts.
+    const actualTimeoutMs = opts.timeoutMs >= 90000 ? 180000 : 60000;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), actualTimeoutMs);
     try {
       const res = await fetch(`${this.url}/api/generate`, {
         method: 'POST',
@@ -34,7 +38,7 @@ export class OllamaProvider implements Provider {
       const data = await res.json() as { response?: string };
       return data.response ?? '';
     } catch (e) {
-      if ((e as { name?: string }).name === 'AbortError') throw new ProviderTimeoutError(this.name, opts.timeoutMs);
+      if ((e as { name?: string }).name === 'AbortError') throw new ProviderTimeoutError(this.name, actualTimeoutMs);
       throw e;
     } finally {
       clearTimeout(timer);

@@ -90,13 +90,18 @@ describe('v0.3.0 universal: normalizeInput', () => {
     expect(res.source).toBe('gemini');
   });
 
-  it('normalizes Codex format correctly', () => {
+  it('normalizes Codex format correctly (edit fields nested under tool_input)', () => {
+    // Codex emits Claude-shaped payloads: edit fields live under tool_input.
     const raw = {
+      hook_event_name: 'PostToolUse',
       tool_name: 'Edit',
-      file_path: 'lib.rs',
-      old_string: 'fn run() {}',
-      new_string: 'fn run() -> bool { true }',
-      session_id: 'sess-codex'
+      tool_input: {
+        file_path: 'lib.rs',
+        old_string: 'fn run() {}',
+        new_string: 'fn run() -> bool { true }',
+      },
+      session_id: 'sess-codex',
+      cwd: '/repo',
     };
     const res = normalizeInput(raw, 'codex');
     expect(res.toolName).toBe('Edit');
@@ -105,6 +110,39 @@ describe('v0.3.0 universal: normalizeInput', () => {
     expect(res.newContent).toBe('fn run() -> bool { true }');
     expect(res.sessionId).toBe('sess-codex');
     expect(res.source).toBe('codex');
+  });
+
+  it('normalizes Codex format with top-level fields as a fallback', () => {
+    const raw = {
+      tool_name: 'Edit',
+      file_path: 'lib.rs',
+      old_string: 'fn run() {}',
+      new_string: 'fn run() -> bool { true }',
+      session_id: 'sess-codex',
+    };
+    const res = normalizeInput(raw, 'codex');
+    expect(res.filePath).toBe('lib.rs');
+    expect(res.oldContent).toBe('fn run() {}');
+    expect(res.newContent).toBe('fn run() -> bool { true }');
+    expect(res.source).toBe('codex');
+  });
+
+  it('normalizes Codex multi-edit (tool_input.edits) correctly', () => {
+    const raw = {
+      tool_name: 'MultiEdit',
+      tool_input: {
+        file_path: 'a.ts',
+        edits: [
+          { old_string: 'let x = 1', new_string: 'const x = 1' },
+          { old_string: 'var y', new_string: 'const y' },
+        ],
+      },
+      session_id: 'sess-codex',
+    };
+    const res = normalizeInput(raw, 'codex');
+    expect(res.filePath).toBe('a.ts');
+    expect(res.edits).toHaveLength(2);
+    expect(res.edits?.[0].new_string).toBe('const x = 1');
   });
 
   it('normalizes Cline write_to_file format correctly', () => {
@@ -246,16 +284,35 @@ describe('v0.3.0 universal: install hooks security and interpolation', () => {
     expect(data.hooks.PostToolUse).toBeUndefined();
   });
 
-  it('registerCodexHooks writes correct json hooks with --adapter', () => {
+  it('registerCodexHooks writes PostToolUse + UserPromptSubmit (no Stop, which Codex never fires)', () => {
     const configToml = path.join(tmpDir, 'config.toml');
     const hooksJson = path.join(tmpDir, 'hooks.json');
     const res = registerCodexHooks(configToml, '/bin/cc-habits-hook');
     expect(res.postAdded).toBe(true);
+    expect(res.promptAdded).toBe(true);
 
     const content = fs.readFileSync(hooksJson, 'utf-8');
     const data = JSON.parse(content);
     expect(data.hooks.PostToolUse[0].hooks[0].command).toContain('post-tool-use --adapter codex');
-    expect(data.hooks.Stop[0].hooks[0].command).toContain('stop --adapter codex');
+    // UserPromptSubmit drives the compile pass (Codex has no Stop event).
+    expect(data.hooks.UserPromptSubmit[0].hooks[0].command).toContain('stop --adapter codex');
+    expect(data.hooks.Stop).toBeUndefined();
+  });
+
+  it('registerCodexHooks removes a stale legacy Stop hook on re-register', () => {
+    const configToml = path.join(tmpDir, 'config.toml');
+    const hooksJson = path.join(tmpDir, 'hooks.json');
+    // Simulate an old install that registered a cc-habits Stop hook.
+    fs.writeFileSync(hooksJson, JSON.stringify({
+      hooks: {
+        Stop: [{ hooks: [{ type: 'command', command: '"/bin/cc-habits-hook" stop --adapter codex || true' }] }],
+      },
+    }) + '\n', 'utf-8');
+
+    registerCodexHooks(configToml, '/bin/cc-habits-hook');
+    const data = JSON.parse(fs.readFileSync(hooksJson, 'utf-8'));
+    expect(data.hooks.Stop).toBeUndefined();
+    expect(data.hooks.UserPromptSubmit[0].hooks[0].command).toContain('stop --adapter codex');
   });
 
   it('registerClineHooks writes hooks shell scripts correctly', () => {

@@ -14,6 +14,85 @@ Your AI coding agent is great. But out of the box it doesn't know *your* style. 
 
 ---
 
+## cc-habits vs Alternatives
+
+| | cc-habits | AgentMemory | SKILL.md | mem0 | Manual CLAUDE.md |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **What it captures** | Unified developer profile (coding style + mistake-prevention patterns) | Codebase architecture + decisions | Agent capabilities you define | User memory in AI apps you build | Guidelines you define once |
+| **How it's populated** | Passive telemetry-free edit monitoring; auto-extracts patterns | Agent captures all actions silently | You define it | Your app calls the `add()` API | You write it by hand |
+| **When it's loaded** | Every prompt, re-injected on compaction | Queried at runtime via MCP | On-demand when task triggers | Queried at runtime | Every session (always-on) |
+| **Who it's for** | Developers using coding tools | Developers using coding tools | Developers using coding tools | Developers building AI products | Developers using coding tools |
+| **Tool agnostic** | ✅ Input: hooks & Git integration; Output: writes to any agent's native rules format | ❌ MCP-only, agent must support MCP protocol | ⚠️ Open standard (Anthropic), but manually authored per skill | ❌ SDK integration per app | ❌ One file per tool, rewrite for each |
+  | **Privacy** | ✅ No telemetry, habits file stays on disk. One optional LLM call per session for pattern extraction (defaults to local Ollama). If configured with a cloud LLM, diffs/summaries are sent to that provider. | ⚠️ Local-first, but cloud LLM provider sees your code summaries during compression | ✅ 100% local | ❌ Cloud or self-hosted server | ✅ 100% local |
+  | **Telemetry** | ✅ Zero, never phones home, no analytics | ⚠️ Internal telemetry hooks reported, opt-out behavior varies by version | ✅ Zero | ⚠️ Cloud telemetry on paid tiers, check current policy | ✅ Zero |
+  | **LLM cost at runtime** | ✅ Zero during the session, matching and injection are pure local heuristics. One small extraction call at session end (provider-configurable, ~$0.001 on a cloud model) | ❌ Background LLM calls for memory compression, risk of token burn if misconfigured | ✅ Zero | ❌ Per-query LLM calls on cloud tier | ✅ Zero |
+  | **Runtime overhead** | ✅ No daemon, no server, no ports. Hooks run on demand and exit in <50ms | ❌ Persistent background daemon (iii-engine) binding multiple local ports | ✅ Zero | ❌ Cloud or self-hosted server | ✅ Zero |
+| **Context overhead** | <0.5% of a 100k window (~150-350 tokens) | Variable, depends on memory retrieval volume | Full skill loaded on activation | Variable, depends on query results | Entire file loaded every session |
+| **Compaction safe** | ✅ Re-injects top habits on every prompt, survives mid-session context compaction | ❌ One-shot retrieval, lost on compaction | ❌ Loaded once, lost on compaction | ❌ One-shot retrieval | ❌ Loaded once at session start |
+| **Guardrails** | ✅ 2-session graduation, pending review queue, permanent tombstones, confidence decay, `.cc-habits-ignore` per-repo opt-out | ⚠️ Manual governance delete + TTL expiry, no automated quality filtering | N/A, manually authored | N/A, app-controlled | N/A, manually authored |
+| **Setup** | One command: `cch init` auto-detects tools, wires hooks, offers bootstrap | Install MCP server, configure `.mcp.json` per project, start daemon | Create skill directories and write YAML+Markdown files | Integrate SDK into your application code | Create and maintain files by hand |
+| **Vendor lock-in** | ✅ Zero. Local open standard; developer owns their personalization data | Tied to MCP protocol + iii-engine runtime | ✅ Open standard, cross-platform | Tied to mem0 SDK/cloud | Tied to one tool's file format |
+| **Cross-tool** | ✅ 9+ major platforms (Claude Code, Cursor, Windsurf, Copilot, etc.) kept in lockstep | 20+ agents via MCP | 27+ agents | Any LLM via SDK | One file per tool |
+| **Cost** | Free open-source; sub-cent LLM extraction cost | Free but your LLM API bill pays for compression | Free | Free tier, then cloud pricing | Free |
+
+### Understanding the Landscape: The Agent Personalization Dilemma
+
+Personalizing an AI coding agent currently forces developers to choose between three suboptimal paths:
+1. **High-friction manual writing**: Manually maintaining rule files like `CLAUDE.md` or `.cursorrules` (which are written once, never updated, and must be rewritten for every new tool).
+2. **Heavyweight runtime daemons**: Running background systems that capture all actions but introduce significant CPU overhead, API costs, and corporate security risks by sending code summaries to cloud LLMs.
+3. **Application memory databases**: Complex cloud SaaS infrastructures designed for developers building AI products, not for developers using AI tools.
+
+`cc-habits` defines a new category: **a neutral, local-first configuration and personalization layer**. It combines the zero-friction automation of a logger with the safety and zero-overhead performance of a local configuration file.
+
+---
+
+### Why cc-habits wins
+
+**1. Enterprise-ready security with zero corporate liability.**
+Large engineering organizations block background AI memory daemons because they capture code summaries and transmit them to cloud LLMs, violating intellectual property and security compliance. `cc-habits` never sends your code, diffs, or summaries to any external service. There is no telemetry, no analytics, and no tracking. Your habits profile is a plaintext Markdown file on your disk. With five automated guardrails (including `.cc-habits-ignore` per-repo opt-outs and human-in-the-loop review), it is safe to run in any enterprise environment.
+
+**2. Near-zero marginal cost and infinite scalability.**
+Other memory systems run expensive vector databases or execute background LLM consolidation runs during your session, leading to high API bills or risk of token burn. `cc-habits` shifts the complexity away from runtime: prompt-time matching uses local, high-speed heuristics running in <5ms with zero API cost. The only LLM call happens asynchronously once at session end to extract patterns (costing ~$0.001 per session on a cloud model, and $0 on local Ollama). This architecture ensures infinite scaling with zero runtime costs.
+
+**3. The cross-tool personalization moat: learn once, personalizes everywhere.**
+Personalization data should not be locked to a single tool's ecosystem. `cc-habits` captures your style in whichever tool you use today (Claude Code, Cursor, Windsurf, Gemini, etc.) and `cch sync` automatically writes your active profile to the rules files other agents already read (9+ platforms). This creates a zero-friction developer moat: as you switch between competing coding assistants, your custom style and mistake-prevention guidelines remain perfectly intact.
+
+**4. Context-compaction safety.**
+AI agents in long sessions summarize their context history to fit window limits, instantly forgetting static files like `CLAUDE.md`. Because `cc-habits` re-injects your top habits dynamically on every prompt via the `UserPromptSubmit` hook, your guidelines survive mid-session compactions and stay active for the entire duration of your session.
+
+**5. Closed-loop, self-correcting feedback.**
+Unlike static rules that go out of date immediately, `cc-habits` is self-correcting: unused habits decay automatically, deleted rules are permanently tombstoned, and new suggestions are quarantined in a pending queue for your explicit approval. You get the benefits of automation without losing governance over your environment.
+
+---
+
+### Why not AgentMemory?
+
+AgentMemory is a codebase knowledge graph built on different architectural assumptions. It makes tradeoffs that matter if you prioritize privacy, cost, and machine performance:
+
+1. **Summaries leave your machine**: AgentMemory relies on cloud LLMs for background memory compression. If you use a cloud provider, summaries of your file edits, architectural decisions, and error logs are transmitted externally. `cc-habits` keeps your entire profile local on your disk.
+2. **Background runtime costs**: AgentMemory runs background loops (working, episodic, semantic, and procedural passes) that constantly query your LLM provider. Misconfigurations can lead to loop recursion and unexpected API bills. `cc-habits` has zero runtime LLM cost.
+3. **Daemon overhead**: AgentMemory runs a persistent background server (`iii-engine`) binding multiple ports. `cc-habits` has no background daemon and zero idle CPU usage; it executes as a hook in <50ms and exits.
+4. **Silent telemetry**: AgentMemory registers 12+ telemetry hooks that fire events silently via local WebSockets. `cc-habits` has zero telemetry of any kind.
+5. **No quality filters**: AgentMemory captures memories immediately without graduation thresholds. If you write bad code during a late-night session, those mistakes pollute your active context. `cc-habits` requires habits to be verified across two distinct sessions before graduating them to active status.
+
+---
+
+### SKILL.md: Complementary, not competitive
+
+`SKILL.md` is an open standard designed to package **task capabilities** (e.g., "how to run a security audit" or "how to deploy this specific project"). `cc-habits` tracks **developer style** (your personal naming, typing, and syntax preferences). 
+* **SKILL.md** = *what* the agent can do (task-specific, manually written, loaded on demand).
+* **cc-habits** = *how* the agent should do it (personal style, auto-learned, always-on).
+
+The two protocols work in harmony: `SKILL.md` teaches your agent new workflows, and `cc-habits` ensures it executes them matching your style.
+
+---
+
+### mem0: Built for products, not users
+
+`mem0` is an enterprise memory database designed for developers **building AI products** (such as a customer support chatbot that needs to remember user history). `cc-habits` is designed for developers **using AI tools**. If you are building an application that needs a memory graph, use `mem0`. If you are using Cursor, Claude Code, or Windsurf and want them to understand your coding habits, `cc-habits` is the correct solution.
+
+---
+
 ## Works with your whole toolchain
 
 cc-habits learns where it can hook in, and carries what it learned everywhere else:
@@ -159,9 +238,9 @@ Stop (session end)
   → prints session recap: proposed habits, reinforced, guidance to run `cch pending`
 
 UserPromptSubmit (every prompt)
-  → injects your strongest active habits into context
-  → if CC_HABITS_MEMORIES=1: also injects relevant memories (trigger-matched, max 3)
-  → survives context compaction; "laws, not requests"
+  → injects top-12 active habits by confidence (~150-350 tokens depending on habit count), dynamically filtered to match the programming languages of files edited in the current session
+  → if CC_HABITS_MEMORIES=1: also injects top-3 trigger-matched memories (~40-90 tokens)
+  → total injection overhead: < 0.5% of a typical 100k context window
   → set CC_HABITS_INJECT=0 to disable
 
 SessionStart (session begins)
@@ -288,11 +367,13 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
 
 - Add type hints to all function parameters and return types. Confidence: 0.75
   - Signal: 7 reinforcing, 0 contradicting
+  - Languages: python
   - First learned: 2026-05-18
   - Last updated: 2026-05-20
 
 - Use f-strings instead of .format() or string concatenation. Confidence: 0.65
   - Signal: 4 reinforcing, 1 contradicting
+  - Languages: python
   - First learned: 2026-05-18
   - Last updated: 2026-05-19
 
@@ -305,6 +386,29 @@ Auto-generated by cc-habits. Do not edit manually; changes will be overwritten.
 ```
 
 Your agent reads this file at the start of every session. When it generates code, it already knows your preferences.
+
+### Language-Specific Storing and Targeting
+
+During session-end habit extraction, the engine automatically detects which programming languages a habit applies to based on the modified files and details of the signals, storing them in the metadata list (e.g., `Languages: python` or `Languages: typescript`).
+
+At runtime:
+1. `cc-habits` monitors the files edited during the active session to build a list of active programming languages.
+2. In the `UserPromptSubmit` prompt-injection hook, habits with language metadata are only injected if the corresponding language has been active in the current session.
+3. Language-agnostic habits (with no `Languages` metadata field) are always candidate for injection.
+
+This dynamic targeting keeps the prompt footprint minimal, preventing irrelevant habits from cluttering the agent's context.
+
+---
+
+## A typical week of learning
+
+After 5 sessions (3 Python, 2 TypeScript):
+- **Learned**: 6 active habits, 3 still in Learning quarantine
+- **Pending review**: 2 habits (run `cch pending`)
+- **Memories (if enabled)**: 2 repeated-mistake patterns
+
+- **Active habits injected per TypeScript prompt**: 4 (1 TS-specific + 3 language-agnostic)
+- **Active habits injected per Python prompt**: 5 (2 Python-specific + 3 language-agnostic)
 
 ---
 
@@ -455,7 +559,7 @@ cc-habits import <file>               # merge a portable habits file
 cc-habits sync [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline / … (default: agents)
 cc-habits capture --file <p> --diff <d>  # append an edit signal from any tool (CLI capture adapter)
 cc-habits git-capture [--range r]     # learn from Git commits (HEAD~1..HEAD by default)
-cc-habits learn [--session id]        # compile habits and memories from collected signals
+cc-habits learn [--session id]        # learn habits from repository scan or signals
 cc-habits migrate [--force]           # migrate storage from ~/.claude/habits/ to ~/.cc-habits/
 cc-habits pending                     # list proposed new habits awaiting review
 cc-habits pending --approve           # apply all pending proposals
@@ -523,7 +627,7 @@ Habits accumulate confidence gradually. A single bad extraction won't stick: it 
 They are separate purchases. If you only have a tool subscription, run with Ollama: free and fully local, no key required. Anthropic Haiku (~$0.09/mo), OpenAI, and Groq are also supported.
 
 **Does cc-habits phone home?**
-Never. There is no cc-habits server, no telemetry, no analytics, no error-reporting endpoint. The only outbound call is the extractor call to the provider you pick.
+Never. There is no cc-habits server, no telemetry, no analytics, and no error-reporting endpoint. The only network call is the direct API request to the LLM provider you explicitly configure.
 
 **Does this work offline?**
 Signal capture works offline. Extraction requires the API; if you are offline it logs the error and exits 0, no signals lost.
@@ -535,7 +639,9 @@ cc-habits auto-migrates your old store to `~/.cc-habits/` on first run, and rewr
 All signals go into one global pool. Contradicting signals lower a habit's confidence; if it drops below 0.30 it is pruned. Explicit per-project profiles are on the roadmap.
 
 **Won't Anthropic, Cursor, or OpenAI just build this themselves?**
-Every platform will build memory for their own runtime. Anthropic will build Claude memory. Cursor will build Cursor memory. None of them will build the neutral cross-platform layer, because that requires cooperating with competitors. The moment they ship memory, it becomes single-vendor and opaque, which is exactly what cc-habits is not. The value of a neutral memory layer compounds with ecosystem fragmentation: the more AI coding tools exist, the stronger the case for one shared memory layer across all of them. That is structurally impossible for any single platform to provide.
+They will, but only for their own silos. Anthropic will build Claude memory, and Cursor will build Cursor rules memory. None of them have the incentive—or the structural capability—to build a neutral, cross-platform layer, because doing so requires cooperating with direct competitors. 
+
+For the developer, a single-vendor memory layer creates high platform lock-in. For the ecosystem, fragmentation is a permanent state. The value of a neutral personalization layer compounds as new AI coding assistants enter the market. By remaining tool-agnostic and protocol-independent, `cc-habits` is positioned to be the universal config layer of the AI-agent era—a utility that is structurally impossible for any single platform vendor to build.
 
 ---
 

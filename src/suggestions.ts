@@ -135,54 +135,77 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
   }
 
   switch (command) {
-    case 'on':
+    case 'on': {
+      const steps = [];
       if (state.hasPending) {
-        return ['cch pending           review proposed habits', 'cch view              see current habits'];
+        steps.push('cch pending           review proposed habits');
       }
       if (state.hasHabits) {
-        return ['cch view              see learned habits', 'cch sync              share habits with your other tools'];
+        steps.push('cch view              see learned habits');
+      } else {
+        steps.push('cch bootstrap         bootstrap from past sessions');
       }
-      return ['cch bootstrap         bootstrap from past sessions', 'cch view              see current habits'];
+      if (state.memoriesOn && state.hasMemories) {
+        steps.push('cch memories          show coding memories');
+      }
+      if (state.hasHabits) {
+        steps.push('cch sync              share habits with your other tools');
+      }
+      return steps.slice(0, 3);
+    }
 
     case 'off':
       return ['cch on                re-enable cc-habits'];
 
-    case 'init':
+    case 'init': {
+      const steps = [];
       if (state.hasPastSessions && !state.hasHabits) {
-        return [
-          'cch bootstrap         bootstrap habits from past Claude Code transcripts',
-          'cch view              see learned habits (currently empty)'
-        ];
+        steps.push('cch bootstrap         bootstrap habits from past Claude Code transcripts');
       }
       if (state.hasHabits) {
-        return ['cch view              see learned habits', 'cch sync              share habits with your other tools'];
+        steps.push('cch view              see learned habits');
+      } else {
+        steps.push('cch view              see learned habits (currently empty)');
       }
-      return ['cch view              see learned habits (currently empty)'];
+      if (state.memoriesOn && state.hasMemories) {
+        steps.push('cch memories          show coding memories');
+      }
+      if (state.hasHabits) {
+        steps.push('cch sync              share habits with your other tools');
+      }
+      return steps.slice(0, 3);
+    }
 
     case 'bootstrap':
-    case 'learn':
+    case 'learn': {
       if (!state.hasProvider) {
         return ['cch init              configure an AI provider to start extracting habits'];
       }
+      const steps = [];
       if (state.hasPending) {
-        return [
-          'cch pending           review proposed habits',
-          'cch view              see what was learned'
-        ];
+        steps.push('cch pending           review proposed habits');
+      }
+      steps.push('cch view              see what was learned');
+      if (state.memoriesOn && state.hasMemories) {
+        steps.push('cch memories          show coding memories');
       }
       if (state.hasHabits) {
-        return ['cch view              see what was learned', 'cch sync              share habits with your other tools'];
+        steps.push('cch sync              share habits with your other tools');
       }
-      return ['cch view              see what was learned'];
+      return steps.slice(0, 3);
+    }
 
-    case 'view':
+    case 'view': {
+      const steps = [];
       if (state.hasPending) {
-        return [
-          'cch pending           review proposed habits',
-          'cch sync              share habits with your other tools'
-        ];
+        steps.push('cch pending           review proposed habits');
       }
-      return ['cch sync              share habits with your other tools'];
+      if (state.memoriesOn && state.hasMemories) {
+        steps.push('cch memories          show coding memories');
+      }
+      steps.push('cch sync              share habits with your other tools');
+      return steps.slice(0, 3);
+    }
 
     case 'log':
       if (state.hasHabits) {

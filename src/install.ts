@@ -371,10 +371,18 @@ function tomlString(s: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
+// Codex CLI's hook event set (codex_protocol::protocol::HookEventName) is
+// pre_tool_use / post_tool_use / user_prompt_submit / session_start /
+// pre_compact / post_compact / subagent_{start,stop} / permission_request.
+// There is NO `Stop` event, so the historical Stop hook never fired. We capture
+// edits on PostToolUse and run the compile/learn pass on UserPromptSubmit, which
+// fires at the start of each turn (flushing the prior turn's signals). Codex
+// receives habit injection via AGENTS.md (cch sync), not via hook stdout, so the
+// UserPromptSubmit hook points at the `stop` action (compile only, no inject).
 export function registerCodexHooks(targetFile: string, hookBin: string): HookRegistration {
   const safeBin = `"${hookBin.replace(/"/g, '\\"')}"`;
   const postCmd = `${safeBin} post-tool-use --adapter codex || true`;
-  const stopCmd = `${safeBin} stop --adapter codex || true`;
+  const promptCmd = `${safeBin} stop --adapter codex || true`;
 
   const jsonFile = path.join(path.dirname(targetFile), 'hooks.json');
   let settings: Record<string, any> = {};
@@ -390,27 +398,30 @@ export function registerCodexHooks(targetFile: string, hookBin: string): HookReg
   if (!settings['hooks']) settings['hooks'] = {};
   const hooks = settings['hooks'] as Record<string, unknown[]>;
   if (!hooks['PostToolUse']) hooks['PostToolUse'] = [];
-  if (!hooks['Stop']) hooks['Stop'] = [];
+  if (!hooks['UserPromptSubmit']) hooks['UserPromptSubmit'] = [];
+
+  // Remove any stale cc-habits Stop hook left by older versions. Codex never
+  // fires Stop, so it was dead weight (and left disabled-untrusted state behind).
+  if (Array.isArray(hooks['Stop'])) {
+    hooks['Stop'] = cleanOldHabitsHooks(hooks['Stop']);
+    if (hooks['Stop'].length === 0) delete hooks['Stop'];
+  }
 
   let postAdded = false;
-  let stopAdded = false;
+  let promptAdded = false;
 
-  const postHook = {
-    hooks: [{ type: 'command', command: postCmd }],
-  };
-  const stopHook = {
-    hooks: [{ type: 'command', command: stopCmd }],
-  };
+  const postHook = { hooks: [{ type: 'command', command: postCmd }] };
+  const promptHook = { hooks: [{ type: 'command', command: promptCmd }] };
 
   if (!hookAlreadyRegistered(hooks['PostToolUse'], postCmd)) {
     hooks['PostToolUse'] = cleanOldHabitsHooks(hooks['PostToolUse']);
     hooks['PostToolUse'].push(postHook);
     postAdded = true;
   }
-  if (!hookAlreadyRegistered(hooks['Stop'], stopCmd)) {
-    hooks['Stop'] = cleanOldHabitsHooks(hooks['Stop']);
-    hooks['Stop'].push(stopHook);
-    stopAdded = true;
+  if (!hookAlreadyRegistered(hooks['UserPromptSubmit'], promptCmd)) {
+    hooks['UserPromptSubmit'] = cleanOldHabitsHooks(hooks['UserPromptSubmit']);
+    hooks['UserPromptSubmit'].push(promptHook);
+    promptAdded = true;
   }
 
   if (fs.existsSync(jsonFile) && fs.lstatSync(jsonFile).isSymbolicLink()) {
@@ -426,7 +437,7 @@ export function registerCodexHooks(targetFile: string, hookBin: string): HookReg
     throw e;
   }
 
-  return { postAdded, stopAdded, promptAdded: false };
+  return { postAdded, stopAdded: false, promptAdded };
 }
 
 // Kimi Code CLI uses ~/.kimi/config.toml with [[hooks]] array-of-tables. Each

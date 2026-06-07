@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 
 // Override storagePaths before importing modules so they write to a temporary sandbox
-import { storagePaths } from '../src/storage';
+import { storagePaths, getRuleHash, serialiseHabits, writeHabitsMd } from '../src/storage';
 
 let tmpDir: string;
 const origPaths = { ...storagePaths };
@@ -113,6 +113,28 @@ describe('Simplified cmdTombstone', () => {
     
     const configContent = fs.readFileSync(storagePaths.tombstonesFile, 'utf-8');
     expect(configContent).toContain('block rule c');
+  });
+
+  it('adds tombstone by resolving hash if hash argument is provided', () => {
+    // Write some habits first
+    writeHabitsMd(serialiseHabits({
+      TS: [{
+        rule: 'Use strict mode',
+        confidence: 0.8,
+        reinforcing: 1,
+        contradicting: 0,
+        sessions_seen: 1,
+      }]
+    }));
+
+    const hash = getRuleHash('Use strict mode');
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const res = cmdTombstone(hash);
+    expect(res).toBe(0);
+
+    const configContent = fs.readFileSync(storagePaths.tombstonesFile, 'utf-8');
+    expect(configContent).toContain('use strict mode');
   });
 });
 

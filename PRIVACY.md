@@ -32,8 +32,8 @@ All files live on **your** machine. None of them are synced or uploaded by cc-ha
 
 When you run `cc-habits init` for the first time, cc-habits shows you a plain-language notice describing:
 
-- what data is processed (code diffs from your editing sessions),
-- what leaves your machine (redacted diffs sent to your chosen LLM provider),
+- what data is processed (code diffs from coding sessions, and sampled repository files/agent instructions during repository scans),
+- what leaves your machine (redacted diffs and redacted repository file/doc samples sent to your chosen LLM provider),
 - what stays local (habits.md, log.jsonl, and all other files listed above), and
 - that cc-habits operates no servers and collects no telemetry.
 
@@ -50,7 +50,10 @@ If you want to revoke consent and remove all data, run `cch reset --yes`. This d
 cc-habits makes outbound calls only to the **AI provider you configured**, using **your** API key, governed by **your** agreement with that provider:
 
 - **Ollama (local):** nothing leaves your machine. Fully air-gapped.
-- **Anthropic / OpenAI / Groq (cloud):** a redacted batch of session signals is sent for habit extraction (and, if `CC_HABITS_MEMORIES` is enabled, a second pass for mistake patterns). The call goes directly to that provider over HTTPS.
+- **Anthropic / OpenAI / Groq (cloud):**
+  - **During sessions:** a redacted batch of session signals (code diffs) is sent for habit extraction (and, if `CC_HABITS_MEMORIES` is enabled, a second pass for mistake patterns).
+  - **During repository scans:** a representative, redacted sample of source files (max 40 files, capped at 2,000 bytes each) and agent-instruction docs (such as `CLAUDE.md`, `AGENTS.md`) is sent for cold-scan habit and memory extraction.
+  The call goes directly to that provider over HTTPS.
 
 cc-habits does not operate a server. There is no telemetry, no analytics, and no error-reporting endpoint. The `UserPromptSubmit` and `SessionStart` injection paths, the `git-capture` path, and `cch sync` are all fully local and make no network calls.
 
@@ -105,7 +108,7 @@ Because everything lives in your home directory and the only outbound call uses 
 
 Under the Digital Personal Data Protection Act 2023:
 
-- cc-habits acts as a **data processor** only to the extent diffs are sent to a cloud LLM provider (Anthropic, OpenAI, or Groq) under your own API key. cc-habits itself is not a "data fiduciary" in the statutory sense because it holds no data on its own infrastructure.
+- cc-habits acts as a **data processor** only to the extent diffs or repository files/docs are sent to a cloud LLM provider (Anthropic, OpenAI, or Groq) under your own API key. cc-habits itself is not a "data fiduciary" in the statutory sense because it holds no data on its own infrastructure.
 - The consent notice shown at `cch init` satisfies the Act's requirement for a clear, plain-language notice before processing personal data.
 - If your code diffs contain personal data of other individuals (for example, user records in test fixtures), you are the data fiduciary for that data. Use Ollama to keep all processing local, or audit `log.jsonl` regularly.
 - The `cch reset --yes` command is your erasure mechanism.
@@ -123,7 +126,7 @@ Under the Digital Personal Data Protection Act 2023:
 
 ### Regulated environments (HIPAA, PDPA, or similar)
 
-- Prefer the **Ollama** provider so no code or diffs leave the machine.
+- Prefer the **Ollama** provider so no code, diffs, or repository files leave the machine.
 - Treat `~/.cc-habits/` as you would any folder containing source-code diffs.
 - Store your provider API key via your secrets manager rather than in `config.yml`.
 - Periodically run `cch reset --yes` to clear local history.

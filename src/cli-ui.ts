@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { type Memory } from './storage';
+import { type Memory, getRuleHash } from './storage';
 
 export const BOLD   = '\x1b[1m';
 export const DIM    = '\x1b[2m';
@@ -138,7 +138,8 @@ export function renderHabitLine(
   const up = h.reinforcing ?? 0;
   const dn = h.contradicting ?? 0;
   const tag = isLearning ? c(YELLOW, ' (learning)') : '';
-  process.stdout.write(`\n  ${term(h.rule)}${tag}\n`);
+  const hash = getRuleHash(h.rule);
+  process.stdout.write(`\n  ${c(DIM, `[${hash}]`)} ${term(h.rule)}${tag}\n`);
   process.stdout.write(
     `  [${bar}] ${c(BOLD, pct)}  ` +
     c(GREEN, `↑${up}`) + '  ' +
@@ -163,7 +164,8 @@ export function renderMemoryLine(memory: Memory, isCandidate: boolean): void {
   const bar = confidenceBar(memory.confidence);
   const pct = `${Math.round(memory.confidence * 100)}%`;
   const tag = isCandidate ? c(YELLOW, ' (candidate)') : '';
-  process.stdout.write(`\n  ${term(memory.text)}${tag}\n`);
+  const hash = getRuleHash(memory.text);
+  process.stdout.write(`\n  ${c(DIM, `[${hash}]`)} ${term(memory.text)}${tag}\n`);
   if (memory.trigger.length > 0) {
     process.stdout.write(c(DIM, `  trigger: ${term(memory.trigger.join(', '))}\n`));
   }

@@ -251,6 +251,9 @@ export interface StopResult {
   pendingCount?: number;
   // New memory candidates added this session (CC_HABITS_MEMORIES=1 only).
   memoryCandidatesCount?: number;
+  addedMemories?: string[];
+  memoryCandidatesUpdated?: number;
+  updatedMemories?: string[];
 }
 
 export async function processStop(sessionId: string, ctx?: StorageContext): Promise<StopResult | null> {
@@ -341,11 +344,13 @@ export async function processStop(sessionId: string, ctx?: StorageContext): Prom
     // Memory extraction: opt-in via CC_HABITS_MEMORIES=1. Runs after habit
     // extraction so it never blocks or delays the habits path on failure.
     let memoryCandidatesCount = 0;
+    const addedMemories: string[] = [];
+    const updatedMemories: string[] = [];
     if (memoriesEnabled(ctx)) {
       try {
         const memoriesMd = readMemoriesMd(ctx);
         const candidates = await extractMemoryCandidates(capped, memoriesMd);
-        memoryCandidatesCount = applyMemoryUpdates(candidates, ctx);
+        memoryCandidatesCount = applyMemoryUpdates(candidates, ctx, addedMemories, updatedMemories);
       } catch (e) {
         logError(`stop: memory extraction failed: ${String(e)}`, ctx);
       }
@@ -361,7 +366,18 @@ export async function processStop(sessionId: string, ctx?: StorageContext): Prom
       logError(`stop: auto-sync failed: ${String(e)}`, ctx);
     }
 
-    return { newCount, updatedCount, decayed, tombstoned: deleted.length, changes, pendingCount, memoryCandidatesCount };
+    return {
+      newCount,
+      updatedCount,
+      decayed,
+      tombstoned: deleted.length,
+      changes,
+      pendingCount,
+      memoryCandidatesCount,
+      addedMemories,
+      memoryCandidatesUpdated: updatedMemories.length,
+      updatedMemories,
+    };
   } finally {
     releaseLock(lockFile);
   }
@@ -416,6 +432,21 @@ export function formatStopSummary(result: StopResult): string {
   if ((result.memoryCandidatesCount ?? 0) > 0) {
     const n = result.memoryCandidatesCount!;
     lines.push(`  + ${n} new memory candidate${n === 1 ? '' : 's'} added, run \`cch memories\` to review`);
+    if (result.addedMemories && result.addedMemories.length > 0) {
+      for (const m of result.addedMemories) {
+        lines.push(`      • ${m}`);
+      }
+    }
+  }
+
+  if ((result.memoryCandidatesUpdated ?? 0) > 0) {
+    const n = result.memoryCandidatesUpdated!;
+    lines.push(`  ^ reinforced ${n} memory candidate${n === 1 ? '' : 's'}`);
+    if (result.updatedMemories && result.updatedMemories.length > 0) {
+      for (const m of result.updatedMemories) {
+        lines.push(`      • ${m}`);
+      }
+    }
   }
 
   lines.push('  habits.md updated · run `cc-habits view` for the full picture');
@@ -454,18 +485,42 @@ const INJECT_MIN_CONFIDENCE = 0.3;
 
 interface InjectionHabit { category: string; rule: string; confidence: number; }
 
+/** Read recent signals for a session and return the unique language set. */
+function getSessionLanguages(sessionId: string, ctx?: StorageContext): string[] {
+  if (!sessionId) return [];
+  try {
+    const signals = readSignals(sessionId, ctx);
+    const langs = new Set<string>();
+    for (const s of signals) {
+      if (s.language) langs.add(s.language);
+    }
+    return Array.from(langs);
+  } catch {
+    return [];  // fail-open: no filtering if read fails
+  }
+}
+
 // Pick the strongest active habits (graduated + confident), highest confidence first.
 export function selectInjectionHabits(
   md: string,
   topN: number = INJECT_TOP_N,
   minConfidence: number = INJECT_MIN_CONFIDENCE,
+  activeLanguages?: string[],
 ): InjectionHabit[] {
   const cats = parseHabits(md);
   const out: InjectionHabit[] = [];
+  const activeLangSet = activeLanguages && activeLanguages.length > 0 ? new Set(activeLanguages.map(l => l.toLowerCase())) : null;
+
   for (const [category, habits] of Object.entries(cats)) {
     for (const h of habits) {
       if ((h.sessions_seen ?? 1) >= 2 && h.confidence >= minConfidence) {
-        out.push({ category, rule: h.rule, confidence: h.confidence });
+        let matchesLanguage = true;
+        if (activeLangSet !== null && h.languages && h.languages.length > 0) {
+          matchesLanguage = h.languages.some(lang => activeLangSet.has(lang.toLowerCase()));
+        }
+        if (matchesLanguage) {
+          out.push({ category, rule: h.rule, confidence: h.confidence });
+        }
       }
     }
   }
@@ -474,8 +529,11 @@ export function selectInjectionHabits(
 }
 
 // Returns the context block to inject, or null when there is nothing active to add.
-export function buildInjectionContext(md: string): string | null {
-  const habits = selectInjectionHabits(md);
+export function buildInjectionContext(
+  md: string,
+  activeLanguages?: string[],
+): string | null {
+  const habits = selectInjectionHabits(md, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages);
   if (habits.length === 0) return null;
 
   // Group by category, preserving the confidence ordering within each.
@@ -519,33 +577,118 @@ function injectionEnabled(): boolean {
 const MEMORY_INJECT_TOP_N = 3;
 const MEMORY_MIN_CONFIDENCE = 0.50;
 
+const SCORING_STOPWORDS = new Set(['get', 'use', 'set', 'add', 'run', 'fit', 'fix', 'log', 'env', 'app']);
+
+const TRIGGER_SYNONYMS: Readonly<Record<string, string>> = {
+  'database': 'db',
+  'db': 'database',
+  'function': 'fn',
+  'fn': 'function',
+  'error': 'err',
+  'err': 'error',
+  'request': 'req',
+  'req': 'request',
+  'response': 'res',
+  'res': 'response',
+  'parameter': 'param',
+  'param': 'parameter',
+  'argument': 'arg',
+  'arg': 'argument',
+  'configuration': 'config',
+  'config': 'configuration',
+  'authentication': 'auth',
+  'auth': 'authentication',
+};
+
+/**
+ * Strips common derivational suffixes from tokens longer than 4 characters.
+ * This prevents false matches while allowing morphological variations.
+ */
+function stemSuffix(t: string): string {
+  if (t.length <= 4) return t;
+  if (t.endsWith('ing')) return t.slice(0, -3);
+  if (t.endsWith('ed')) return t.slice(0, -2);
+  if (t.endsWith('er')) return t.slice(0, -2);
+  if (t.endsWith('s')) return t.slice(0, -1);
+  return t;
+}
+
+/**
+ * Normalises a string, splits it on non-alphanumeric characters,
+ * filters stopwords and short tokens, and applies suffix stemming.
+ */
+export function tokenise(s: string): Set<string> {
+  const normalized = s.trim().toLowerCase();
+  const rawTokens = normalized.split(/[^a-zA-Z0-9]+/);
+  const result = new Set<string>();
+  for (const token of rawTokens) {
+    if (!token) continue;
+    if (token.length < 3) continue;
+    if (SCORING_STOPWORDS.has(token)) continue;
+    result.add(stemSuffix(token));
+  }
+  return result;
+}
+
 export function scoreMemoryRelevance(memory: Memory, promptText: string): number {
   if (memory.trigger.length === 0) return 0;
   const haystack = promptText.toLowerCase();
+  const normalizedHaystack = haystack.replace(/[-_]/g, ' ');
   let score = 0;
-  const genericVerbs = new Set(['get', 'use', 'set', 'add', 'run', 'fit', 'fix', 'log', 'env', 'app']);
+
   for (const term of memory.trigger) {
     const cleanTerm = term.trim().toLowerCase();
-    if (cleanTerm.length < 3) continue;
+    if (cleanTerm.length < 3 && !TRIGGER_SYNONYMS[cleanTerm]) continue;
 
     // Ignore generic short verbs
-    if (cleanTerm.length < 4 && genericVerbs.has(cleanTerm)) {
+    if (cleanTerm.length < 4 && SCORING_STOPWORDS.has(cleanTerm)) {
       continue;
     }
 
-    // Escape regex characters
+    // Tier 1: word-boundary regex on raw haystack + normalized haystack (hyphens replaced with spaces)
     const escaped = cleanTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    // Enforce word boundaries for alphanumeric triggers, allowing optional plural 's'
     const startBoundary = /^[a-zA-Z0-9_]/.test(cleanTerm) ? '\\b' : '';
     const endBoundary = /[a-zA-Z0-9_]$/.test(cleanTerm) ? 's?\\b' : '';
-    
     const regex = new RegExp(startBoundary + escaped + endBoundary, 'i');
-    if (regex.test(haystack)) {
+
+    if (regex.test(haystack) || regex.test(normalizedHaystack)) {
       score++;
+      continue;
+    }
+
+    // Tier 2: synonym lookup, then regex match on synonym
+    const synonym = TRIGGER_SYNONYMS[cleanTerm];
+    if (synonym) {
+      const escapedSyn = synonym.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const startBoundarySyn = /^[a-zA-Z0-9_]/.test(synonym) ? '\\b' : '';
+      const endBoundarySyn = /[a-zA-Z0-9_]$/.test(synonym) ? 's?\\b' : '';
+      const regexSyn = new RegExp(startBoundarySyn + escapedSyn + endBoundarySyn, 'i');
+      if (regexSyn.test(haystack) || regexSyn.test(normalizedHaystack)) {
+        score++;
+        continue;
+      }
+    }
+
+    // Tier 3: token-overlap for multi-word trigger phrases only (>= 2 tokens)
+    const triggerTokens = tokenise(cleanTerm);
+    if (triggerTokens.size >= 2) {
+      const promptTokens = tokenise(promptText);
+      let allOverlap = true;
+      for (const tToken of triggerTokens) {
+        if (!promptTokens.has(tToken)) {
+          allOverlap = false;
+          break;
+        }
+      }
+      if (allOverlap) {
+        score++;
+        continue;
+      }
     }
   }
   return score;
 }
+
 
 export function selectInjectionMemories(memoriesMd: string, promptText: string): Memory[] {
   const sections = parseMemories(memoriesMd);
@@ -577,15 +720,21 @@ export function buildMemoryInjectionContext(memories: Memory[]): string | null {
   return lines.join('\n');
 }
 
-export function processUserPromptSubmit(data: Record<string, unknown>): string | null {
+export function processUserPromptSubmit(data: Record<string, unknown>, ctx?: StorageContext): string | null {
   if (!injectionEnabled()) return null;
   const promptText = typeof data['prompt'] === 'string' ? data['prompt'] : '';
-  const habitsContext = buildInjectionContext(readHabitsMd());
+  const sessionId = String(data['session_id'] ?? data['sessionId'] ?? data['session'] ?? '');
+
+  const activeLanguages = getSessionLanguages(sessionId, ctx);
+  const habitsContext = buildInjectionContext(
+    readHabitsMd(ctx),
+    activeLanguages.length ? activeLanguages : undefined
+  );
 
   let memoriesContext: string | null = null;
-  if (memoriesEnabled()) {
+  if (memoriesEnabled(ctx)) {
     try {
-      const memoriesMd = readMemoriesMd();
+      const memoriesMd = readMemoriesMd(ctx);
       const relevant = selectInjectionMemories(memoriesMd, promptText);
       memoriesContext = buildMemoryInjectionContext(relevant);
     } catch {

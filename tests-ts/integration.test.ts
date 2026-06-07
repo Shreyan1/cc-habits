@@ -5,7 +5,7 @@ import path from 'path';
 import {
   storagePaths, initHabitsMd, initLog, readSignals, readHabitsMd, parseHabits,
   appendSignal, serialiseHabits, serialiseMemories, writeMemoriesMd,
-  parseMemories, readMemoriesMd, readMemoryTombstones,
+  parseMemories, readMemoriesMd, readMemoryTombstones, getRuleHash,
 } from '../src/storage';
 import { installPaths } from '../src/install';
 import { processPostToolUse, processStop, isNoise, redact } from '../src/hook';
@@ -62,6 +62,8 @@ beforeEach(() => {
   initLog();
   vi.mocked(extractor.extractRules).mockResolvedValue([]);
   vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([]);
+  vi.mocked(extractor.extractHabitsFromRepo).mockResolvedValue([]);
+  vi.mocked(extractor.extractMemoriesFromDocs).mockResolvedValue([]);
   vi.spyOn(detect, 'isCliOnPath').mockReturnValue(false);
 });
 
@@ -338,8 +340,8 @@ describe('CLI init', () => {
 
 // CLI: view ───────────────────────────────────────────────────────────────
 describe('CLI view', () => {
-  it('shows empty state', () => {
-    const ret = cmdView();
+  it('shows empty state', async () => {
+    const ret = await cmdView();
     expect(ret).toBe(0);
   });
 
@@ -347,13 +349,13 @@ describe('CLI view', () => {
     writeSignals();
     vi.mocked(extractor.extractRules).mockResolvedValueOnce(FAKE_UPDATES);
     await processStop(SESSION);
-    const ret = cmdView();
+    const ret = await cmdView();
     expect(ret).toBe(0);
   });
 
-  it('shows recent signals', () => {
+  it('shows recent signals', async () => {
     writeSignals();
-    const ret = cmdView();
+    const ret = await cmdView();
     expect(ret).toBe(0);
   });
 });
@@ -412,10 +414,49 @@ describe('CLI memories --delete', () => {
     expect(readMemoryTombstones().length).toBeGreaterThanOrEqual(1);
   });
 
+  it('deletes and tombstones a memory by hash', () => {
+    writeMemoriesMd(serialiseMemories({
+      'Repeated mistakes': [{
+        text: 'When editing settings, do not overwrite arrays',
+        trigger: ['settings.json'],
+        correction: 'Merge arrays',
+        confidence: 0.80,
+        seen: 2,
+        sessions_seen: 2,
+      }],
+    }));
+    const hash = getRuleHash('When editing settings, do not overwrite arrays');
+    const ret = cmdMemoriesDelete(hash);
+    expect(ret).toBe(0);
+    const sections = parseMemories(readMemoriesMd());
+    expect(Object.values(sections).flat()).toHaveLength(0);
+    expect(readMemoryTombstones().length).toBeGreaterThanOrEqual(1);
+    expect(readMemoryTombstones()).toContain('when editing settings, do not overwrite arrays');
+  });
+
   it('still tombstones even if memory text is not found', () => {
     const ret = cmdMemoriesDelete('Nonexistent memory text');
     expect(ret).toBe(0);
     expect(readMemoryTombstones().length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('strips " (candidate)" suffix when deleting', () => {
+    writeMemoriesMd(serialiseMemories({
+      'Repeated mistakes': [{
+        text: 'When editing settings, do not overwrite arrays',
+        trigger: ['settings.json'],
+        correction: 'Merge arrays',
+        confidence: 0.50,
+        seen: 1,
+        sessions_seen: 1,
+      }],
+    }));
+    const ret = cmdMemoriesDelete('When editing settings, do not overwrite arrays (candidate)');
+    expect(ret).toBe(0);
+    const sections = parseMemories(readMemoriesMd());
+    expect(Object.values(sections).flat()).toHaveLength(0);
+    expect(readMemoryTombstones().length).toBeGreaterThanOrEqual(1);
+    expect(readMemoryTombstones()).toContain('when editing settings, do not overwrite arrays');
   });
 
   it('returns 1 when no text is provided', () => {
@@ -435,7 +476,8 @@ describe('Stop hook memory extraction', () => {
     delete process.env['CC_HABITS_MEMORIES'];
   });
 
-  it('does not write memories when CC_HABITS_MEMORIES is off (default)', async () => {
+  it('does not write memories when CC_HABITS_MEMORIES is off', async () => {
+    process.env['CC_HABITS_MEMORIES'] = '0';
     writeSignals();
     vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([{
       section: 'Repeated mistakes',

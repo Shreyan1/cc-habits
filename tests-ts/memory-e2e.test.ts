@@ -60,6 +60,21 @@ describe('memory feature end-to-end parity with habits', () => {
     expect(mem.confidence).toBeCloseTo(0.6);
   });
 
+  it('a second sighting reinforces and registers in updatedMemories', () => {
+    const added: string[] = [];
+    const updated: string[] = [];
+    applyMemoryUpdates([candidate()], undefined, added, updated);
+    expect(added).toHaveLength(1);
+    expect(updated).toHaveLength(0);
+
+    const added2: string[] = [];
+    const updated2: string[] = [];
+    applyMemoryUpdates([candidate()], undefined, added2, updated2);
+    expect(added2).toHaveLength(0);
+    expect(updated2).toHaveLength(1);
+    expect(updated2[0]).toBe(candidate().text);
+  });
+
   it('a graduated, relevant memory is injected; an irrelevant prompt is not matched', () => {
     applyMemoryUpdates([candidate()]);
     applyMemoryUpdates([candidate()]); // graduate it

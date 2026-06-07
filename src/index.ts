@@ -1,8 +1,8 @@
 import {
-  cmdInit, cmdView, cmdLog, cmdReset, cmdPending, cmdTombstone, cmdTombstones,
+  cmdInit, cmdView, renderHabitsView, cmdLog, cmdReset, cmdPending, cmdTombstone, cmdTombstones,
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
   cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdMemoriesToggle,
-  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdShellInit, cmdSessionBanner, cmdTools, VERSION,
+  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdLearnRepo, cmdShellInit, cmdSessionBanner, cmdTools, VERSION,
   cmdOn, cmdOff, cmdUninstall,
   c, BOLD, DIM, CYAN
 } from './cli';
@@ -12,7 +12,7 @@ import { runMigration } from './migrate';
 import { suggest, looksLikeEnvVar, nextSteps } from './suggestions';
 import { runInteractiveMenu, runSelectMenu, MENU_ITEMS } from './menu';
 import { maybeUpdateNotice } from './update-check';
-import { isGloballyDisabled } from './config';
+import { isGloballyDisabled, memoriesEnabled } from './config';
 
 // Print follow-up suggestions to stderr so stdout pipes stay clean. Only when
 // the command succeeded and we are attached to an interactive terminal.
@@ -55,6 +55,7 @@ Usage:
     cc-habits init                    Install hooks, create habits.md, interactive provider setup
     cc-habits init --provider ollama  Skip API key prompt, configure Ollama (free, local)
     cc-habits tools                   List supported coding tools and which are detected here
+    cc-habits learn                   Learn habits from repository scan or signals
     cc-habits on                      Enable cc-habits (resume capture and prompt injection)
     cc-habits off                     Disable cc-habits (pause capture and prompt injection)
     cc-habits shell-init              Print shell wrapper for claude/gemini (eval "$(cc-habits shell-init)")
@@ -63,13 +64,14 @@ Usage:
 
   Habits Lifecycle:
     cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
-    cc-habits view                    Show current habits + recent signals
+    cc-habits view [habits|memories]  Show current habits or coding memories
     cc-habits pending                 Show pending updates queued for the next session write
     cc-habits pending --approve       Apply pending updates to habits.md
     cc-habits pending --discard       Drop pending updates without applying
     cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
     cc-habits git-capture [--range r] Capture changes from git commits (HEAD~1..HEAD by default)
-    cc-habits learn [--session id]    Compile habits and memories from collected signals
+    cc-habits learn [--session id]    Learn habits from repository scan or signals
+    cc-habits learn --repo            Scan this repo's source + CLAUDE.md/AGENTS.md with the LLM and learn directly
 
   Sharing & Portability:
     cc-habits sync [targets] [--dir]  Write habits to AGENTS.md / Cursor / Cline (default: agents)
@@ -137,25 +139,28 @@ async function main(): Promise<void> {
     if (!item) process.exit(0);
 
     if (item.args[0] === '--help') {
+      const memsOn = memoriesEnabled();
       const helpItems = [
         // Setup & Configuration
         { label: 'init                    Install hooks and set up a provider', args: ['init'] },
         { label: 'init --provider ollama  Skip key prompt, configure local Ollama', args: ['init', '--provider', 'ollama'] },
         { label: 'tools                   List supported coding tools', args: ['tools'] },
-        { label: 'on                      Enable cc-habits', args: ['on'] },
-        { label: 'off                     Disable cc-habits', args: ['off'] },
+        { label: 'learn                   Learn habits from repository scan or signals', args: ['learn'] },
+        { label: 'on                      Enable cc-habits', args: ['on'], disabled: !disabled },
+        { label: 'off                     Disable cc-habits', args: ['off'], disabled: disabled },
         { label: 'shell-init              Print shell wrapper', args: ['shell-init'] },
         { label: 'migrate                 Migrate storage location', args: ['migrate'] },
         { label: 'uninstall               Uninstall cc-habits completely', args: ['uninstall'] },
         
         // Habits Lifecycle
         { label: 'bootstrap               Learn habits from past sessions', args: ['bootstrap'] },
-        { label: 'view                    Show current habits and signals', args: ['view'] },
+        { label: 'view [habits|memories]  Show current habits or coding memories', args: ['view'] },
         { label: 'pending                 Review queued habit suggestions', args: ['pending'] },
         { label: 'pending --approve       Apply pending updates to habits.md', args: ['pending', '--approve'] },
         { label: 'pending --discard       Drop pending updates', args: ['pending', '--discard'] },
         { label: 'git-capture             Capture changes from git commits', args: ['git-capture'] },
-        { label: 'learn                   Compile habits from collected signals', args: ['learn'] },
+        { label: 'learn                   Learn habits from repository scan or signals', args: ['learn'] },
+        { label: 'learn --repo            Scan this repo with the LLM and learn directly', args: ['learn', '--repo'] },
         
         // Sharing & Portability
         { label: 'sync                    Share habits with other tools', args: ['sync'] },
@@ -170,18 +175,19 @@ async function main(): Promise<void> {
         
         // Memory & Tombstones
         { label: 'memories                Show coding memories', args: ['memories'] },
-        { label: 'memories --enable       Turn on memory learning', args: ['memories', '--enable'] },
-        { label: 'memories --disable      Turn off memory learning', args: ['memories', '--disable'] },
+        { label: 'memories --enable       Turn on memory learning', args: ['memories', '--enable'], disabled: memsOn },
+        { label: 'memories --disable      Turn off memory learning', args: ['memories', '--disable'], disabled: !memsOn },
         { label: 'memories --tombstones   List tombstoned memories', args: ['memories', '--tombstones'] },
         { label: 'tombstone               Block a habit rule', args: ['tombstone'] },
         
         // Getting Help
         { label: 'faq                     Search FAQ or raise a GitHub issue', args: ['faq'] },
       ];
-
-      const menuItems = helpItems.map(hi => ({
+ 
+      const menuItems: { label: string; value: string; disabled?: boolean }[] = helpItems.map(hi => ({
         label: hi.label,
-        value: JSON.stringify(hi.args)
+        value: JSON.stringify(hi.args),
+        disabled: (hi as any).disabled
       }));
       menuItems.push({ label: 'Back to main menu', value: 'back' });
 
@@ -223,7 +229,13 @@ async function main(): Promise<void> {
   } else if (command === 'bootstrap') {
     code = await cmdBootstrap();
   } else if (command === 'view') {
-    code = cmdView();
+    if (args.includes('memories')) {
+      code = await cmdMemories();
+    } else if (args.includes('habits')) {
+      code = renderHabitsView();
+    } else {
+      code = await cmdView();
+    }
   } else if (command === 'memories') {
     const deleteIdx = args.indexOf('--delete');
     if (deleteIdx >= 0) {
@@ -305,12 +317,16 @@ async function main(): Promise<void> {
     const range = rangeIdx >= 0 ? args[rangeIdx + 1] : undefined;
     code = await cmdGitCapture(range);
   } else if (command === 'learn') {
-    const sessionIdx = args.indexOf('--session');
-    const sinceIdx = args.indexOf('--since');
-    code = await cmdLearn({
-      session: sessionIdx >= 0 ? args[sessionIdx + 1] : undefined,
-      since: sinceIdx >= 0 && args[sinceIdx + 1] ? parseInt(args[sinceIdx + 1], 10) : undefined,
-    });
+    if (args.includes('--repo') || args.includes('this')) {
+      code = await cmdLearnRepo({ force: true });
+    } else {
+      const sessionIdx = args.indexOf('--session');
+      const sinceIdx = args.indexOf('--since');
+      code = await cmdLearn({
+        session: sessionIdx >= 0 ? args[sessionIdx + 1] : undefined,
+        since: sinceIdx >= 0 && args[sinceIdx + 1] ? parseInt(args[sinceIdx + 1], 10) : undefined,
+      });
+    }
   } else if (command === 'faq') {
     const q = args.slice(1).join(' ');
     code = await cmdFaq(q);
@@ -327,8 +343,7 @@ async function main(): Promise<void> {
       const hint = suggest(command);
       process.stderr.write(`cc-habits: unknown command '${command}'`);
       if (hint) process.stderr.write(`\n  Did you mean '${hint}'?  Try: cc-habits ${hint}`);
-      process.stderr.write('\n\n');
-      process.stderr.write(HELP);
+      process.stderr.write('\n\n  Run \`cch help\` to see available commands.\n');
     }
     process.exit(1);
   }

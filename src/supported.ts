@@ -14,7 +14,7 @@ export interface SupportedTool {
 export const SUPPORTED_TOOLS: SupportedTool[] = [
   { id: 'claude-code', name: 'Claude Code', capture: 'hooks (PostToolUse, Stop, UserPromptSubmit, SessionStart)', inject: 'CLAUDE.md @import + UserPromptSubmit' },
   { id: 'gemini',      name: 'Gemini CLI',  capture: 'hooks (AfterTool, AfterAgent, BeforeAgent, SessionStart)', inject: 'GEMINI.md @import' },
-  { id: 'codex',       name: 'Codex CLI',   capture: 'hooks (PostToolUse, Stop)', inject: 'AGENTS.md sync' },
+  { id: 'codex',       name: 'Codex CLI',   capture: 'hooks (PostToolUse, UserPromptSubmit)', inject: 'AGENTS.md sync' },
   { id: 'kimi',        name: 'Kimi Code CLI', capture: 'hooks (PostToolUse, Stop, UserPromptSubmit, SessionStart)', inject: 'AGENTS.md sync' },
   { id: 'cursor',      name: 'Cursor',      capture: 'Git commits (or VS Code extension)', inject: '.cursor rules sync' },
   { id: 'cline',       name: 'Cline/RooCode', capture: 'hooks (PostToolUse, Stop)', inject: '.clinerules sync' },

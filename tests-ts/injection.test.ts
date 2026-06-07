@@ -50,12 +50,31 @@ const SEEDED = `<!-- cc-habits format v0.2 -->
   - Sessions seen: 1
 `;
 
+const SEEDED_WITH_LANGS = `<!-- cc-habits format v0.2 -->
+# Coding habits
+
+## TypeScript
+- Use explicit return types. Confidence: 0.80
+  - Sessions seen: 3
+  - Languages: ts
+
+## Python  
+- Use type hints on all functions. Confidence: 0.75
+  - Sessions seen: 2
+  - Languages: py
+
+## Error Handling
+- Wrap external I/O in try/catch. Confidence: 0.55
+  - Sessions seen: 2
+`;
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-inject-'));
   storagePaths.habitsDir = tmpDir;
   storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
   storagePaths.memoriesFile = path.join(tmpDir, 'memories.md');
   storagePaths.memoryTombstonesFile = path.join(tmpDir, '.memory-tombstones.json');
+  storagePaths.logFile = path.join(tmpDir, 'log.jsonl');
   fs.writeFileSync(storagePaths.habitsFile, SEEDED);
   delete process.env['CC_HABITS_INJECT'];
   delete process.env['CC_HABITS_MEMORIES'];
@@ -88,6 +107,29 @@ describe('selectInjectionHabits', () => {
     expect(sel).toHaveLength(1);
     expect(sel[0].rule).toContain('camelCase');
   });
+
+  it('activeLanguages=["ts"] includes ts habits + language-agnostic, excludes py-only', () => {
+    const sel = selectInjectionHabits(SEEDED_WITH_LANGS, 12, 0.3, ['ts']);
+    const rules = sel.map(h => h.rule);
+    expect(rules).toContain('Use explicit return types');
+    expect(rules).toContain('Wrap external I/O in try/catch');
+    expect(rules).not.toContain('Use type hints on all functions');
+  });
+
+  it('activeLanguages=[] returns all habits (no filter)', () => {
+    const sel = selectInjectionHabits(SEEDED_WITH_LANGS, 12, 0.3, []);
+    expect(sel).toHaveLength(3);
+  });
+
+  it('activeLanguages=undefined returns all habits (no filter)', () => {
+    const sel = selectInjectionHabits(SEEDED_WITH_LANGS, 12, 0.3, undefined);
+    expect(sel).toHaveLength(3);
+  });
+
+  it('activeLanguages=["ts","py"] includes both ts and py habits', () => {
+    const sel = selectInjectionHabits(SEEDED_WITH_LANGS, 12, 0.3, ['ts', 'py']);
+    expect(sel).toHaveLength(3);
+  });
 });
 
 describe('buildInjectionContext', () => {
@@ -118,6 +160,37 @@ describe('processUserPromptSubmit', () => {
       process.env['CC_HABITS_INJECT'] = v;
       expect(processUserPromptSubmit({ prompt: 'x' })).toBeNull();
     }
+  });
+
+  it('with ts signals in log, injects ts habits but not py-only habits', () => {
+    fs.writeFileSync(storagePaths.habitsFile!, SEEDED_WITH_LANGS);
+    const signal = {
+      ts: new Date().toISOString(),
+      session_id: 'session-ts-1',
+      type: 'edit',
+      file: 'src/main.ts',
+      diff: '+++ src/main.ts\n+const x: number = 1;',
+      language: 'ts',
+    };
+    fs.appendFileSync(storagePaths.logFile!, JSON.stringify(signal) + '\n');
+
+    const ctx = processUserPromptSubmit({ prompt: 'hello', session_id: 'session-ts-1' });
+    expect(ctx).not.toBeNull();
+    expect(ctx!).toContain('TypeScript:');
+    expect(ctx!).toContain('- Use explicit return types.');
+    expect(ctx!).toContain('Error Handling:');
+    expect(ctx!).toContain('- Wrap external I/O in try/catch.');
+    expect(ctx!).not.toContain('Python:');
+    expect(ctx!).not.toContain('Use type hints on all functions');
+  });
+
+  it('with no session_id, injects all habits (safe fallback)', () => {
+    fs.writeFileSync(storagePaths.habitsFile!, SEEDED_WITH_LANGS);
+    const ctx = processUserPromptSubmit({ prompt: 'hello' });
+    expect(ctx).not.toBeNull();
+    expect(ctx!).toContain('TypeScript:');
+    expect(ctx!).toContain('Python:');
+    expect(ctx!).toContain('Error Handling:');
   });
 });
 
@@ -173,6 +246,41 @@ describe('scoreMemoryRelevance', () => {
   it('ignores generic short verbs', () => {
     const mem2 = { ...memory, trigger: ['get', 'use', 'install', 'settings.json'] };
     expect(scoreMemoryRelevance(mem2, 'get the settings.json and use it to install')).toBe(2);
+  });
+
+  it('synonym: db trigger matches database in prompt', () => {
+    const mem = { ...memory, trigger: ['db'] };
+    expect(scoreMemoryRelevance(mem, 'configure the local database')).toBe(1);
+  });
+
+  it('synonym: database trigger matches db in prompt', () => {
+    const mem = { ...memory, trigger: ['database'] };
+    expect(scoreMemoryRelevance(mem, 'configure the local db')).toBe(1);
+  });
+
+  it('synonym: err trigger matches error in prompt', () => {
+    const mem = { ...memory, trigger: ['err'] };
+    expect(scoreMemoryRelevance(mem, 'an unexpected error occurred')).toBe(1);
+  });
+
+  it('token overlap: "null check" trigger matches "null-checking" in prompt', () => {
+    const mem = { ...memory, trigger: ['null check'] };
+    expect(scoreMemoryRelevance(mem, 'ensure proper null-checking in the model')).toBe(1);
+  });
+
+  it('token overlap: "null check" trigger matches "null checking" in prompt', () => {
+    const mem = { ...memory, trigger: ['null check'] };
+    expect(scoreMemoryRelevance(mem, 'ensure proper null checking in the model')).toBe(1);
+  });
+
+  it('token overlap: "error handling" trigger matches "error-handling" in prompt', () => {
+    const mem = { ...memory, trigger: ['error handling'] };
+    expect(scoreMemoryRelevance(mem, 'review the error-handling patterns')).toBe(1);
+  });
+
+  it('no tier 3 for single-word trigger: "hook" does not match "hooked"', () => {
+    const mem = { ...memory, trigger: ['hook'] };
+    expect(scoreMemoryRelevance(mem, 'we are hooked on this')).toBe(0);
   });
 });
 
@@ -236,6 +344,7 @@ describe('buildMemoryInjectionContext', () => {
 
 describe('processUserPromptSubmit with memories', () => {
   it('does not include memories context when CC_HABITS_MEMORIES is off', () => {
+    process.env['CC_HABITS_MEMORIES'] = '0';
     fs.writeFileSync(storagePaths.memoriesFile!, SEEDED_MEMORIES);
     const ctx = processUserPromptSubmit({ prompt: 'edit settings.json hooks' });
     expect(ctx).not.toContain('<coding-memories>');

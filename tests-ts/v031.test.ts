@@ -63,8 +63,8 @@ describe('config helpers', () => {
 
 // memoriesEnabled precedence ──────────────────────────────────────────────────
 describe('memoriesEnabled precedence', () => {
-  it('is off by default', () => {
-    expect(memoriesEnabled()).toBe(false);
+  it('is on by default', () => {
+    expect(memoriesEnabled()).toBe(true);
   });
 
   it('reads the persisted config flag when no env var is set', () => {

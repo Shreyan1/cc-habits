@@ -39,6 +39,8 @@ beforeEach(() => {
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
   
   vi.mocked(extractor.extractRules).mockResolvedValue([]);
+  vi.mocked(extractor.extractHabitsFromRepo).mockResolvedValue([]);
+  vi.mocked(extractor.extractMemoriesFromDocs).mockResolvedValue([]);
   vi.spyOn(detect, 'isCliOnPath').mockReturnValue(false);
 });
 
@@ -98,7 +100,7 @@ describe('v0.3.0: runGitCapture and shouldTriggerGitLearn', () => {
 });
 
 describe('v0.3.0: cmdLearn', () => {
-  it('exits early with fewer than 3 signals', async () => {
+  it('falls back to repository scan with fewer than 3 signals', async () => {
     initHabitsMd();
     initLog();
     // 0 signals in log
@@ -326,4 +328,10 @@ describe('v0.4.0: interactive menu helpers', () => {
     const firstLine = out.split('\n')[0];
     expect(firstLine).toContain('❯');
   });
+
+  it('contains tools and learn as the first options in MENU_ITEMS', () => {
+    expect(MENU_ITEMS[0].label).toBe('tools');
+    expect(MENU_ITEMS[1].label).toBe('learn');
+  });
 });
+

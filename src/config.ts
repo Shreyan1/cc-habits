@@ -43,14 +43,17 @@ export function setConfigValue(key: string, value: string, ctx?: StorageContext)
   writeConfigFile(next, ctx);
 }
 
-// Memory extraction is opt-in. Precedence: an explicit CC_HABITS_MEMORIES env
-// value (on or off) always wins for the current shell, otherwise fall back to
-// the persisted `memories_enabled` flag in config.yml.
+// Memory extraction is ON by default. Precedence: an explicit CC_HABITS_MEMORIES
+// env value (on or off) always wins for the current shell, otherwise the
+// persisted `memories_enabled` flag in config.yml, which is treated as enabled
+// unless it has been explicitly set to a falsey value.
 export function memoriesEnabled(ctx?: StorageContext): boolean {
   const env = (process.env['CC_HABITS_MEMORIES'] ?? '').toLowerCase();
   if (env === '1' || env === 'true' || env === 'on') return true;
   if (env === '0' || env === 'false' || env === 'off') return false;
-  return getConfigFlag('memories_enabled', ctx);
+  const v = (getConfigValue('memories_enabled', ctx) ?? '').toLowerCase();
+  if (v === '0' || v === 'false' || v === 'off') return false;
+  return true;
 }
 
 export function setMemoriesEnabled(enabled: boolean, ctx?: StorageContext): void {

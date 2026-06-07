@@ -42,7 +42,7 @@ export async function interactiveOllamaSetup(
 
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 2000);
+    const timer = setTimeout(() => ctrl.abort(), 5000);
     const res = await fetch(`${OLLAMA_DEFAULT_URL}/api/tags`, { signal: ctrl.signal });
     clearTimeout(timer);
     ollamaOk = res.ok;
@@ -103,7 +103,7 @@ export async function interactiveOllamaSetup(
     let verificationOk = false;
     try {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
+      const timer = setTimeout(() => ctrl.abort(), 30000);
       const res = await fetch(`${OLLAMA_DEFAULT_URL}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -13,7 +13,8 @@ export interface MenuItem {
 
 export const MENU_ITEMS: MenuItem[] = [
   { label: 'tools',          args: ['tools'],     hint: 'List supported coding tools' },
-  { label: 'view',           args: ['view'],      hint: 'Show current habits and recent signals' },
+  { label: 'learn',          args: ['learn'],     hint: 'Learn habits from repository scan or signals' },
+  { label: 'view',           args: ['view'],      hint: 'Show current habits or coding memories' },
   { label: 'pending',        args: ['pending'],   hint: 'Review queued habit suggestions' },
   { label: 'bootstrap',      args: ['bootstrap'], hint: 'Learn habits from past sessions' },
   { label: 'memories',       args: ['memories'],  hint: 'Show coding memories' },
@@ -24,7 +25,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { label: 'on',             args: ['on'],        hint: 'Enable cc-habits' },
   { label: 'off',            args: ['off'],       hint: 'Disable cc-habits' },
   { label: 'faq',            args: ['faq'],       hint: 'Search the FAQ or raise a GitHub issue' },
-  { label: 'help (full text)', args: ['--help'],  hint: 'Print the full command reference' },
+  { label: 'help (all commands)', args: ['--help'],  hint: 'Print the full command reference' },
 ];
 
 // Wrap-around index movement for up/down keys. Pure for testability.
@@ -132,10 +133,15 @@ export function runInteractiveMenu(items: MenuItem[] = MENU_ITEMS): Promise<Menu
 
 export function runSelectMenu(
   title: string,
-  items: { label: string; value: string }[],
-): Promise<{ label: string; value: string } | null> {
+  items: { label: string; value: string; disabled?: boolean }[],
+): Promise<{ label: string; value: string; disabled?: boolean } | null> {
   return new Promise(resolve => {
     let selected = 0;
+    while (selected < items.length && items[selected]?.disabled) {
+      selected++;
+    }
+    if (selected >= items.length) selected = 0;
+
     const out = process.stderr;
 
     out.write('\n' + title + '\n');
@@ -145,7 +151,12 @@ export function runSelectMenu(
       const lines = items.map((item, i) => {
         const pointer = i === selected ? '❯' : ' ';
         const padded = item.label.padEnd(width);
-        const label = i === selected ? `\x1b[36m${padded}\x1b[0m` : padded;
+        let label = padded;
+        if (item.disabled) {
+          label = `\x1b[2m${padded}\x1b[0m`;
+        } else if (i === selected) {
+          label = `\x1b[36m${padded}\x1b[0m`;
+        }
         return `  ${pointer} ${label}`;
       });
       return lines.join('\n');
@@ -175,13 +186,12 @@ export function runSelectMenu(
     const onKey = (_str: string, key: { name?: string; ctrl?: boolean }): void => {
       if (!key) return;
       if (key.name === 'up' || key.name === 'down') {
-        selected = key.name === 'up'
-          ? (selected - 1 + items.length) % items.length
-          : (selected + 1) % items.length;
+        selected = nextIndex(selected, key.name, items.map(it => ({ disabled: it.disabled })));
         redraw();
         return;
       }
       if (key.name === 'return' || key.name === 'enter') {
+        if (items[selected]?.disabled) return;
         cleanup();
         resolve(items[selected] ?? null);
         return;

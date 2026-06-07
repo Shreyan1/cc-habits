@@ -128,6 +128,15 @@ describe('formatStopSummary', () => {
     expect(out).toContain('1 tombstoned');
   });
 
+  it('shows reinforced memory candidates in formatStopSummary', () => {
+    const out = formatStopSummary(emptyResult({
+      memoryCandidatesUpdated: 1,
+      updatedMemories: ['Avoid global variables in helper.ts'],
+    }));
+    expect(out).toContain('reinforced 1 memory candidate');
+    expect(out).toContain('Avoid global variables in helper.ts');
+  });
+
   it('renders an explicit no-change line when nothing happened', () => {
     const out = formatStopSummary(emptyResult());
     expect(out).toContain('no habit changes this session');

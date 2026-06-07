@@ -49,6 +49,8 @@ beforeEach(() => {
   initHabitsMd();
   initLog();
   vi.mocked(extractor.extractRules).mockResolvedValue([]);
+  vi.mocked(extractor.extractHabitsFromRepo).mockResolvedValue([]);
+  vi.mocked(extractor.extractMemoriesFromDocs).mockResolvedValue([]);
 });
 
 afterEach(() => {
