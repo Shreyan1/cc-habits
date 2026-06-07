@@ -97,6 +97,28 @@ const TAG_TOKEN = /<\/?\s*[a-zA-Z][\w-]*\s*\/?>/g; // codeql[js/bad-tag-filter] 
 const MAX_RULE_LENGTH = 500;
 const MAX_CATEGORY_LENGTH = 40;
 
+// Cyrillic/Greek to Latin homoglyph mapping for character normalization
+const HOMOGLYPH_MAP: Record<string, string> = {
+  // Cyrillic small
+  'а': 'a', 'в': 'b', 'е': 'e', 'ѕ': 's', 'і': 'i', 'ј': 'j', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 's', 'т': 't', 'у': 'y', 'х': 'x', 'є': 'e',
+  // Cyrillic capital
+  'А': 'A', 'В': 'B', 'Е': 'E', 'Ѕ': 'S', 'І': 'I', 'Ј': 'J', 'К': 'K', 'М': 'M', 'Н': 'H', 'О': 'O', 'Р': 'P', 'С': 'S', 'Т': 'T', 'У': 'Y', 'Х': 'X',
+  // Greek small
+  'α': 'a', 'β': 'b', 'ε': 'e', 'ι': 'i', 'κ': 'k', 'μ': 'm', 'ο': 'o', 'ρ': 'p', 'τ': 't', 'υ': 'y', 'χ': 'x',
+  // Greek capital
+  'Α': 'A', 'Β': 'B', 'Ε': 'E', 'Ι': 'I', 'Κ': 'K', 'Μ': 'M', 'Ο': 'O', 'Ρ': 'P', 'Τ': 'T', 'Υ': 'Y', 'Χ': 'X'
+};
+
+// Helper to replace homoglyphs in a string
+function foldHomoglyphs(str: string): string {
+  let res = '';
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    res += HOMOGLYPH_MAP[char] || char;
+  }
+  return res;
+}
+
 // Defence-in-depth sanitizer for any untrusted text destined for habits.md or the
 // Claude injection context. Order matters: bound length and normalize Unicode BEFORE
 // running the denylist so homoglyph/zero-width bypasses collapse to canonical ASCII
@@ -108,6 +130,7 @@ export function sanitizeRule(rule: string): string {
   s = s.replace(ZERO_WIDTH, '');
   // NFKC folds fullwidth/compatibility homoglyphs (ＳＹＳＴＥＭ → SYSTEM) to ASCII.
   s = s.normalize('NFKC');
+  s = foldHomoglyphs(s);
   s = s.replace(CONTROL_CHARS, '');
   s = s.replace(UNICODE_SEPARATORS, ' ');
   // codeql[js/incomplete-multi-character-sanitization] - each replacement targets a
@@ -134,6 +157,7 @@ export function sanitizeCategory(category: string): string {
   let s = (category ?? '').trim();
   if (s.length > MAX_CATEGORY_LENGTH * 2) s = s.slice(0, MAX_CATEGORY_LENGTH * 2);
   s = s.replace(ZERO_WIDTH, '').normalize('NFKC');
+  s = foldHomoglyphs(s);
   s = s.replace(CONTROL_CHARS, '');
   s = s.replace(UNICODE_SEPARATORS, ' ');
   // codeql[js/incomplete-multi-character-sanitization] - same reasoning as sanitizeRule:

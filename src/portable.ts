@@ -6,6 +6,7 @@ import {
   HabitsMap, Habit, MemoryCandidate, applyMemoryUpdates,
 } from './storage';
 import { sanitizeRule } from './confidence';
+import { redact } from './redact';
 
 // ── Profile bundle format ─────────────────────────────────────────────────────
 //
@@ -55,8 +56,8 @@ export function buildProfile(opts: ExportOpts): string {
   const ts       = new Date().toISOString();
   const contains = opts.includeMemories ? 'habits,memories' : 'habits';
 
-  const habitsMd  = readHabitsMd();
-  const memoriesMd = opts.includeMemories ? readMemoriesMd() : null;
+  const habitsMd  = redact(readHabitsMd());
+  const memoriesMd = opts.includeMemories ? redact(readMemoriesMd()) : null;
 
   const lines: string[] = [
     `${PROFILE_OPEN}`,
