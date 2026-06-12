@@ -124,10 +124,8 @@ console.log(`  ${JSON.stringify(stats(capTimes))} ms   <- the "under 5ms" claim\
 console.log(`network + exit behavior:`);
 for (const [ev, pl] of [['post-tool-use', editPayload], ['user-prompt-submit', promptPayload], ['stop', JSON.stringify({ session_id: 'bench-session' })]]) {
   const r = runHook(ev, pl);
-  const networked = /fetch failed|ECONNREFUSED|ENOTFOUND|HTTP \d|model .* not found|connect/i.test(r.stderr) || ev === 'stop';
   // Stop's network attempt is logged to error.log (fail-open), not stderr.
-  const errLog = join(STORE, 'error.log');
-  const stopReached = ev === 'stop' && existsSync(errLog);
+  const stopReached = ev === 'stop' && existsSync(join(STORE, 'error.log'));
   console.log(`  ${ev.padEnd(18)} exit=${r.code}  networkCall=${ev === 'stop' ? (stopReached ? 'YES (provider)' : 'attempted') : 'no'}`);
 }
 console.log(`  (only Stop is networked; capture and inject never call out -> zero runtime LLM cost)\n`);
