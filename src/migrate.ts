@@ -44,7 +44,11 @@ function rewriteClaudeMdImport(
       updated = true;
     }
     if (!updated) return false;
-    fs.writeFileSync(claudeMdPath, content, 'utf-8');
+    // Write through O_NOFOLLOW so a symlink swapped in after the lstat guard
+    // above is rejected atomically rather than followed to its target.
+    const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
+    const fd = fs.openSync(claudeMdPath, fs.constants.O_WRONLY | fs.constants.O_TRUNC | oNoFollow);
+    try { fs.writeSync(fd, content); } finally { fs.closeSync(fd); }
     return true;
   } catch (e) {
     logError(`migration: failed to update CLAUDE.md: ${String(e)}`);
