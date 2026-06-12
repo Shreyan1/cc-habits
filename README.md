@@ -4,6 +4,9 @@
 [![tests](https://github.com/Shreyan1/cc-habits/actions/workflows/test.yml/badge.svg)](https://github.com/Shreyan1/cc-habits/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/npm/l/cc-habits.svg)](LICENSE)
 [![node](https://img.shields.io/node/v/cc-habits.svg)](https://nodejs.org)
+[![website](https://img.shields.io/badge/website-shreyan1.github.io%2Fcc--habits-1f4a04)](https://shreyan1.github.io/cc-habits/)
+
+**Website:** [shreyan1.github.io/cc-habits](https://shreyan1.github.io/cc-habits/)
 
 **cc-habits is the tool-agnostic memory layer for AI coding agents.** It passively learns your coding habits from your real edits and carries them across Claude Code, Cursor, Codex, Gemini, Cline, and any Git workflow, so every agent you use writes code in *your* style, with no rules files to maintain by hand.
 
