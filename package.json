@@ -42,6 +42,7 @@
     "build": "node build.mjs",
     "test": "vitest run",
     "lint": "tsc --noEmit",
+    "bench": "npm run build && node bench/run.mjs",
     "prepublishOnly": "npm run build"
   },
   "engines": {
