@@ -25,7 +25,7 @@ function Hero() {
       <div className="container hero__inner">
         <div className="hero__brand">
           <Wordmark size="1.45rem" className="hero__logo" blink />
-          <span className="hero__badge">v0.6.1</span>
+          <span className="hero__badge">v0.7.10</span>
           <span className="hero__badge">open source</span>
         </div>
 

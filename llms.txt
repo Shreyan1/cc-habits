@@ -1,0 +1,31 @@
+# cc-habits
+
+> cc-habits (also written cch or "cc habits") is a tool-agnostic memory layer for AI coding agents. It learns a developer's coding habits from their real edits and carries them across Claude Code, Cursor, Codex, Gemini, Kimi, and Cline, so every agent writes code in the developer's own style with no manual rules files to maintain.
+
+cc-habits is local-first and private: habits live in plain Markdown on the developer's own disk. There is no telemetry and no cc-habits server. The only network call is one small habit-extraction request per session to the LLM provider the user chooses (Anthropic, OpenAI, Groq, or a fully local Ollama model, in which case nothing leaves the machine at all). Habits are captured passively through each tool's hooks, graduate to "active" only after appearing in two distinct sessions, decay when unused, and can be permanently tombstoned so they are never relearned.
+
+## What it is
+
+- Memory layer for AI coding agents: One local profile of your coding style, injected into every agent through each tool's native rules format.
+- How it works: Capture (a hook on every edit) then Extract (one small-model call at session end) then Learn (confidence scoring with a two-session graduation gate) then Inject and Sync.
+
+## Key facts
+
+- Cross-tool: Claude Code, Cursor, Codex CLI, Gemini CLI, Kimi, Cline, Windsurf, GitHub Copilot (via AGENTS.md), and any Git repo. Kept in sync via `cch sync`.
+- Private: no telemetry, no server, no analytics. One optional LLM call per session, or $0 and fully offline with Ollama.
+- Low overhead: the capture hook does its work in about five milliseconds and never blocks your terminal; roughly 150 to 350 tokens are injected per prompt.
+- Safe: two-session graduation gate, confidence decay, permanent tombstones, per-repo `.cc-habits-ignore` opt-out, and a sanitizer hardened against prompt injection.
+- Install: `npm install -g cc-habits && cch init`. License MIT. Requires Node.js 20+.
+
+## How it compares
+
+- Versus a manual CLAUDE.md or .cursorrules: those are written once, go stale, and must be rewritten per tool. cc-habits learns automatically and syncs to every tool.
+- Versus background memory daemons: cc-habits has no persistent daemon, no idle CPU use, and no background LLM cost. It runs as an on-demand hook and exits.
+- Versus mem0 and application memory databases: those are for developers building AI products. cc-habits is for developers using AI coding tools.
+
+## Links
+
+- Website: https://shreyan1.github.io/cc-habits/
+- Documentation and spec: https://shreyan1.github.io/cc-habits/docs.html
+- Source on GitHub: https://github.com/Shreyan1/cc-habits
+- npm package: https://www.npmjs.com/package/cc-habits

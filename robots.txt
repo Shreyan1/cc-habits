@@ -1,0 +1,46 @@
+# robots.txt for cc-habits (https://shreyan1.github.io/cc-habits/)
+# Note: GitHub Pages project sites are served from a subpath, so the
+# authoritative host-root robots.txt lives at https://shreyan1.github.io/robots.txt.
+# This file is provided for crawlers and tools that read subpath robots files.
+
+User-agent: *
+Allow: /
+
+# Answer-engine and AI crawlers are explicitly welcome.
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://shreyan1.github.io/cc-habits/sitemap.xml

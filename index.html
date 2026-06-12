@@ -3,10 +3,50 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>cc-habits - your coding agents learn your habits</title>
+
+    <!-- Mark the document as JS-capable before paint, so the crawlable static
+         fallback in #seo-content is hidden for real (JS) visitors with no flash,
+         while non-JS answer-engine crawlers (GPTBot, ClaudeBot, PerplexityBot,
+         Google-Extended) still read it. -->
+    <script>
+      document.documentElement.className += " js";
+    </script>
+
+    <title>cc-habits (cch): the memory layer for AI coding agents</title>
     <meta
       name="description"
-      content="cc-habits learns your coding style from your actual edits and feeds it back into every AI coding tool you use, automatically. One tool-agnostic memory layer across Claude Code, Gemini CLI, Codex, Kimi, Cursor, and Cline." />
+      content="cc-habits (cch) is the tool-agnostic memory layer for AI coding agents. It learns your coding habits from your real edits and carries them across Claude Code, Cursor, Codex, Gemini, and Cline, automatically." />
+    <meta
+      name="keywords"
+      content="cc-habits, cch, cc habits, coding habits, AI coding memory, memory layer for AI agents, Claude Code memory, Cursor memory, Codex CLI, Gemini CLI, AGENTS.md, AI coding assistant, developer memory layer" />
+    <meta name="author" content="Shreyan Basu Ray" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="theme-color" content="#B5FF1C" />
+    <link rel="canonical" href="https://shreyan1.github.io/cc-habits/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="cc-habits" />
+    <meta property="og:title" content="cc-habits (cch): the memory layer for AI coding agents" />
+    <meta
+      property="og:description"
+      content="A local-first developer memory layer. cc-habits learns your coding habits from your real edits and carries them across Claude Code, Cursor, Codex, Gemini, and Cline, automatically." />
+    <meta property="og:url" content="https://shreyan1.github.io/cc-habits/" />
+    <meta property="og:image" content="https://shreyan1.github.io/cc-habits/logo/icon-512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="cc-habits logo" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="cc-habits (cch): the memory layer for AI coding agents" />
+    <meta
+      name="twitter:description"
+      content="A local-first developer memory layer. cc-habits learns your coding habits from real edits and carries them across every AI coding tool you use, automatically." />
+    <meta name="twitter:image" content="https://shreyan1.github.io/cc-habits/logo/icon-512.png" />
+
+    <!-- llms.txt hint for answer engines -->
+    <link rel="alternate" type="text/plain" href="https://shreyan1.github.io/cc-habits/llms.txt" title="llms.txt" />
 
     <!-- Display face: Silkscreen (bitmap-pixel mono, stands in for Departure Mono) -->
     <!-- Body face: JetBrains Mono -->
@@ -22,14 +62,233 @@
     <link rel="icon" href="logo/icon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="logo/icon-16.png" type="image/png" sizes="16x16" />
     <link rel="apple-touch-icon" href="logo/icon-180.png" />
-    <meta property="og:image" content="logo/icon-512.png" />
+
+    <!-- Hide the crawlable static fallback for JS visitors (they get the app). -->
+    <style>
+      .js #seo-content { display: none !important; }
+      #seo-content { max-width: 70ch; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+      #seo-content a { color: inherit; }
+      #seo-content h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 0.75rem; }
+      #seo-content h2 { font-size: 1.25rem; margin: 2.25rem 0 0.5rem; }
+      #seo-content h3 { font-size: 1rem; margin: 1.25rem 0 0.25rem; }
+      #seo-content p, #seo-content li { line-height: 1.55; }
+      #seo-content code { font-family: monospace; }
+    </style>
+
+    <!-- Structured data: entity binding for search engines and answer engines.
+         SoftwareApplication + WebSite + FAQPage + author, as one @graph. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://shreyan1.github.io/cc-habits/#website",
+          "url": "https://shreyan1.github.io/cc-habits/",
+          "name": "cc-habits",
+          "alternateName": ["cch", "cc habits"],
+          "description": "The tool-agnostic memory layer for AI coding agents. cc-habits learns your coding habits from your real edits and carries them across every AI coding tool you use.",
+          "inLanguage": "en",
+          "publisher": { "@id": "https://shreyan1.github.io/cc-habits/#person" }
+        },
+        {
+          "@type": "Person",
+          "@id": "https://shreyan1.github.io/cc-habits/#person",
+          "name": "Shreyan Basu Ray",
+          "url": "https://github.com/Shreyan1",
+          "sameAs": [
+            "https://github.com/Shreyan1",
+            "https://www.linkedin.com/in/shreyanbasuray"
+          ]
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://shreyan1.github.io/cc-habits/#software",
+          "name": "cc-habits",
+          "alternateName": "cch",
+          "applicationCategory": "DeveloperApplication",
+          "applicationSubCategory": "Command Line Tool",
+          "operatingSystem": "macOS, Linux, Windows (Node.js 20+)",
+          "url": "https://shreyan1.github.io/cc-habits/",
+          "downloadUrl": "https://www.npmjs.com/package/cc-habits",
+          "softwareVersion": "0.7.10",
+          "description": "cc-habits (cch) is a tool-agnostic, local-first memory layer for AI coding agents. It passively learns a developer's coding habits from their real edits and carries them across Claude Code, Cursor, Codex, Gemini, Kimi, Cline, and any Git workflow, so every agent writes code in the developer's own style, with no manual rules files to maintain. No telemetry, no server, no analytics.",
+          "featureList": [
+            "Learns coding habits automatically from your real edits",
+            "Syncs one memory profile across Claude Code, Cursor, Codex, Gemini, Kimi, Cline, and any Git repo",
+            "Local-first and private: no telemetry, no server, no analytics",
+            "Runs free and fully offline with Ollama, or one small extraction call to a provider you choose",
+            "Two-session graduation gate, confidence decay, and permanent tombstones keep your context clean"
+          ],
+          "keywords": "cc-habits, cch, coding habits, AI coding memory, memory layer, Claude Code, Cursor, Codex, Gemini, Cline, AGENTS.md",
+          "license": "https://github.com/Shreyan1/cc-habits/blob/main/LICENSE",
+          "author": { "@id": "https://shreyan1.github.io/cc-habits/#person" },
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://shreyan1.github.io/cc-habits/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "Does cc-habits work across all my projects?",
+              "acceptedAnswer": { "@type": "Answer", "text": "Yes. Hooks live in each tool's settings (for example ~/.claude/settings.json or ~/.gemini/settings.json) and your habits live in ~/.cc-habits/, all user-level. Everything is global by default, with no per-project setup." }
+            },
+            {
+              "@type": "Question",
+              "name": "I already auto-generate a CLAUDE.md. Does cc-habits replace it?",
+              "acceptedAnswer": { "@type": "Answer", "text": "No, it fills the gap. cch init adds a single @import line to your existing ~/.claude/CLAUDE.md and overwrites nothing. Your generated file stays; cc-habits keeps it current with what you actually do." }
+            },
+            {
+              "@type": "Question",
+              "name": "Will cc-habits slow down or break my coding sessions?",
+              "acceptedAnswer": { "@type": "Answer", "text": "No. The capture and inject hooks run locally with no network call, and the capture work itself takes a few milliseconds. Every hook is wrapped in try/catch and exits 0 on error, so cc-habits can never fail or block a session." }
+            },
+            {
+              "@type": "Question",
+              "name": "What if cc-habits learns the wrong thing?",
+              "acceptedAnswer": { "@type": "Answer", "text": "A new habit sits in the Learning section, invisible to your agent, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Run cch pending to approve or discard before anything applies." }
+            },
+            {
+              "@type": "Question",
+              "name": "Do I need a separate API key on top of my coding-tool plan?",
+              "acceptedAnswer": { "@type": "Answer", "text": "They are separate purchases. If you only have a tool subscription, run with Ollama: free and fully local, no key required. Anthropic Haiku (about $0.09/month), OpenAI, and Groq are also supported." }
+            },
+            {
+              "@type": "Question",
+              "name": "What actually leaves my machine?",
+              "acceptedAnswer": { "@type": "Answer", "text": "Exactly one call per session: the Stop hook sends a redacted batch of signals to your chosen provider, using your own key. Emails, Indian PAN numbers, and Luhn-valid credit-card numbers are stripped before anything leaves. With Ollama, nothing leaves at all." }
+            },
+            {
+              "@type": "Question",
+              "name": "Does cc-habits phone home?",
+              "acceptedAnswer": { "@type": "Answer", "text": "Never. There is no cc-habits server, no telemetry, no analytics, no error-reporting endpoint. The only outbound call is the extractor call to the provider you pick." }
+            },
+            {
+              "@type": "Question",
+              "name": "Am I the data controller under GDPR, DPDP, or CCPA?",
+              "acceptedAnswer": { "@type": "Answer", "text": "Yes. Everything lives in your home directory and the only outbound call uses your own key, so you are both controller and processor. In regulated setups, set your provider key via a secrets manager and do not sync ~/.cc-habits/ across machines." }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I run cc-habits offline, and how do I wipe everything?",
+              "acceptedAnswer": { "@type": "Answer", "text": "Signal capture works offline; if extraction cannot reach the API the Stop hook logs the error and exits 0, with no signals lost. To clear everything, run cch reset --yes (tombstones survive, so deleted rules never return)." }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
 
     <!-- App: single pre-built, minified bundle (React compiled in, no runtime
          transpile, no third-party CDN). Built from *.jsx via `npm run build`. -->
     <link rel="preload" href="app.js?v=1" as="script" />
   </head>
   <body>
+    <!-- Interactive app mounts here (JS visitors). -->
     <div id="app"></div>
+
+    <!-- Crawlable static content for non-JS clients and answer engines. Mirrors
+         the message of the rendered app; hidden for JS visitors via .js above. -->
+    <main id="seo-content">
+      <header>
+        <p><strong>cc-habits</strong> (cch) &middot; open source &middot; MIT</p>
+        <nav>
+          <a href="https://github.com/Shreyan1/cc-habits">GitHub</a> &middot;
+          <a href="https://www.npmjs.com/package/cc-habits">npm</a> &middot;
+          <a href="docs.html">Docs</a>
+        </nav>
+      </header>
+
+      <h1>cc-habits: the tool-agnostic memory layer for AI coding agents</h1>
+      <p>
+        <strong>Every coding agent, writing like you.</strong> cc-habits (cch)
+        passively learns your coding habits from the edits you already make and
+        carries them across Claude Code, Cursor, Codex, Gemini, Kimi, Cline, and
+        any Git workflow, so every AI agent you use writes code in your own
+        style, with no rules files to maintain by hand.
+      </p>
+      <p>
+        Install it in two commands:
+      </p>
+      <pre><code>npm install -g cc-habits
+cch init</code></pre>
+
+      <h2>What cc-habits is</h2>
+      <p>
+        cc-habits is a local-first developer memory layer. Your habits live in
+        plain Markdown on your own machine. There is no telemetry, no cc-habits
+        server, and no analytics. The only network call is one small
+        habit-extraction request per session to the LLM provider you choose
+        (Anthropic, OpenAI, Groq, or a fully local Ollama model, in which case
+        nothing leaves your machine at all).
+      </p>
+
+      <h2>Works with your whole toolchain</h2>
+      <p>
+        One memory profile, synced everywhere: Claude Code, Cursor, Codex CLI,
+        Gemini CLI, Kimi, Cline, Windsurf, GitHub Copilot (via AGENTS.md), and
+        any Git repository. Run <code>cch sync</code> to write your active habits
+        into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and
+        <code>.clinerules</code>.
+      </p>
+
+      <h2>How cc-habits works</h2>
+      <ol>
+        <li><strong>Capture.</strong> A hook fires on every edit and appends a redacted diff to a local log, with no network call.</li>
+        <li><strong>Extract.</strong> At session end, one small-model call turns your batched edits into structured habit updates.</li>
+        <li><strong>Learn.</strong> New habits start as "learning" and only graduate to active after they appear in two distinct sessions. Stale habits decay; deleted ones are tombstoned so they are never relearned.</li>
+        <li><strong>Inject and sync.</strong> Active habits are written to a clean preferences file your tools read, and synced into AGENTS.md and other rule formats.</li>
+      </ol>
+
+      <h2>Key facts</h2>
+      <ul>
+        <li><strong>Private:</strong> no telemetry, no server, no analytics. One optional LLM call per session, or $0 and fully offline with Ollama.</li>
+        <li><strong>Low overhead:</strong> the capture hook does its work in about five milliseconds and never blocks your terminal.</li>
+        <li><strong>Safe:</strong> two-session graduation gate, confidence decay, permanent tombstones, and a sanitizer hardened against prompt injection.</li>
+        <li><strong>Open:</strong> MIT licensed, Node.js 20+, install with <code>npm install -g cc-habits</code>.</li>
+      </ul>
+
+      <h2>Frequently asked questions</h2>
+
+      <h3>Does cc-habits work across all my projects?</h3>
+      <p>Yes. Hooks live in each tool's settings (for example <code>~/.claude/settings.json</code> or <code>~/.gemini/settings.json</code>) and your habits live in <code>~/.cc-habits/</code>, all user-level. Everything is global by default, with no per-project setup.</p>
+
+      <h3>I already auto-generate a CLAUDE.md. Does cc-habits replace it?</h3>
+      <p>No, it fills the gap. <code>cch init</code> adds a single <code>@import</code> line to your existing <code>~/.claude/CLAUDE.md</code> and overwrites nothing. Your generated file stays; cc-habits keeps it current with what you actually do.</p>
+
+      <h3>Will cc-habits slow down or break my coding sessions?</h3>
+      <p>No. The capture and inject hooks run locally with no network call, and the capture work itself takes a few milliseconds. Every hook is wrapped in try/catch and exits 0 on error, so cc-habits can never fail or block a session.</p>
+
+      <h3>What if cc-habits learns the wrong thing?</h3>
+      <p>A new habit sits in the Learning section, invisible to your agent, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Run <code>cch pending</code> to approve or discard before anything applies.</p>
+
+      <h3>Do I need a separate API key on top of my coding-tool plan?</h3>
+      <p>They are separate purchases. If you only have a tool subscription, run with Ollama: free and fully local, no key required. Anthropic Haiku (about $0.09/month), OpenAI, and Groq are also supported.</p>
+
+      <h3>What actually leaves my machine?</h3>
+      <p>Exactly one call per session: the Stop hook sends a redacted batch of signals to your chosen provider, using your own key. Emails, Indian PAN numbers, and Luhn-valid credit-card numbers are stripped before anything leaves. With Ollama, nothing leaves at all.</p>
+
+      <h3>Does cc-habits phone home?</h3>
+      <p>Never. There is no cc-habits server, no telemetry, no analytics, no error-reporting endpoint. The only outbound call is the extractor call to the provider you pick.</p>
+
+      <h3>Can I run cc-habits offline, and how do I wipe everything?</h3>
+      <p>Signal capture works offline; if extraction cannot reach the API the Stop hook logs the error and exits 0, with no signals lost. To clear everything, run <code>cch reset --yes</code> (tombstones survive, so deleted rules never return).</p>
+
+      <footer>
+        <p>
+          <a href="https://github.com/Shreyan1/cc-habits">cc-habits on GitHub</a> &middot;
+          <a href="https://www.npmjs.com/package/cc-habits">cc-habits on npm</a> &middot;
+          <a href="docs.html">Documentation and habits-format spec</a>
+        </p>
+        <p>&copy; 2026 cc-habits &middot; MIT licensed &middot; by Shreyan Basu Ray</p>
+      </footer>
+    </main>
+
     <script src="app.js?v=1" defer></script>
   </body>
 </html>

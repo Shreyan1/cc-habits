@@ -17,7 +17,7 @@ window.useTweakSet = useTweakSet;
 
 const COPY = {
   heroHeadline: "Every coding agent, writing like you.",
-  heroCaption: "cc-habits  ·  v0.5.3  ·  open source",
+  heroCaption: "cc-habits  ·  v0.7.10  ·  open source",
   heroTagline: "It learns your style from the edits you already make, and feeds it back into every session, automatically.",
   heroSub:
     "A local-first CLI that writes your style to a plain habits.md every agent reads every session, across Claude Code, Gemini CLI, Codex, and Kimi. Capture runs locally with no network call and never blocks your terminal. No lock-in.",
