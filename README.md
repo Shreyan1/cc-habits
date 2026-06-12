@@ -1,14 +1,26 @@
 # cc-habits
 
-**The neutral, cross-tool personalization layer for AI coding agents.**
+[![npm version](https://img.shields.io/npm/v/cc-habits.svg)](https://www.npmjs.com/package/cc-habits)
+[![tests](https://github.com/Shreyan1/cc-habits/actions/workflows/test.yml/badge.svg)](https://github.com/Shreyan1/cc-habits/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/npm/l/cc-habits.svg)](LICENSE)
+[![node](https://img.shields.io/node/v/cc-habits.svg)](https://nodejs.org)
 
-> *Learn once. Personalized everywhere. One local profile shared across Claude Code, Cursor, Cline, Windsurf, Gemini, and Copilot.*
+**cc-habits is the tool-agnostic memory layer for AI coding agents.** It passively learns your coding habits from your real edits and carries them across Claude Code, Cursor, Codex, Gemini, Cline, and any Git workflow, so every agent you use writes code in *your* style, with no rules files to maintain by hand.
+
+Local-first and private: no telemetry, no server, no analytics. Your habits never leave your machine except the one small extraction call to the LLM provider you choose, or $0 and fully offline with Ollama.
+
+```bash
+npm install -g cc-habits && cc-habits init
+```
+
+> *Learn once. Personalized everywhere. One local profile shared across Claude Code, Cursor, Codex, Cline, Windsurf, Gemini, and Copilot.*
 
 Read about what we believe and how we build: [PHILOSOPHY.md](PHILOSOPHY.md)
 
 ---
 
-## Topic Navigation
+<details>
+<summary><strong>Table of contents</strong></summary>
 
 - [Why developers install cc-habits](#why-developers-install-cc-habits)
 - [cc-habits vs Alternatives](#cc-habits-vs-alternatives)
@@ -49,6 +61,8 @@ Read about what we believe and how we build: [PHILOSOPHY.md](PHILOSOPHY.md)
 - [Contributing](#contributing)
 - [License](#license)
 
+</details>
+
 ---
 
 Your AI coding agent is great, but out of the box it doesn't know *your* style. Every developer has years of accumulated micro-decisions: naming conventions, error-handling patterns, preferred abstractions, that the model cannot see. Today, you manually generate a `CLAUDE.md`, `AGENTS.md`, or `.cursorrules` file for one repository and move on. But that is a static snapshot. It never sees the corrections you make weeks later, and it doesn't sync when you switch tools. Switch from Claude Code to Cursor, Windsurf, or Cline, and you start personalizing from zero all over again.
@@ -79,9 +93,9 @@ Your AI coding agent is great, but out of the box it doesn't know *your* style. 
 | **Who it's for** | Developers using coding tools | Developers using coding tools | Developers using coding tools | Developers building AI products | Developers using coding tools |
 | **Tool agnostic** | ✅ Input: hooks & Git integration; Output: writes to any agent's native rules format | ❌ MCP-only, agent must support MCP protocol | ⚠️ Open standard (Anthropic), but manually authored per skill | ❌ SDK integration per app | ❌ One file per tool, rewrite for each |
 | **Privacy** | ✅ No telemetry, habits file stays on disk. One optional LLM call per session for pattern extraction (defaults to local Ollama). If configured with a cloud LLM, diffs/summaries are sent to that provider. | ⚠️ Local-first, but cloud LLM provider sees your code summaries during compression | ✅ 100% local | ❌ Cloud or self-hosted server | ✅ 100% local |
-| **Telemetry** | ✅ Zero, never phones home, no analytics | ⚠️ Internal telemetry hooks reported, opt-out behavior varies by version | ✅ Zero | ⚠️ Cloud telemetry on paid tiers, check current policy | ✅ Zero |
+| **Telemetry** | ✅ Zero, never phones home, no analytics | ⚠️ Background telemetry varies by version; check their current docs | ✅ Zero | ⚠️ Cloud telemetry on paid tiers, check current policy | ✅ Zero |
 | **LLM cost at runtime** | ✅ Zero during the session, matching and injection are pure local heuristics. One small extraction call at session end (provider-configurable, ~$0.001 on a cloud model) | ❌ Background LLM calls for memory compression, risk of token burn if misconfigured | ✅ Zero | ❌ Per-query LLM calls on cloud tier | ✅ Zero |
-| **Runtime overhead** | ✅ No daemon, no server, no ports. Hooks run on demand and exit in <50ms | ❌ Persistent background daemon (iii-engine) binding multiple local ports | ✅ Zero | ❌ Cloud or self-hosted server | ✅ Zero |
+| **Runtime overhead** | ✅ No daemon, no server, no ports. Hooks run on demand and exit in <50ms | ❌ Persistent background daemon and local server process | ✅ Zero | ❌ Cloud or self-hosted server | ✅ Zero |
 | **Context overhead** | <0.5% of a 100k window (~150-350 tokens) | Variable, depends on memory retrieval volume | Full skill loaded on activation | Variable, depends on query results | Entire file loaded every session |
 | **Compaction safe** | ✅ Re-injects top habits on every prompt, survives mid-session context compaction | ❌ One-shot retrieval, lost on compaction | ❌ Loaded once, lost on compaction | ❌ One-shot retrieval | ❌ Loaded once at session start |
 | **Guardrails** | ✅ 2-session graduation, Learning-section quarantine, permanent tombstones, confidence decay, `.cc-habits-ignore` per-repo opt-out | ⚠️ Manual governance delete + TTL expiry, no automated quality filtering | N/A, manually authored | N/A, app-controlled | N/A, manually authored |
@@ -89,6 +103,8 @@ Your AI coding agent is great, but out of the box it doesn't know *your* style. 
 | **Vendor lock-in** | ✅ Zero. Local open standard; developer owns their personalization data | Tied to MCP protocol + iii-engine runtime | ✅ Open standard, cross-platform | Tied to mem0 SDK/cloud | Tied to one tool's file format |
 | **Cross-tool** | ✅ 9+ major platforms (Claude Code, Cursor, Windsurf, Copilot, etc.) kept in lockstep | 20+ agents via MCP | 27+ agents | Any LLM via SDK | One file per tool |
 | **Cost** | Free open-source; sub-cent LLM extraction cost | Free but your LLM API bill pays for compression | Free | Free tier, then cloud pricing | Free |
+
+> Comparisons reflect each project's publicly documented behavior at the time of writing and may change. Verify against their current docs before relying on a specific detail. Every claim cc-habits makes about itself is verifiable in this repository's source and test suite.
 
 ### Understanding the Landscape: The Agent Personalization Dilemma
 
@@ -124,10 +140,10 @@ Unlike static rules that go out of date immediately, `cc-habits` is self-correct
 
 Background memory daemons (such as AgentMemory) are built on different architectural assumptions. They make tradeoffs that matter if you prioritize privacy, cost, and machine performance:
 
-1. **Summaries leave your machine**: They rely on cloud LLMs for background memory compression. If you use a cloud provider, summaries of your file edits, architectural decisions, and error logs are transmitted externally. `cc-habits` keeps your entire profile local on your disk.
-2. **Background runtime costs**: They run background loops (working, episodic, semantic, and procedural passes) that constantly query your LLM provider. Misconfigurations can lead to loop recursion and unexpected API bills. `cc-habits` has zero runtime LLM cost.
-3. **Daemon overhead**: They run a persistent background server (e.g., `iii-engine`) binding multiple ports. `cc-habits` has no background daemon and zero idle CPU usage; it executes as a hook in <50ms and exits.
-4. **Silent telemetry**: They register 12+ telemetry hooks that fire events silently via local WebSockets. `cc-habits` has zero telemetry of any kind.
+1. **Summaries leave your machine**: They rely on cloud LLMs for background memory compression. If you use a cloud provider, summaries of your file edits, architectural decisions, and error logs can be transmitted externally. `cc-habits` keeps your entire profile local on your disk.
+2. **Background runtime costs**: They run background loops (working, episodic, semantic, and procedural passes) that query your LLM provider. A misconfiguration here can lead to unexpected API usage. `cc-habits` has zero runtime LLM cost.
+3. **Daemon overhead**: They run a persistent background process to serve memory queries. `cc-habits` has no background daemon and zero idle CPU usage; it executes as a hook in <50ms and exits.
+4. **Silent telemetry**: Some register background telemetry hooks; the exact behavior varies by version, so verify against their current docs. `cc-habits` has zero telemetry of any kind, and you can confirm that in the source.
 5. **No quality filters**: They capture memories immediately without graduation thresholds. If you write bad code during a late-night session, those mistakes pollute your active context. `cc-habits` requires habits to be verified across two distinct sessions before graduating them to active status.
 
 ---
@@ -775,6 +791,14 @@ cc-habits is MIT-licensed. Before opening a PR:
 - Add a test covering the new behaviour.
 - `npm run build` must pass (zero TypeScript errors).
 - `npm test` must pass (all tests green).
+
+---
+
+## Star this repo
+
+If cc-habits saves you from re-explaining yourself to every new agent, a star is the single best way to help other developers find it. It is the honest truth that a star is the main signal that surfaces a project like this, and it costs you one click.
+
+[⭐ Star cc-habits on GitHub](https://github.com/Shreyan1/cc-habits)
 
 ---
 

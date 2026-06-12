@@ -1,0 +1,33 @@
+# cc-habits
+
+> cc-habits is a tool-agnostic memory layer for AI coding agents. It learns a developer's coding habits from their real edits and carries them across Claude Code, Cursor, Codex, Gemini, Cline, and any Git workflow, so every agent writes code in the developer's own style with no manual rules files to maintain.
+
+cc-habits is local-first and private: habits live in plain Markdown on the developer's own disk. There is no telemetry and no cc-habits server. The only network call is one small habit-extraction request per session to the LLM provider the user chooses (Anthropic, OpenAI, Groq, or a fully local Ollama model, in which case nothing leaves the machine at all). Habits are captured passively through each tool's hooks, graduate to "active" only after appearing in two distinct sessions, decay when unused, and can be permanently tombstoned so they are never re-learned.
+
+## What it is
+
+- [Memory layer for AI coding agents](https://github.com/Shreyan1/cc-habits): One local profile of your coding style, injected into every agent through each tool's native rules format.
+- [How it works](https://github.com/Shreyan1/cc-habits#how-it-works): Capture (hooks) then Extract (one LLM call at session end) then Learn (confidence scoring with a two-session graduation gate) then Inject and Sync.
+
+## Key facts
+
+- Cross-tool: Claude Code, Cursor, Windsurf, Gemini CLI, Codex CLI, Kimi CLI, Cline, GitHub Copilot, and any Git repo. 9+ targets kept in sync via `cch sync`.
+- Private: no telemetry, no server, no analytics. One optional LLM call per session, or $0 and fully offline with Ollama.
+- Low overhead: the capture hook exits in under 50ms; prompt-time injection uses local heuristics with zero API cost; roughly 150-350 tokens injected per prompt.
+- Safe: two-session graduation gate, confidence decay, permanent tombstones, per-repo `.cc-habits-ignore` opt-out, and a sanitizer hardened against prompt injection (role markers, zero-width and Unicode-tag homoglyphs, container escape, ReDoS).
+- Install: `npm install -g cc-habits && cc-habits init`. License MIT. Requires Node.js 20+.
+
+## How it compares
+
+- Versus a manual CLAUDE.md or .cursorrules: those are written once, go stale, and must be rewritten per tool. cc-habits learns automatically and syncs to every tool.
+- Versus background memory daemons: cc-habits has no persistent daemon, no idle CPU use, and no background LLM cost. It runs as an on-demand hook and exits.
+- Versus mem0 and application memory databases: those are for developers building AI products. cc-habits is for developers using AI coding tools.
+- Versus SKILL.md: complementary, not competing. SKILL.md is what an agent can do; cc-habits is how it should do it (your personal style).
+
+## Links
+
+- [README](https://github.com/Shreyan1/cc-habits#readme)
+- [Philosophy](https://github.com/Shreyan1/cc-habits/blob/main/PHILOSOPHY.md)
+- [Security](https://github.com/Shreyan1/cc-habits/blob/main/SECURITY.md)
+- [Privacy](https://github.com/Shreyan1/cc-habits/blob/main/PRIVACY.md)
+- [npm package](https://www.npmjs.com/package/cc-habits)
