@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { storagePaths, ensureDirs, logError } from './storage';
+import { writePreferencesFile } from './sync';
 
 const OLD_DIR = path.join(os.homedir(), '.claude', 'habits');
 const OLD_CLAUDE_MD = path.join(os.homedir(), '.claude', 'CLAUDE.md');
@@ -10,6 +11,45 @@ export interface MigrationResult {
   migrated: boolean;
   copiedFiles: string[];
   claudeMdUpdated: boolean;
+}
+
+// Rewrite a @import line in CLAUDE.md that points at habits.md to point at
+// preferences.md instead. Runs unconditionally on every startup so v0.6.x users
+// (storage already at ~/.cc-habits/, no legacy dir) get the fix on first upgrade.
+// Idempotent: no-op when already pointing at preferencesFile or when the file
+// contains no cc-habits @import at all.
+function rewriteClaudeMdImport(
+  claudeMdPath: string,
+  habitsFilePath: string,
+  preferencesFilePath: string,
+): boolean {
+  if (!fs.existsSync(claudeMdPath)) return false;
+  if (fs.existsSync(claudeMdPath) && fs.lstatSync(claudeMdPath).isSymbolicLink()) return false;
+  try {
+    let content = fs.readFileSync(claudeMdPath, 'utf-8');
+    const newImport = `@import ${preferencesFilePath}`;
+    // Already correct, idempotent no-op.
+    if (content.includes(newImport)) return false;
+    let updated = false;
+    // Pattern 1: legacy pre-rename install (~/.claude/habits/habits.md).
+    const oldDirImport = `@import ${path.join(OLD_DIR, 'habits.md')}`;
+    if (content.includes(oldDirImport)) {
+      content = content.replace(oldDirImport, newImport);
+      updated = true;
+    }
+    // Pattern 2: v0.6.x install (~/.cc-habits/habits.md, current storage, old import).
+    const currentHabitsImport = `@import ${habitsFilePath}`;
+    if (content.includes(currentHabitsImport)) {
+      content = content.replace(currentHabitsImport, newImport);
+      updated = true;
+    }
+    if (!updated) return false;
+    fs.writeFileSync(claudeMdPath, content, 'utf-8');
+    return true;
+  } catch (e) {
+    logError(`migration: failed to update CLAUDE.md: ${String(e)}`);
+    return false;
+  }
 }
 
 export function runMigration(force = false, oldDirOverride?: string): MigrationResult {
@@ -22,64 +62,59 @@ export function runMigration(force = false, oldDirOverride?: string): MigrationR
   const oldDir = oldDirOverride || OLD_DIR;
   const oldClaudeMd = oldDirOverride ? path.join(path.dirname(oldDirOverride), 'CLAUDE.md') : OLD_CLAUDE_MD;
 
-  // If the old dir doesn't exist, nothing to migrate
+  // Step 1: Rewrite CLAUDE.md @import unconditionally (catches v0.6.x users who
+  // already have ~/.cc-habits/ but still import habits.md instead of preferences.md).
+  if (rewriteClaudeMdImport(oldClaudeMd, storagePaths.habitsFile, storagePaths.preferencesFile)) {
+    result.claudeMdUpdated = true;
+  }
+
+  // If the old dir doesn't exist, nothing more to migrate.
   if (!fs.existsSync(oldDir)) {
     return result;
   }
 
-  // Check if target habits.md already exists
+  // Step 2: Perform file migration if habits.md doesn't exist yet in target.
   const targetHabitsFile = storagePaths.habitsFile;
-  if (fs.existsSync(targetHabitsFile) && !force) {
-    // Already migrated or initialized
-    return result;
-  }
+  const targetPreferencesFile = storagePaths.preferencesFile;
+  if (!fs.existsSync(targetHabitsFile) || force) {
+    ensureDirs();
 
-  ensureDirs();
+    const filesToMigrate = [
+      'habits.md',
+      'memories.md',
+      'log.jsonl',
+      '.tombstones.json',
+      '.memory-tombstones.json',
+      'config.yml',
+      '.snapshot.json',
+      '.history.jsonl',
+      '.provenance.json'
+    ];
 
-  const filesToMigrate = [
-    'habits.md',
-    'memories.md',
-    'log.jsonl',
-    '.tombstones.json',
-    '.memory-tombstones.json',
-    'config.yml',
-    '.pending.json',
-    '.memory-pending.json',
-    '.snapshot.json',
-    '.history.jsonl',
-    '.provenance.json'
-  ];
-
-  for (const filename of filesToMigrate) {
-    const src = path.join(oldDir, filename);
-    const dest = path.join(storagePaths.habitsDir, filename);
-    if (fs.existsSync(src)) {
-      try {
-        fs.copyFileSync(src, dest);
-        result.copiedFiles.push(filename);
-      } catch (e) {
-        logError(`migration: failed to copy ${filename}: ${String(e)}`);
+    for (const filename of filesToMigrate) {
+      const src = path.join(oldDir, filename);
+      const dest = path.join(storagePaths.habitsDir, filename);
+      if (fs.existsSync(src)) {
+        try {
+          fs.copyFileSync(src, dest);
+          result.copiedFiles.push(filename);
+        } catch (e) {
+          logError(`migration: failed to copy ${filename}: ${String(e)}`);
+        }
       }
+    }
+
+    if (result.copiedFiles.length > 0) {
+      result.migrated = true;
     }
   }
 
-  if (result.copiedFiles.length > 0) {
-    result.migrated = true;
-  }
-
-  // Update CLAUDE.md import line
-  if (fs.existsSync(oldClaudeMd)) {
+  // 3. Always ensure preferences.md is populated (either on fresh migration or if missing)
+  if (fs.existsSync(targetHabitsFile) && !fs.existsSync(targetPreferencesFile)) {
     try {
-      const oldImportStr = `@import ${path.join(oldDir, 'habits.md')}`;
-      const newImportStr = `@import ${targetHabitsFile}`;
-      let content = fs.readFileSync(oldClaudeMd, 'utf-8');
-      if (content.includes(oldImportStr)) {
-        content = content.replace(oldImportStr, newImportStr);
-        fs.writeFileSync(oldClaudeMd, content, 'utf-8');
-        result.claudeMdUpdated = true;
-      }
+      writePreferencesFile();
     } catch (e) {
-      logError(`migration: failed to update CLAUDE.md: ${String(e)}`);
+      logError(`migration: failed to generate preferences.md: ${String(e)}`);
     }
   }
 

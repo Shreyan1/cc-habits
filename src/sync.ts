@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { readHabitsMd, parseHabits, HabitsMap, Habit, storagePaths } from './storage';
+import { readHabitsMd, parseHabits, HabitsMap, Habit, storagePaths, getPaths, type StorageContext } from './storage';
 import { sanitizeRule } from './confidence';
 
 // cc-habits sync, emit Claude-learned habits into portable preference files that
@@ -41,8 +41,11 @@ function ruleLine(h: Habit): string {
 // The portable body shared by every target: a clean, instruction-style markdown
 // section with no confidence math or signal counts, those are cc-habits internals
 // that would only add noise to an agent's context.
-export function renderPortableBody(cats: HabitsMap, minConfidence = DEFAULT_MIN_CONFIDENCE): string {
-  const active = activeHabits(cats, minConfidence);
+export function renderPortableBody(cats: HabitsMap, minConfidence = DEFAULT_MIN_CONFIDENCE, preActive?: HabitsMap): string {
+  // preActive lets a caller that has already filtered (writePreferencesFile, which
+  // needs the active set for its emptiness check) avoid a second identical filter.
+  // It must equal activeHabits(cats, minConfidence); omit it otherwise.
+  const active = preActive ?? activeHabits(cats, minConfidence);
   const categories = Object.keys(active).sort();
   const lines: string[] = [
     '# Coding preferences',
@@ -183,5 +186,44 @@ export function readSyncTargets(): SyncTarget[] {
     // ignore
   }
   return [];
+}
+
+/**
+ * Write the clean preferences.md that agents @import.
+ *
+ * @param cats Optional already-parsed habits map. When the caller has just built
+ *   and serialised the authoritative map (processStop after applyUpdates/decay),
+ *   passing it skips a redundant read-back AND re-parse of habits.md. The rendered
+ *   output depends only on category, rule, confidence and sessions_seen, all of
+ *   which round-trip losslessly through serialise/parse, so the result is identical
+ *   to reading from disk (guarded by a sync test). Omit it for a standalone write.
+ */
+export function writePreferencesFile(ctx?: StorageContext, cats?: HabitsMap): void {
+  const paths = getPaths(ctx);
+  const catsResolved = cats ?? parseHabits(readHabitsMd(ctx));
+  // Filter once, then hand the result to renderPortableBody so it does not repeat
+  // the same activeHabits pass internally.
+  const active = activeHabits(catsResolved, DEFAULT_MIN_CONFIDENCE);
+  const body = renderPortableBody(catsResolved, DEFAULT_MIN_CONFIDENCE, active);
+  let content = body;
+  if (Object.keys(active).length === 0) {
+    content += '\n\nNo preferences have graduated yet. Keep coding and they will appear here once seen in multiple sessions.\n';
+  }
+
+  const dest = paths.preferencesFile;
+  if (fs.existsSync(dest) && fs.lstatSync(dest).isSymbolicLink()) {
+    throw new Error(`refusing to write through symlink: ${dest}`);
+  }
+  const dir = path.dirname(dest);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const tmpPath = `${dest}.tmp.${process.pid}`;
+  try {
+    fs.writeFileSync(tmpPath, content + '\n', 'utf-8');
+    fs.renameSync(tmpPath, dest);
+  } catch (e) {
+    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    throw e;
+  }
 }
 

@@ -24,7 +24,6 @@ beforeEach(() => {
   storagePaths.habitsDir = tmpDir;
   storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
-  storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   delete process.env['CC_HABITS_MEMORIES'];
 });
 
@@ -125,23 +124,13 @@ describe('looksLikeEnvVar', () => {
 
 // Next-step hints ─────────────────────────────────────────────────────────────
 describe('nextSteps mapping', () => {
-  it('suggests review and sync after view', () => {
-    fs.writeFileSync(
-      storagePaths.pendingFile,
-      JSON.stringify([{ category: 'Style', rule: 'Test rule', decision: 'create', ts: '2026-06-05' }])
-    );
+  it('suggests sync after view', () => {
     const steps = nextSteps('view', []);
-    expect(steps?.some(s => s.includes('pending'))).toBe(true);
     expect(steps?.some(s => s.includes('sync'))).toBe(true);
   });
 
   it('suggests learn after capture', () => {
     expect(nextSteps('capture', [])?.some(s => s.includes('learn'))).toBe(true);
-  });
-
-  it('tailors pending hints to the chosen action', () => {
-    expect(nextSteps('pending', [])?.some(s => s.includes('--approve'))).toBe(true);
-    expect(nextSteps('pending', ['--approve'])?.some(s => s.includes('sync'))).toBe(true);
   });
 
   it('returns nothing for commands without a follow-up', () => {

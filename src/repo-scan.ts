@@ -16,6 +16,8 @@ import { applyUpdates, type AppliedChange } from './confidence';
 import { extractHabitsFromRepo, extractMemoriesFromDocs, type RepoFile } from './extractor';
 import { redact } from './redact';
 import { isGloballyDisabled } from './config';
+import { resolveProviderLabel, hasUsableProvider } from './providers';
+import { writePreferencesFile } from './sync';
 
 // One-time cold scan of a repository: read its source and agent-instruction
 // docs, infer habits/memories via the configured LLM, and write them directly
@@ -40,7 +42,7 @@ const SKIP_FRAGMENTS = [
 
 // Agent-instruction and contributor docs that carry project directives.
 const DOC_CANDIDATES = [
-  'CLAUDE.md', 'AGENTS.md', 'GEMINI.md', '.cursorrules', '.clinerules',
+  'CLAUDE.md', 'AGENTS.md', 'SKILLS.md', 'GEMINI.md', '.cursorrules', '.clinerules',
   'CONTRIBUTING.md', path.join('.github', 'copilot-instructions.md'),
 ];
 
@@ -227,6 +229,11 @@ export interface ScanOptions {
   cwd?: string;
   force?: boolean;   // re-scan even if this repo was already scanned
   ctx?: StorageContext;
+  yes?: boolean;
+  // Async confirmation callback for interactive callers. When provided,
+  // called instead of the blocking fs.readSync fallback so the prompt plays
+  // nicely after raw-mode stdin prompts (which leave the fd non-blocking).
+  confirm?: () => Promise<boolean>;
 }
 
 export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> {
@@ -248,6 +255,42 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
   const docs = readDocFiles(repoRoot);
   if (files.length === 0 && docs.length === 0) {
     return { ...base, reason: 'no source files or docs found' };
+  }
+
+  // Verify a provider can actually run the extraction BEFORE printing the warning
+  // or "analyzing..." line. Otherwise we would announce work, prompt the user to
+  // approve it, then fail, the exact self-contradicting flow we must never show.
+  if (!hasUsableProvider()) {
+    return { ...base, reason: 'no LLM provider configured' };
+  }
+
+  const isInteractive = process.stdin.isTTY && !opts.yes && !(process.env['CC_HABITS_YES'] === '1');
+  if (isInteractive) {
+    process.stdout.write(
+      `\n⚠️  cc-habits repository scan warning:\n` +
+      `   This scan will analyze up to ${MAX_FILES} source files and ${docs.length} docs.\n` +
+      `   This will send code context to your configured AI provider (${resolveProviderLabel()}) and consume tokens.\n`
+    );
+    if (opts.confirm) {
+      const ok = await opts.confirm();
+      if (!ok) return { ...base, reason: 'scan skipped by user' };
+    } else {
+      // Fallback for callers without a confirm callback. fs.readSync on fd 0
+      // only works reliably when no prior async prompt has left stdin non-blocking.
+      process.stdout.write(`   Press Enter to continue or Ctrl+C to skip: `);
+      try {
+        const buffer = Buffer.alloc(1);
+        fs.readSync(0, buffer, 0, 1, null);
+      } catch {
+        return { ...base, reason: 'scan skipped by user prompt interruption' };
+      }
+      process.stdout.write('\n');
+    }
+    // Progress line: the LLM call below can take several seconds, so show that
+    // work is underway (and on which provider) rather than leaving a silent gap.
+    process.stdout.write(
+      `  Analyzing ${files.length} file${files.length === 1 ? '' : 's'} with ${resolveProviderLabel()}, this can take a few seconds...\n`
+    );
   }
 
   let habitUpdates: Awaited<ReturnType<typeof extractHabitsFromRepo>> = [];
@@ -277,6 +320,7 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
       changes,
     });
     writeHabitsMd(serialiseHabits(cats), opts.ctx);
+    writePreferencesFile(opts.ctx);
   }
   const addedMemories: string[] = [];
   const updatedMemories: string[] = [];

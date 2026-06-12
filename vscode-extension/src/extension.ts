@@ -4,8 +4,8 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
 import {
-  parseHabitsFile, parseMemoriesFile, parsePendingFile,
-  type HabitItem, type MemoryItem, type PendingItem,
+  parseHabitsFile, parseMemoriesFile,
+  type HabitItem, type MemoryItem,
 } from './parsers';
 import { activateCollector } from './collector';
 
@@ -28,7 +28,6 @@ function habitsDir(): string {
 
 function habitsFilePath(): string { return path.join(habitsDir(), 'habits.md'); }
 function memoriesFilePath(): string { return path.join(habitsDir(), 'memories.md'); }
-function pendingFilePath(): string { return path.join(habitsDir(), '.pending.json'); }
 
 // CLI runner ────────────────────────────────────────────────────────────────
 
@@ -63,14 +62,14 @@ function runCli(args: string[]): Promise<{ ok: boolean; out: string; err: string
 
 // Tree item types ───────────────────────────────────────────────────────────
 
-type NodeKind = 'habitCategory' | 'habit' | 'memorySection' | 'memory' | 'pendingItem' | 'empty';
+type NodeKind = 'habitCategory' | 'habit' | 'memorySection' | 'memory' | 'empty';
 
 class CcNode extends vscode.TreeItem {
   constructor(
     label: string,
     public readonly kind: NodeKind,
     collapsible: vscode.TreeItemCollapsibleState,
-    public readonly payload?: HabitItem | MemoryItem | PendingItem,
+    public readonly payload?: HabitItem | MemoryItem,
   ) {
     super(label, collapsible);
     this.contextValue = kind;
@@ -110,13 +109,6 @@ class CcNode extends vscode.TreeItem {
         this.iconPath = m.isCandidate
           ? new vscode.ThemeIcon('circle-outline')
           : new vscode.ThemeIcon('warning');
-        break;
-      }
-      case 'pendingItem': {
-        const p = this.payload as PendingItem;
-        this.description = p.category;
-        this.tooltip = p.reasoning || p.rule;
-        this.iconPath = new vscode.ThemeIcon('clock');
         break;
       }
     }
@@ -202,37 +194,11 @@ class MemoriesProvider implements vscode.TreeDataProvider<CcNode> {
   }
 }
 
-// PendingProvider ───────────────────────────────────────────────────────────
-
-class PendingProvider implements vscode.TreeDataProvider<CcNode> {
-  private readonly _change = new vscode.EventEmitter<CcNode | undefined | null>();
-  readonly onDidChangeTreeData = this._change.event;
-
-  refresh(): void { this._change.fire(null); }
-  getTreeItem(el: CcNode): CcNode { return el; }
-
-  getChildren(el?: CcNode): CcNode[] {
-    if (el) return [];
-    const f = pendingFilePath();
-    if (!fs.existsSync(f)) {
-      return [new CcNode('No pending habits', 'empty', vscode.TreeItemCollapsibleState.None)];
-    }
-    const items = parsePendingFile(fs.readFileSync(f, 'utf-8'));
-    if (items.length === 0) {
-      return [new CcNode('No pending habits', 'empty', vscode.TreeItemCollapsibleState.None)];
-    }
-    return items.map(p =>
-      new CcNode(p.rule, 'pendingItem', vscode.TreeItemCollapsibleState.None, p),
-    );
-  }
-}
-
 // activate ──────────────────────────────────────────────────────────────────
 
 export function activate(context: vscode.ExtensionContext): void {
   const habitsProvider = new HabitsProvider();
   const memoriesProvider = new MemoriesProvider();
-  const pendingProvider = new PendingProvider();
 
   context.subscriptions.push(
     vscode.window.createTreeView('cchabits.habits', {
@@ -242,9 +208,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.createTreeView('cchabits.memories', {
       treeDataProvider: memoriesProvider,
       showCollapseAll: true,
-    }),
-    vscode.window.createTreeView('cchabits.pending', {
-      treeDataProvider: pendingProvider,
     }),
   );
 
@@ -257,14 +220,6 @@ export function activate(context: vscode.ExtensionContext): void {
     mdWatcher.onDidChange(() => { habitsProvider.refresh(); memoriesProvider.refresh(); });
     mdWatcher.onDidCreate(() => { habitsProvider.refresh(); memoriesProvider.refresh(); });
     context.subscriptions.push(mdWatcher);
-
-    const pendingWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(vscode.Uri.file(dir), '.pending.json'),
-    );
-    pendingWatcher.onDidChange(() => pendingProvider.refresh());
-    pendingWatcher.onDidCreate(() => pendingProvider.refresh());
-    pendingWatcher.onDidDelete(() => pendingProvider.refresh());
-    context.subscriptions.push(pendingWatcher);
   }
 
   // File save watcher for live capture
@@ -276,7 +231,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('cchabits.refresh', () => {
       habitsProvider.refresh();
       memoriesProvider.refresh();
-      pendingProvider.refresh();
     }),
 
     vscode.commands.registerCommand('cchabits.openHabits', () => {
@@ -328,33 +282,6 @@ export function activate(context: vscode.ExtensionContext): void {
       if (result.ok) {
         memoriesProvider.refresh();
         void vscode.window.showInformationMessage('Memory deleted and tombstoned.');
-      } else {
-        void vscode.window.showErrorMessage(result.err || 'cc-habits not found.');
-      }
-    }),
-
-    vscode.commands.registerCommand('cchabits.approvePending', async () => {
-      const result = await runCli(['pending', '--approve']);
-      if (result.ok) {
-        habitsProvider.refresh();
-        pendingProvider.refresh();
-        void vscode.window.showInformationMessage('Pending habits approved and applied.');
-      } else {
-        void vscode.window.showErrorMessage(result.err || 'cc-habits not found.');
-      }
-    }),
-
-    vscode.commands.registerCommand('cchabits.discardPending', async () => {
-      const answer = await vscode.window.showWarningMessage(
-        'Discard all pending habit proposals?',
-        { modal: true },
-        'Discard',
-      );
-      if (answer !== 'Discard') return;
-      const result = await runCli(['pending', '--discard']);
-      if (result.ok) {
-        pendingProvider.refresh();
-        void vscode.window.showInformationMessage('Pending habits discarded.');
       } else {
         void vscode.window.showErrorMessage(result.err || 'cc-habits not found.');
       }

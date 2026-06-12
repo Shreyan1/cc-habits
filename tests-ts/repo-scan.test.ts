@@ -31,7 +31,6 @@ function pointStorageAt(dir: string): void {
   storagePaths.tombstonesFile = path.join(dir, '.tombstones.json');
   storagePaths.memoryTombstonesFile = path.join(dir, '.memory-tombstones.json');
   storagePaths.memoryIndexFile = path.join(dir, '.memory-index.json');
-  storagePaths.memoryPendingFile = path.join(dir, '.memory-pending.json');
 }
 
 beforeEach(() => {
@@ -39,6 +38,11 @@ beforeEach(() => {
   repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-reposcan-repo-'));
   process.env['CC_HABITS_DIR'] = storeDir;     // guard marker + defaultRoot()
   pointStorageAt(storeDir);
+
+  // A usable provider must exist for the scan to run (it now gates on this before
+  // printing any "analyzing..." line). The extractor itself is mocked, so no real
+  // API call happens; this only satisfies hasUsableProvider().
+  fs.writeFileSync(path.join(storeDir, 'config.yml'), 'provider: anthropic\nanthropic_api_key: test-key\n');
 
   // A small non-git repo: source files + an agent-instruction doc.
   fs.writeFileSync(path.join(repoDir, 'a.ts'), 'export function a(): number { return 1; }\n');
@@ -109,13 +113,32 @@ describe('scanRepo', () => {
     expect(extractor.extractHabitsFromRepo).toHaveBeenCalled();
   });
 
-  it('skips gracefully when no LLM provider is configured', async () => {
+  it('skips gracefully when the provider throws an auth/credential error mid-scan', async () => {
     vi.mocked(extractor.extractHabitsFromRepo).mockRejectedValueOnce(
       new Error('ANTHROPIC_API_KEY not set and not found in config.'),
     );
     const res = await scanRepo({ cwd: repoDir });
     expect(res.scanned).toBe(false);
     expect(res.reason).toBe('no LLM provider configured');
+  });
+
+  it('skips BEFORE any analysis when no usable provider is configured', async () => {
+    // Overwrite the config so no provider has a credential. The scan must bail
+    // out before calling the extractor, so the user never sees "analyzing..."
+    // followed by a failure.
+    fs.writeFileSync(storagePaths.configFile, 'provider: anthropic\n');
+    const res = await scanRepo({ cwd: repoDir });
+    expect(res.scanned).toBe(false);
+    expect(res.reason).toBe('no LLM provider configured');
+    expect(extractor.extractHabitsFromRepo).not.toHaveBeenCalled();
+  });
+
+  it('treats a parked CLI provider as not usable and skips before analysis', async () => {
+    fs.writeFileSync(storagePaths.configFile, 'provider: codex-cli\n');
+    const res = await scanRepo({ cwd: repoDir });
+    expect(res.scanned).toBe(false);
+    expect(res.reason).toBe('no LLM provider configured');
+    expect(extractor.extractHabitsFromRepo).not.toHaveBeenCalled();
   });
 
   it('reports nothing to analyze for an empty directory', async () => {
@@ -135,6 +158,32 @@ describe('scanRepo', () => {
     expect(res.scanned).toBe(false);
     expect(res.reason).toBe('globally disabled');
     expect(extractor.extractHabitsFromRepo).not.toHaveBeenCalled();
+  });
+
+  describe('confirm callback', () => {
+    function setIsTTY(val: boolean | undefined): void {
+      Object.defineProperty(process.stdin, 'isTTY', { value: val, writable: true, configurable: true });
+    }
+    const origIsTTY = process.stdin.isTTY;
+    afterEach(() => { setIsTTY(origIsTTY); });
+
+    it('proceeds when confirm resolves true', async () => {
+      setIsTTY(true);
+      const confirm = vi.fn().mockResolvedValue(true);
+      const res = await scanRepo({ cwd: repoDir, confirm });
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(res.scanned).toBe(true);
+    });
+
+    it('skips scan when confirm resolves false', async () => {
+      setIsTTY(true);
+      const confirm = vi.fn().mockResolvedValue(false);
+      const res = await scanRepo({ cwd: repoDir, confirm });
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(res.scanned).toBe(false);
+      expect(res.reason).toBe('scan skipped by user');
+      expect(extractor.extractHabitsFromRepo).not.toHaveBeenCalled();
+    });
   });
 });
 

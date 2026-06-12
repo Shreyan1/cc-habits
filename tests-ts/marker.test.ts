@@ -49,8 +49,11 @@ describe('buildSessionBanner', () => {
     expect(buildSessionBanner(ACTIVE_HABITS_MD, 99)).toBeNull();
   });
 
-  it('returns null when no active habits exist', () => {
-    expect(buildSessionBanner('# Coding habits\n', 1)).toBeNull();
+  it('returns a capturing message when no active habits exist (first-session reassurance)', () => {
+    const out = buildSessionBanner('# Coding habits\n', 1);
+    expect(out).not.toBeNull();
+    expect(out).toContain('capturing this session');
+    expect(out).toContain('2 sessions');
   });
 
   it('uses singular form for exactly one habit', () => {

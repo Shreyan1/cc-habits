@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { storagePaths, initHabitsMd, initLog, readHabitsMd, readSignals, writeHabitsMd, serialiseHabits, readHistory, writePending, type PendingUpdate } from '../src/storage';
+import { storagePaths, initHabitsMd, initLog, readHabitsMd, readSignals, writeHabitsMd, serialiseHabits, readHistory } from '../src/storage';
 import { runMigration } from '../src/migrate';
 import { captureFromCli } from '../src/capture';
 import { runGitCapture, shouldTriggerGitLearn } from '../src/git-collector';
@@ -31,9 +31,7 @@ beforeEach(() => {
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
   storagePaths.memoryTombstonesFile = path.join(tmpDir, '.memory-tombstones.json');
   storagePaths.memoryIndexFile = path.join(tmpDir, '.memory-index.json');
-  storagePaths.memoryPendingFile = path.join(tmpDir, '.memory-pending.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
-  storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
   storagePaths.provenanceFile = path.join(tmpDir, '.provenance.json');
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
@@ -133,58 +131,34 @@ describe('v0.3.0: cmdLearn', () => {
   });
 });
 
-const makePending = (n: number): PendingUpdate[] =>
-  Array.from({ length: n }, (_, i) => ({
-    category: 'style',
-    rule: `rule number ${i + 1}`,
-    decision: 'create',
-    ts: new Date().toISOString(),
-  }));
-
-describe('v0.4.0: processSessionStart (auto-prompt pending reminder)', () => {
-  it('returns null when there are no pending suggestions', () => {
+describe('v0.4.0: processSessionStart (active habits banner)', () => {
+  it('returns null when there are no active habits', () => {
     expect(processSessionStart()).toBeNull();
   });
 
-  it('summarizes pending suggestions when present', () => {
-    writePending(makePending(2));
-    const out = processSessionStart();
-    expect(out).toContain('2 pending habit suggestions');
-    expect(out).toContain('rule number 1');
-    expect(out).toContain('cch pending');
-  });
+  it('summarizes active habits when present', () => {
+    writeHabitsMd(`# Coding habits
 
-  it('caps the list at 5 and notes how many more remain', () => {
-    writePending(makePending(8));
-    const out = processSessionStart() ?? '';
-    expect(out).toContain('8 pending');
-    expect(out).toContain('...and 3 more');
-    expect(out).toContain('rule number 5');
-    expect(out).not.toContain('rule number 6');
+## TypeScript
+
+- Use strict mode. Confidence: 0.80
+  - Sessions seen: 3
+`);
+    const out = processSessionStart();
+    expect(out).toContain('1 habit active this session');
   });
 });
 
 describe('v0.4.0: cmdSessionBanner', () => {
-  it('stays silent and exits 0 when nothing is pending', () => {
-    const spy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+  it('is a no-op and exits 0', () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const code = cmdSessionBanner();
     expect(code).toBe(0);
-    expect(spy).not.toHaveBeenCalled();
-    spy.mockRestore();
-  });
-
-  it('writes a banner to stderr when suggestions are pending', () => {
-    writePending(makePending(1));
-    let captured = '';
-    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
-      captured += String(chunk);
-      return true;
-    });
-    const code = cmdSessionBanner();
-    expect(code).toBe(0);
-    expect(captured).toContain('1 pending habit suggestion');
-    expect(captured).toContain('cch pending');
-    spy.mockRestore();
+    expect(stdoutSpy).not.toHaveBeenCalled();
+    expect(stderrSpy).not.toHaveBeenCalled();
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 });
 

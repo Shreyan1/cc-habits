@@ -1,8 +1,8 @@
 import {
-  cmdInit, cmdView, renderHabitsView, cmdLog, cmdReset, cmdPending, cmdTombstone, cmdTombstones,
+  cmdInit, cmdView, renderHabitsView, cmdLog, cmdReset, cmdTombstone, cmdTombstones,
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
   cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdMemoriesToggle,
-  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdLearnRepo, cmdShellInit, cmdSessionBanner, cmdTools, VERSION,
+  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdLearnRepo, cmdShellInit, cmdSessionBanner, cmdTools, cmdStatus, cmdPrefs, VERSION,
   cmdOn, cmdOff, cmdUninstall,
   c, BOLD, DIM, CYAN
 } from './cli';
@@ -59,15 +59,13 @@ Usage:
     cc-habits on                      Enable cc-habits (resume capture and prompt injection)
     cc-habits off                     Disable cc-habits (pause capture and prompt injection)
     cc-habits shell-init              Print shell wrapper for claude/gemini (eval "$(cc-habits shell-init)")
+    cc-habits status [--proof]        Show setup health and current activity (alias: doctor)
     cc-habits migrate [--force]       Migrate storage from old ~/.claude/habits/ to ~/.cc-habits/
     cc-habits uninstall [--yes]       Uninstall cc-habits completely and delete all local files
 
   Habits Lifecycle:
     cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
-    cc-habits view [habits|memories]  Show current habits or coding memories
-    cc-habits pending                 Show pending updates queued for the next session write
-    cc-habits pending --approve       Apply pending updates to habits.md
-    cc-habits pending --discard       Drop pending updates without applying
+    cc-habits view [habits|memories|prefs]  Show habits, memories, or active preferences
     cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
     cc-habits git-capture [--range r] Capture changes from git commits (HEAD~1..HEAD by default)
     cc-habits learn [--session id]    Learn habits from repository scan or signals
@@ -99,7 +97,7 @@ Usage:
 
 Env (set in your shell, e.g. \`export CC_HABITS_PROVIDER=ollama\`; not cc-habits subcommands):
   CC_HABITS_DIR                     Override storage location (default ~/.cc-habits)
-  CC_HABITS_PROVIDER                Override provider (anthropic|openai|groq|ollama)
+  CC_HABITS_PROVIDER                Override provider (claude-cli|gemini-cli|codex-cli|anthropic|openai|groq|ollama)
   CC_HABITS_MEMORIES=1              Enable memory extraction for this shell (or: cch memories --enable)
 
 Docs: https://github.com/Shreyan1/cc-habits
@@ -154,10 +152,7 @@ async function main(): Promise<void> {
         
         // Habits Lifecycle
         { label: 'bootstrap               Learn habits from past sessions', args: ['bootstrap'] },
-        { label: 'view [habits|memories]  Show current habits or coding memories', args: ['view'] },
-        { label: 'pending                 Review queued habit suggestions', args: ['pending'] },
-        { label: 'pending --approve       Apply pending updates to habits.md', args: ['pending', '--approve'] },
-        { label: 'pending --discard       Drop pending updates', args: ['pending', '--discard'] },
+        { label: 'view [habits|memories|prefs]  Show habits, memories, or preferences', args: ['view'] },
         { label: 'git-capture             Capture changes from git commits', args: ['git-capture'] },
         { label: 'learn                   Learn habits from repository scan or signals', args: ['learn'] },
         { label: 'learn --repo            Scan this repo with the LLM and learn directly', args: ['learn', '--repo'] },
@@ -233,6 +228,8 @@ async function main(): Promise<void> {
       code = await cmdMemories();
     } else if (args.includes('habits')) {
       code = renderHabitsView();
+    } else if (args.includes('prefs') || args.includes('preferences')) {
+      code = cmdPrefs();
     } else {
       code = await cmdView();
     }
@@ -257,10 +254,7 @@ async function main(): Promise<void> {
     code = cmdReset(args.includes('--yes'));
   } else if (command === 'uninstall') {
     code = await cmdUninstall(args.includes('--yes'));
-  } else if (command === 'pending') {
-    if (args.includes('--approve')) code = cmdPending('approve');
-    else if (args.includes('--discard')) code = cmdPending('discard');
-    else code = cmdPending('show');
+
   } else if (command === 'tools') {
     code = cmdTools();
   } else if (command === 'shell-init') {
@@ -299,6 +293,8 @@ async function main(): Promise<void> {
       i > 0 && !a.startsWith('--') && i !== dirIdx + 1,
     );
     code = cmdSync(targets, dir);
+  } else if (command === 'status' || command === 'doctor') {
+    code = cmdStatus(args.includes('--proof') || args.includes('--verbose'));
   } else if (command === 'migrate') {
     code = cmdMigrate(args.includes('--force'));
   } else if (command === 'capture') {

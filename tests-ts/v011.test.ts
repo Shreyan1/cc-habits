@@ -43,7 +43,6 @@ beforeEach(() => {
   storagePaths.errorLog = path.join(tmpDir, 'error.log');
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
-  storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
   storagePaths.provenanceFile = path.join(tmpDir, '.provenance.json');
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
@@ -224,7 +223,7 @@ describe('B6: language tagging', () => {
     expect(sig.language).toBe('ts');
   });
 
-  it('habit accumulates languages from session', async () => {
+  it('habit leaves languages unset when batch is multi-language and rule language is omitted', async () => {
     processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: 'a.ts', old_string: 'const x = 1', new_string: 'const x: number = 1' } });
     processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: 'b.py', old_string: 'def f(): pass', new_string: 'def f() -> None: pass' } });
     processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: 'c.ts', old_string: 'const y = 2', new_string: 'const y: number = 2' } });
@@ -235,7 +234,34 @@ describe('B6: language tagging', () => {
     await processStop('s1');
     const cats = parseHabits(readHabitsMd());
     const h = cats['Types']![0];
+    expect(h.languages).toBeUndefined();
+  });
+
+  it('habit tags language from single-language session fallback', async () => {
+    processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: 'a.ts', old_string: 'const x = 1', new_string: 'const x: number = 1' } });
+    processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: 'b.ts', old_string: 'const y = 2', new_string: 'const y: number = 2' } });
+    processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: 'c.ts', old_string: 'const z = 3', new_string: 'const z: number = 3' } });
+
+    vi.mocked(extractor.extractRules).mockResolvedValueOnce([
+      { category: 'Types', rule: 'Use explicit types', decision: 'create', matched_habit_id: '', reasoning: '' },
+    ]);
+    await processStop('s1');
+    const cats = parseHabits(readHabitsMd());
+    const h = cats['Types']![0];
     expect(h.languages).toContain('ts');
+  });
+
+  it('habit tags language explicitly specified in RuleUpdate', async () => {
+    processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: 'a.ts', old_string: 'const x = 1', new_string: 'const x: number = 1' } });
+    processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: 'b.py', old_string: 'def f(): pass', new_string: 'def f() -> None: pass' } });
+    processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: 'c.ts', old_string: 'const y = 2', new_string: 'const y: number = 2' } });
+
+    vi.mocked(extractor.extractRules).mockResolvedValueOnce([
+      { category: 'Types', rule: 'Use explicit types', decision: 'create', matched_habit_id: '', reasoning: '', language: 'py' },
+    ]);
+    await processStop('s1');
+    const cats = parseHabits(readHabitsMd());
+    const h = cats['Types']![0];
     expect(h.languages).toContain('py');
   });
 });

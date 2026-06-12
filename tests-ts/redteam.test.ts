@@ -35,7 +35,6 @@ beforeEach(() => {
   storagePaths.errorLog = path.join(tmpDir, 'error.log');
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
-  storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
   storagePaths.provenanceFile = path.join(tmpDir, '.provenance.json');
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
@@ -213,7 +212,7 @@ describe('RT-7: log.jsonl symlink is rejected', () => {
 
     expect(() => appendSignal({
       ts: '2026-05-19T00:00:00Z', session_id: 's', type: 'edit', file: 'a.ts', diff: '-x\n+y',
-    })).toThrow(/symlink/);
+    })).toThrow(/symlink|ELOOP/i);
     expect(fs.readFileSync(decoy, 'utf-8')).toBe('pre-existing\n');
   });
 });

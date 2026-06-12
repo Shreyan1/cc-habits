@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseHabitsFile, parseMemoriesFile, parsePendingFile } from './parsers';
+import { parseHabitsFile, parseMemoriesFile } from './parsers';
 
 const HABITS_MD = `<!-- cc-habits format v0.2 -->
 # Coding habits
@@ -109,36 +109,5 @@ describe('parseMemoriesFile', () => {
   it('returns empty map for empty or header-only input', () => {
     expect(parseMemoriesFile('').size).toBe(0);
     expect(parseMemoriesFile('<!-- cc-habits memories format v0.1 -->\n# Coding memories\n').size).toBe(0);
-  });
-});
-
-describe('parsePendingFile', () => {
-  it('parses a valid pending JSON array', () => {
-    const items = parsePendingFile(JSON.stringify([
-      { rule: 'Use f-strings', category: 'Python', reasoning: 'seen 3x' },
-      { rule: 'Add type hints', category: 'TypeScript', reasoning: '' },
-    ]));
-    expect(items).toHaveLength(2);
-    expect(items[0].rule).toBe('Use f-strings');
-    expect(items[0].category).toBe('Python');
-    expect(items[1].rule).toBe('Add type hints');
-  });
-
-  it('filters out items with empty rule', () => {
-    const items = parsePendingFile(JSON.stringify([
-      { rule: '', category: 'Python' },
-      { rule: 'Valid rule', category: 'TypeScript' },
-    ]));
-    expect(items).toHaveLength(1);
-    expect(items[0].rule).toBe('Valid rule');
-  });
-
-  it('returns empty array for malformed JSON', () => {
-    expect(parsePendingFile('not json')).toEqual([]);
-    expect(parsePendingFile('')).toEqual([]);
-  });
-
-  it('returns empty array for non-array JSON', () => {
-    expect(parsePendingFile('{}')).toEqual([]);
   });
 });

@@ -65,7 +65,6 @@ beforeEach(() => {
   storagePaths.errorLog = path.join(tmpDir, 'error.log');
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
-  storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
   storagePaths.provenanceFile = path.join(tmpDir, '.provenance.json');
   initHabitsMd();

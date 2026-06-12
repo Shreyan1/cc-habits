@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import {
   storagePaths, initHabitsMd, initLog, writeHabitsMd, readHabitsMd,
-  parseHabits, serialiseHabits, appendSignal, readPending, clearPending
+  parseHabits, serialiseHabits, appendSignal
 } from '../src/storage';
 import { sanitizeRule, sanitizeCategory, applyUpdates, applyDecay, RuleUpdate } from '../src/confidence';
 import { selectInjectionHabits, buildInjectionContext, processStop } from '../src/hook';
@@ -22,7 +22,6 @@ beforeEach(() => {
   storagePaths.logFile = path.join(tmpDir, 'log.jsonl');
   storagePaths.errorLog = path.join(tmpDir, 'error.log');
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
-  storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   storagePaths.provenanceFile = path.join(tmpDir, '.provenance.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
@@ -204,8 +203,8 @@ describe('Layer 4: Multi-Session Replay & Habit Escalation Tests', () => {
   });
 });
 
-describe('CC_HABITS_AUTO Trust Boundary Tests', () => {
-  it('queues new suggestions in pending.json and does not auto-promote when CC_HABITS_AUTO is off', async () => {
+describe('Quarantine and Graduation Boundary Tests', () => {
+  it('adds new rules in Learning quarantine (sessions_seen = 1) on processStop and excludes them from injection', async () => {
     vi.mocked(extractor.extractRules).mockResolvedValueOnce([
       {
         category: 'Code Style',
@@ -216,65 +215,67 @@ describe('CC_HABITS_AUTO Trust Boundary Tests', () => {
       }
     ]);
 
-    // Feed enough signals to trigger extraction
     for (let i = 0; i < 3; i++) {
       appendSignal({
         ts: new Date().toISOString(),
-        session_id: 'sess-auto-off',
+        session_id: 'sess-grad',
         type: 'edit',
         file: 'index.ts',
         diff: '+ const f = () => {};'
       });
     }
 
-    // CC_HABITS_AUTO is off by default
-    const res = await processStop('sess-auto-off');
+    const res = await processStop('sess-grad');
     expect(res).not.toBeNull();
-    expect(res?.pendingCount).toBe(1);
+    expect(res?.newCount).toBe(1);
 
-    // Verify it is staged in pending file
-    const pending = readPending();
-    expect(pending).toHaveLength(1);
-    expect(pending[0].rule).toBe('Prefer arrow functions for callbacks');
+    const habitsMd = readHabitsMd();
+    expect(habitsMd).toContain('## Learning (not yet active)');
+    expect(habitsMd).toContain('Prefer arrow functions for callbacks');
 
-    // Clean up
-    clearPending();
+    // Verify it is excluded from injection
+    expect(selectInjectionHabits(habitsMd)).toHaveLength(0);
   });
 
-  it('silently bypasses pending queue but keeps habit in learning quarantine when CC_HABITS_AUTO is on', async () => {
-    process.env['CC_HABITS_AUTO'] = '1';
+  it('graduates a rule to active status once seen in 2 sessions', async () => {
+    // We already have the rule in quarantine from first session
+    const cats = parseHabits(readHabitsMd());
+    cats['Code Style'] = [{
+      rule: 'Prefer arrow functions for callbacks',
+      confidence: 0.5,
+      sessions_seen: 1,
+      reinforcing: 1,
+      contradicting: 0,
+    }];
+    writeHabitsMd(serialiseHabits(cats));
 
     vi.mocked(extractor.extractRules).mockResolvedValueOnce([
       {
         category: 'Code Style',
         rule: 'Prefer arrow functions for callbacks',
-        decision: 'create',
-        matched_habit_id: '',
-        reasoning: 'observed style'
+        decision: 'reinforce',
+        matched_habit_id: 'prefer arrow functions for callbacks',
+        reasoning: 'observed style again'
       }
     ]);
 
     for (let i = 0; i < 3; i++) {
       appendSignal({
         ts: new Date().toISOString(),
-        session_id: 'sess-auto-on',
+        session_id: 'sess-grad-2',
         type: 'edit',
         file: 'index.ts',
         diff: '+ const f = () => {};'
       });
     }
 
-    const res = await processStop('sess-auto-on');
+    const res = await processStop('sess-grad-2');
     expect(res).not.toBeNull();
-    expect(res?.pendingCount).toBe(1);
+    expect(res?.updatedCount).toBe(1);
 
-    // Verify it is NOT staged in pending file
-    const pending = readPending();
-    expect(pending).toHaveLength(0);
-
-    // Verify it is still quarantined (sessions_seen = 1) in habits.md and not injected
     const habitsMd = readHabitsMd();
-    expect(habitsMd).toContain('## Learning');
-    expect(selectInjectionHabits(habitsMd)).toHaveLength(0);
+    // Verify it is active (no longer in Learning quarantine)
+    expect(habitsMd).not.toContain('## Learning');
+    expect(selectInjectionHabits(habitsMd)).toHaveLength(1);
   });
 });

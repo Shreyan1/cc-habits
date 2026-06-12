@@ -18,7 +18,7 @@ import path from 'path';
 import { storagePaths, serialiseMemories } from '../src/storage';
 import {
   selectInjectionHabits, buildInjectionContext, processUserPromptSubmit,
-  scoreMemoryRelevance, selectInjectionMemories, buildMemoryInjectionContext,
+  scoreMemoryRelevance, selectInjectionMemories, buildMemoryInjectionContext, tokenise,
 } from '../src/hook';
 import { registerHooks, installPaths } from '../src/install';
 
@@ -234,6 +234,41 @@ describe('scoreMemoryRelevance', () => {
 
   it('returns 0 for a memory with no trigger terms', () => {
     expect(scoreMemoryRelevance({ ...memory, trigger: [] }, 'anything')).toBe(0);
+  });
+
+  it('a shared regex cache reused across calls yields stable scores (no lastIndex state)', () => {
+    // The perf optimisation reuses one compiled RegExp across memories via a shared
+    // cache. Because the matcher uses only the case-insensitive flag (no global /
+    // sticky), .test() is stateless and reuse must never alter results. Score the
+    // same term repeatedly through one cache and assert every call agrees.
+    const cache = new Map<string, RegExp>();
+    const mem = { ...memory, trigger: ['hooks'] };
+    const hit = 'we need to install hooks today';
+    const miss = 'refactor the parser module';
+    expect(scoreMemoryRelevance(mem, hit, undefined, cache)).toBe(1);
+    expect(scoreMemoryRelevance(mem, hit, undefined, cache)).toBe(1); // cache hit, same result
+    expect(scoreMemoryRelevance(mem, miss, undefined, cache)).toBe(0);
+    expect(scoreMemoryRelevance(mem, hit, undefined, cache)).toBe(1); // still correct after a miss
+    // Cache matches the uncached path exactly.
+    expect(scoreMemoryRelevance(mem, hit, undefined, cache)).toBe(scoreMemoryRelevance(mem, hit));
+  });
+
+  it('precomputed prompt tokens yield identical scores to the lazy path', () => {
+    // The perf optimisation passes a shared, prompt-level token set as the 3rd arg.
+    // It must never change the score vs. the 2-arg lazy compute, including for the
+    // Tier-3 multi-word (>= 2 token) trigger path that actually consumes the set.
+    const multiWord = { ...memory, trigger: ['install hooks', 'parser module'] };
+    const prompts = [
+      'edit the settings.json hooks array',
+      'we need to install hooks for the parser module today',
+      'refactor the parser module carefully',
+      'nothing relevant here at all',
+    ];
+    for (const p of prompts) {
+      const lazy = scoreMemoryRelevance(multiWord, p);
+      const shared = scoreMemoryRelevance(multiWord, p, tokenise(p));
+      expect(shared).toBe(lazy);
+    }
   });
 
   it('enforces word boundary matches and allows plural s', () => {

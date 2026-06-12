@@ -16,7 +16,7 @@ import os from 'os';
 import path from 'path';
 import {
   renderPortableBody, renderBlockOrNull, mergeBlock, syncTargets,
-  readSyncTargets, BEGIN_MARKER, END_MARKER,
+  readSyncTargets, writePreferencesFile, BEGIN_MARKER, END_MARKER,
 } from '../src/sync';
 import { parseHabits, storagePaths } from '../src/storage';
 
@@ -212,3 +212,80 @@ describe('readSyncTargets', () => {
   });
 });
 
+describe('writePreferencesFile', () => {
+  // Re-point storagePaths so writePreferencesFile writes into tmpDir.
+  beforeEach(() => {
+    storagePaths.preferencesFile = path.join(tmpDir, 'preferences.md');
+  });
+
+  it('writes a clean markdown body with no confidence metadata for active habits', () => {
+    // SEEDED has two active habits (sessions_seen >= 2) and one learning habit.
+    writePreferencesFile();
+    const content = fs.readFileSync(storagePaths.preferencesFile, 'utf-8');
+    // Clean body: human-readable rules only.
+    expect(content).toContain('## Naming');
+    expect(content).toContain('- Use camelCase for variables.');
+    expect(content).toContain('## TypeScript');
+    expect(content).toContain('- Use explicit return types on exported functions.');
+    // No internal metadata.
+    expect(content).not.toContain('Confidence:');
+    expect(content).not.toContain('Sessions seen');
+    expect(content).not.toContain('reinforcing');
+    // Learning-section rule must not leak.
+    expect(content).not.toContain('Prefer named imports');
+  });
+
+  it('writes a placeholder notice when no habits have graduated', () => {
+    seed(`<!-- cc-habits format v0.2 -->
+# Coding habits
+
+## Learning (not yet active)
+
+- [Imports] Prefer named imports. Confidence: 0.50
+  - Sessions seen: 1
+`);
+    writePreferencesFile();
+    const content = fs.readFileSync(storagePaths.preferencesFile, 'utf-8');
+    expect(content).toContain('No preferences have graduated yet');
+    // Still no metadata exposed.
+    expect(content).not.toContain('Confidence:');
+  });
+
+  it('overwrites the file on a second call (idempotent)', () => {
+    writePreferencesFile();
+    const first = fs.readFileSync(storagePaths.preferencesFile, 'utf-8');
+    writePreferencesFile();
+    const second = fs.readFileSync(storagePaths.preferencesFile, 'utf-8');
+    expect(first).toBe(second);
+    // Exactly one copy of the heading.
+    expect((second.match(/# Coding preferences/g) ?? []).length).toBe(1);
+  });
+
+  it('passing an in-memory cats map yields a byte-identical file to the disk path', () => {
+    // Perf optimisation: processStop passes the already-parsed map to skip a
+    // read-back + re-parse. This guards the invariant that the cats path produces
+    // exactly the same preferences.md as reading and parsing habits.md from disk.
+    writePreferencesFile();
+    const fromDisk = fs.readFileSync(storagePaths.preferencesFile, 'utf-8');
+    fs.rmSync(storagePaths.preferencesFile);
+    const cats = parseHabits(fs.readFileSync(storagePaths.habitsFile, 'utf-8'));
+    writePreferencesFile(undefined, cats);
+    const fromCats = fs.readFileSync(storagePaths.preferencesFile, 'utf-8');
+    expect(fromCats).toBe(fromDisk);
+  });
+
+  it('passing an empty cats map emits the no-graduated-habits placeholder', () => {
+    writePreferencesFile(undefined, {});
+    const content = fs.readFileSync(storagePaths.preferencesFile, 'utf-8');
+    expect(content).toContain('No preferences have graduated yet');
+  });
+
+  it.skipIf(process.platform === 'win32')('refuses to write through a symlink', () => {
+    const target = path.join(tmpDir, 'real-prefs.md');
+    fs.writeFileSync(target, 'secret');
+    fs.symlinkSync(target, storagePaths.preferencesFile);
+    expect(() => writePreferencesFile()).toThrow(/symlink/);
+    // Original target must not be overwritten.
+    expect(fs.readFileSync(target, 'utf-8')).toBe('secret');
+  });
+});

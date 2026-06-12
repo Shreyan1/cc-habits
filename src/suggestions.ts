@@ -1,4 +1,4 @@
-import { readPending, parseHabits, readHabitsMd, readSignals, readMemoriesMd, parseMemories } from './storage';
+import { parseHabits, readHabitsMd, readSignals, readMemoriesMd, parseMemories } from './storage';
 import { isGloballyDisabled, memoriesEnabled, getConfigValue } from './config';
 import { discoverSessions } from './bootstrap';
 
@@ -6,10 +6,10 @@ import { discoverSessions } from './bootstrap';
 // index.ts so they can be unit-tested without triggering the CLI entrypoint.
 
 export const KNOWN_COMMANDS = [
-  'init', 'bootstrap', 'view', 'log', 'reset', 'pending', 'tombstone', 'tombstones',
+  'init', 'bootstrap', 'view', 'log', 'reset', 'tombstone', 'tombstones',
   'diff', 'explain', 'lint', 'export', 'import', 'sync', 'memories',
   'migrate', 'capture', 'git-capture', 'learn', 'shell-init', 'tools',
-  'faq', 'on', 'off', 'uninstall',
+  'faq', 'on', 'off', 'uninstall', 'status', 'doctor',
 ];
 
 export function levenshtein(a: string, b: string): number {
@@ -62,7 +62,6 @@ interface SystemState {
   disabled: boolean;
   hasProvider: boolean;
   hasHabits: boolean;
-  hasPending: boolean;
   hasSignals: boolean;
   memoriesOn: boolean;
   hasMemories: boolean;
@@ -73,7 +72,6 @@ function getSystemState(): SystemState {
   let disabled = false;
   let hasProvider = false;
   let hasHabits = false;
-  let hasPending = false;
   let hasSignals = false;
   let memoriesOn = false;
   let hasMemories = false;
@@ -91,10 +89,6 @@ function getSystemState(): SystemState {
   try {
     const habits = parseHabits(readHabitsMd());
     hasHabits = Object.values(habits).some(h => h.length > 0);
-  } catch {}
-
-  try {
-    hasPending = readPending().length > 0;
   } catch {}
 
   try {
@@ -118,7 +112,6 @@ function getSystemState(): SystemState {
     disabled,
     hasProvider,
     hasHabits,
-    hasPending,
     hasSignals,
     memoriesOn,
     hasMemories,
@@ -137,9 +130,6 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
   switch (command) {
     case 'on': {
       const steps = [];
-      if (state.hasPending) {
-        steps.push('cch pending           review proposed habits');
-      }
       if (state.hasHabits) {
         steps.push('cch view              see learned habits');
       } else {
@@ -182,9 +172,6 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
         return ['cch init              configure an AI provider to start extracting habits'];
       }
       const steps = [];
-      if (state.hasPending) {
-        steps.push('cch pending           review proposed habits');
-      }
       steps.push('cch view              see what was learned');
       if (state.memoriesOn && state.hasMemories) {
         steps.push('cch memories          show coding memories');
@@ -197,9 +184,6 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
 
     case 'view': {
       const steps = [];
-      if (state.hasPending) {
-        steps.push('cch pending           review proposed habits');
-      }
       if (state.memoriesOn && state.hasMemories) {
         steps.push('cch memories          show coding memories');
       }
@@ -213,14 +197,7 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
       }
       return ['cch reset --yes       erase all captures'];
 
-    case 'pending':
-      if (args.includes('--approve')) {
-        return ['cch view              see updated habits', 'cch sync              share them with your other tools'];
-      }
-      if (args.includes('--discard')) {
-        return ['cch view              see current habits'];
-      }
-      return ['cch pending --approve apply the proposals', 'cch pending --discard drop them'];
+
 
     case 'tombstone':
       return ['cch tombstone         list all tombstoned rules'];
@@ -228,9 +205,6 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
     case 'diff':
     case 'explain':
     case 'import':
-      if (state.hasPending) {
-        return ['cch pending           review proposed habits', 'cch view              see current habits'];
-      }
       if (state.hasHabits) {
         return ['cch view              see current habits', 'cch sync              share them with your other tools'];
       }
@@ -253,9 +227,6 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
       return ['cch init              register hooks for your detected tools'];
 
     case 'faq':
-      if (state.hasPending) {
-        return ['cch pending           review proposed habits', 'cch view              see current habits'];
-      }
       if (state.hasHabits) {
         return ['cch view              see current habits'];
       }

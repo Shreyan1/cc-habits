@@ -58,7 +58,7 @@ describe('Layer 5: Local Filesystem Integrity & Sync Tests', () => {
       fs.symlinkSync(decoy, storagePaths.logFile);
 
       const sig = { ts: '2026-06-07T00:00:00Z', session_id: 's1', type: 'edit', file: 'a.ts', diff: '+x' };
-      expect(() => appendSignal(sig)).toThrow(/symlink/);
+      expect(() => appendSignal(sig)).toThrow(/symlink|ELOOP/i);
       expect(fs.readFileSync(decoy, 'utf-8')).toBe('initial logs\n');
     });
 

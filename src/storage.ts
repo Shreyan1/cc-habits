@@ -63,15 +63,14 @@ export function defaultRoot(): string {
 export const storagePaths = {
   habitsDir: defaultRoot(),
   habitsFile: path.join(defaultRoot(), 'habits.md'),
+  preferencesFile: path.join(defaultRoot(), 'preferences.md'),
   memoriesFile: path.join(defaultRoot(), 'memories.md'),
   logFile: path.join(defaultRoot(), 'log.jsonl'),
   errorLog: path.join(defaultRoot(), 'error.log'),
   tombstonesFile: path.join(defaultRoot(), '.tombstones.json'),
   memoryTombstonesFile: path.join(defaultRoot(), '.memory-tombstones.json'),
   memoryIndexFile: path.join(defaultRoot(), '.memory-index.json'),
-  memoryPendingFile: path.join(defaultRoot(), '.memory-pending.json'),
   snapshotFile: path.join(defaultRoot(), '.snapshot.json'),
-  pendingFile: path.join(defaultRoot(), '.pending.json'),
   historyFile: path.join(defaultRoot(), '.history.jsonl'),
   provenanceFile: path.join(defaultRoot(), '.provenance.json'),
   // Throttle cache for the npm latest-version check, so we hit the registry at
@@ -85,15 +84,14 @@ export const storagePaths = {
 export interface StorageContext {
   habitsDir: string;
   habitsFile: string;
+  preferencesFile: string;
   memoriesFile: string;
   logFile: string;
   errorLog: string;
   tombstonesFile: string;
   memoryTombstonesFile: string;
   memoryIndexFile: string;
-  memoryPendingFile: string;
   snapshotFile: string;
-  pendingFile: string;
   historyFile: string;
   provenanceFile: string;
   updateCheckFile: string;
@@ -181,13 +179,24 @@ function safeWrite(filePath: string, content: string): void {
 }
 
 function safeAppend(filePath: string, content: string): void {
-  if (fs.existsSync(filePath)) {
-    const stat = fs.lstatSync(filePath);
-    if (stat.isSymbolicLink()) {
+  // O_NOFOLLOW (POSIX) makes open() fail atomically if the final path component is
+  // a symlink, closing the TOCTOU window between our old lstat check and the write.
+  const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
+  if (oNoFollow) {
+    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | oNoFollow;
+    const fd = fs.openSync(filePath, flags, FILE_MODE);
+    try {
+      fs.writeSync(fd, content);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } else {
+    // Windows fallback: lstat guard is best-effort (TOCTOU race still possible there).
+    if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink()) {
       throw new Error(`refusing to append through symlink: ${filePath}`);
     }
+    fs.appendFileSync(filePath, content, { encoding: 'utf-8', mode: FILE_MODE });
   }
-  fs.appendFileSync(filePath, content, { encoding: 'utf-8', mode: FILE_MODE });
 }
 
 // Trim an append-only JSONL file to its most-recent `maxLines` entries when the
@@ -196,9 +205,18 @@ function safeAppend(filePath: string, content: string): void {
 // so a rotation failure never blocks the caller.
 function trimIfNeeded(filePath: string, maxLines: number): void {
   try {
-    if (!fs.existsSync(filePath)) return;
-    const stat = fs.statSync(filePath);
-    if (stat.size <= LOG_ROTATE_BYTES) return;
+    // Single stat for the size check: the previous existsSync + statSync pair did
+    // two stat syscalls on every append (the common path is "well under the limit,
+    // return"). One statSync covers both: an absent file throws ENOENT, which the
+    // inner catch turns into an early return. Also closes the existsSync/statSync
+    // TOCTOU gap where the file could vanish between the two calls.
+    let size: number;
+    try {
+      size = fs.statSync(filePath).size;
+    } catch {
+      return; // absent or unstattable: nothing to trim
+    }
+    if (size <= LOG_ROTATE_BYTES) return;
     const lines = fs.readFileSync(filePath, 'utf-8')
       .split('\n')
       .filter(l => l.trim());
@@ -236,7 +254,11 @@ export function initLog(ctx?: StorageContext): void {
 export function appendSignal(signal: Signal, ctx?: StorageContext): void {
   ensureDirs(ctx);
   const paths = getPaths(ctx);
-  safeAppend(paths.logFile, JSON.stringify(signal) + '\n');
+  // Strip control characters from session_id before writing to JSONL.
+  // JSON.stringify escapes them anyway, but defence-in-depth: a crafted session_id
+  // with null bytes or other controls could confuse downstream parsers or logging.
+  const safe: Signal = { ...signal, session_id: signal.session_id.replace(/[\x00-\x1f\x7f]/g, '') };
+  safeAppend(paths.logFile, JSON.stringify(safe) + '\n');
   trimIfNeeded(paths.logFile, LOG_ROTATE_LINES);
 }
 
@@ -263,6 +285,44 @@ export function readSignals(sessionId?: string, ctx?: StorageContext): Signal[] 
     }
   }
   return signals;
+}
+
+/**
+ * Count signals for a session without parsing each line into an object.
+ *
+ * readSignals() JSON.parses every line (up to LOG_ROTATE_LINES = 5,000) and
+ * builds an array; callers that only need the count (e.g. the session-start
+ * banner) pay that whole cost to read a single number. This scans the file once
+ * for the serialized session field as a substring instead: allocation-free and
+ * O(file length). Each signal line carries exactly one `"session_id":` field, so
+ * the occurrence count equals readSignals(sessionId).length for well-formed logs.
+ * The only divergence is a pathological diff that embedded the exact field text
+ * of another session, which is cosmetic-only for the count's use sites.
+ */
+export function countSignals(sessionId?: string, ctx?: StorageContext): number {
+  const paths = getPaths(ctx);
+  if (!fs.existsSync(paths.logFile)) return 0;
+  // Same runaway-file guard as readSignals: skip rather than risk memory blowup.
+  const stat = fs.statSync(paths.logFile);
+  if (stat.size > MAX_LOG_READ_BYTES) {
+    logError(`countSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
+    return 0;
+  }
+  // Read raw bytes and scan the Buffer directly: the file is UTF-8, so matching
+  // the UTF-8-encoded needle against the bytes avoids decoding the whole 2 MB log
+  // into a UTF-16 string just to count a substring.
+  const buf = fs.readFileSync(paths.logFile);
+  // With a session id, match its exact serialized field; without one, match the
+  // field key present on every signal line (counts all sessions).
+  const needleStr = sessionId ? `"session_id":${JSON.stringify(sessionId)}` : '"session_id":';
+  const needle = Buffer.from(needleStr, 'utf-8');
+  let count = 0;
+  let pos = buf.indexOf(needle);
+  while (pos !== -1) {
+    count++;
+    pos = buf.indexOf(needle, pos + needle.length);
+  }
+  return count;
 }
 
 export function readHabitsMd(ctx?: StorageContext): string {
@@ -441,40 +501,6 @@ export function detectManualDeletes(current: HabitsMap, ctx?: StorageContext): s
     }
   }
   return deleted;
-}
-
-// Pending updates staging (A4) ─────────────────────────────────────────────
-export interface PendingUpdate {
-  category: string;
-  rule: string;
-  decision: string;
-  matched_habit_id?: string;
-  reasoning?: string;
-  ts: string;
-}
-
-export function readPending(ctx?: StorageContext): PendingUpdate[] {
-  const paths = getPaths(ctx);
-  if (!fs.existsSync(paths.pendingFile)) return [];
-  try {
-    const data = JSON.parse(fs.readFileSync(paths.pendingFile, 'utf-8')) as unknown;
-    if (Array.isArray(data)) return data as PendingUpdate[];
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-export function writePending(updates: PendingUpdate[], ctx?: StorageContext): void {
-  ensureDirs(ctx);
-  safeWrite(getPaths(ctx).pendingFile, JSON.stringify(updates, null, 2));
-}
-
-export function clearPending(ctx?: StorageContext): void {
-  const paths = getPaths(ctx);
-  if (fs.existsSync(paths.pendingFile)) {
-    fs.unlinkSync(paths.pendingFile);
-  }
 }
 
 // History (B1: diff) ───────────────────────────────────────────────────────

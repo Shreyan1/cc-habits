@@ -1,51 +1,48 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import {
   storagePaths, initHabitsMd, initLog, readHabitsMd, readSignals, parseHabits,
-  readPending, clearPending, writeHabitsMd, serialiseHabits, writeSnapshot,
+  writeHabitsMd, serialiseHabits, writeSnapshot,
   readTombstones, addTombstone, initMemoriesMd, readMemoriesMd, writeMemoriesMd,
   parseMemories, serialiseMemories, addMemoryTombstone, readMemoryTombstones,
   readHistory, appendHistory, logError, detectManualDeletes, applyMemoryUpdates,
-  writePending, writeConfigFile, getRuleHash,
-  type Memory, type Signal,
+  getRuleHash,
+  type Memory, type Signal, type Habit,
 } from './storage';
-import { applyUpdates, pendingToUpdates, applyDecay, toPending, type AppliedChange } from './confidence';
+import { applyUpdates, applyDecay, type AppliedChange } from './confidence';
 import { runSelectMenu } from './menu';
-import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks } from './install';
+import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks, areHooksRegistered, hookProofPaths, readRegisteredHooks } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
 import { exportProfile, importHabits, fetchProfile } from './portable';
 import { lintPath } from './lint';
 import { discoverSessions, bootstrap, type SessionFile } from './bootstrap';
 import { scanRepo, type RepoScanResult } from './repo-scan';
-import { syncTargets, SyncTarget, readSyncTargets } from './sync';
+import { syncTargets, SyncTarget, readSyncTargets, writePreferencesFile } from './sync';
 import { runMigration } from './migrate';
 import { captureFromCli } from './capture';
 import { runGitCapture, shouldTriggerGitLearn } from './git-collector';
 import { extractRules, extractMemoryCandidates } from './extractor';
-import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
+import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError, resolveProviderLabel, hasUsableProvider, isParkedProvider } from './providers';
 import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent, setGloballyDisabled, getConfigValue, isGloballyDisabled } from './config';
 import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools, isCliOnPath } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
+import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.6.2';
+export const VERSION = '0.7.9';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
+const KNOWN_PROVIDER_ERRORS = [
+  ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError,
+  ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError,
+] as const;
 function providerHint(e: unknown): string | undefined {
-  if (e instanceof ProviderRateLimitError) {
-    return 'provider rate-limited (HTTP 429) after retries, nothing changed this run.\n' +
-      '  Tip: wait a minute and retry, or switch provider with `cch init` (Ollama is free and local).';
-  }
-  if (e instanceof ProviderTimeoutError) {
-    return 'provider request timed out, nothing changed this run. Check your network and retry.';
-  }
-  if (e instanceof ProviderPayloadError) {
-    return 'extraction batch was too large for this provider (HTTP 413), nothing changed this run.\n' +
-      '  Tip: switch to Anthropic or OpenAI which accept larger payloads, or run `cch reset --yes` to clear the signal log.';
-  }
-  return undefined;
+  if (!KNOWN_PROVIDER_ERRORS.some(T => e instanceof T)) return undefined;
+  const explained = explainProviderError(e);
+  return `${explained.what} · ${explained.side} · ${explained.nextStep}`;
 }
 
 function formatSessionBreakdown(sessions: SessionFile[]): string {
@@ -97,14 +94,15 @@ export { capBatch };
 // Config file path is derived from storagePaths so CC_HABITS_DIR overrides
 // both data files AND the provider config in one environment variable.
 import {
-  c, BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET, NO_COLOR, term,
+  c, BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET, NO_COLOR, term, tildePath,
   confidenceBar, renderBrandedCard, renderHabitLine,
   printMemoriesEmptyState, renderMemoryLine,
   promptChoice, promptYesNo, promptYesNoDefaultTrue, promptSecret
 } from './cli-ui';
 
 import {
-  configureProvider, interactiveOllamaSetup, showProviderMenu, OLLAMA_DEFAULT_MODEL
+  configureProvider, interactiveOllamaSetup, showProviderMenu, OLLAMA_DEFAULT_MODEL,
+  validateProviderFlag, reconfigureProviderMenu
 } from './cli-provider';
 
 export {
@@ -129,7 +127,37 @@ const CONSENT_NOTICE = `
   Review the full privacy policy: https://github.com/Shreyan1/cc-habits/blob/main/PRIVACY.md
 `;
 
+// Show the user real proof of what was just registered: the resolved file path
+// plus the exact cc-habits hook commands read back from disk (not echoed from
+// intent). Best-effort and silent on any error, so it can never block init.
+function printHookProof(toolId: string, settingsPath: string): void {
+  try {
+    for (const file of hookProofPaths(toolId, settingsPath)) {
+      const hooks = readRegisteredHooks(file);
+      if (hooks.length === 0) continue;
+      process.stdout.write(c(DIM, `    ↳ proof, written to ${tildePath(file)}:\n`));
+      for (const { event, command } of hooks) {
+        process.stdout.write(c(DIM, `        ${(event + ':').padEnd(17)} ${command}\n`));
+      }
+    }
+  } catch {
+    // Proof is best-effort, never block or fail init over it.
+  }
+}
+
 export async function cmdInit(providerFlag?: string): Promise<number> {
+  // Fail fast on a bad --provider value BEFORE any side effects (consent, hook
+  // registration, repo scan). Otherwise an invalid provider like `codex` would
+  // run the whole init, prompt to send diffs to a nonexistent provider, then
+  // silently leave the prior provider in place, confusing the user.
+  if (providerFlag) {
+    const err = validateProviderFlag(providerFlag);
+    if (err) {
+      process.stderr.write(err + '\n');
+      return 1;
+    }
+  }
+
   renderBrandedCard('initialising...', 'Setting up hooks and configurations');
 
   // L5: consent gate, show once, skip if already recorded, abort on N.
@@ -149,6 +177,12 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
 
   const tick = '✓';
   const dash = '~';
+
+  // Track whether Codex was wired this run. Codex edits frequently via shell
+  // (sed/perl/apply_patch), which the PostToolUse hook cannot see, so we steer
+  // the user toward git capture (which sees every edit regardless of how made).
+  // Declared at function scope because the git-capture prompt below reads it.
+  let codexRegistered = false;
 
   const detected = detectInstalledTools();
   if (detected.length > 0) {
@@ -177,7 +211,8 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
           const importAdded = addImportToClaudeMd();
-          process.stdout.write(`    ${importAdded ? tick : dash} habits.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
+          process.stdout.write(`    ${importAdded ? tick : dash} preferences.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
+          printHookProof('claude-code', tool.settingsPath);
         }
       } else if (tool.id === 'gemini') {
         const register = await promptYesNoDefaultTrue('  Register hooks in Gemini CLI? [Y/n] ');
@@ -188,21 +223,29 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${stopAdded ? tick : dash} AfterAgent hook ${stopAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${promptAdded ? tick : dash} BeforeAgent hook ${promptAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
+          printHookProof('gemini', tool.settingsPath);
         }
       } else if (tool.id === 'codex') {
         const register = await promptYesNoDefaultTrue('  Register hooks in Codex CLI? [Y/n] ');
         if (register) {
+          codexRegistered = true;
           process.stdout.write('\n');
           const { postAdded, promptAdded } = registerCodexHooks(tool.settingsPath, hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook (captures edits) ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook (compiles habits) ${promptAdded ? 'registered' : 'already registered'}\n`);
+          printHookProof('codex', tool.settingsPath);
           // Codex registers newly-added hooks as untrusted/disabled until the
           // user approves them, so a freshly written hook does NOT fire yet.
           process.stdout.write('\n');
           process.stdout.write(c(YELLOW, '    ! Codex disables new hooks until you trust them.\n'));
-          process.stdout.write(c(DIM,    '      Open Codex: it will prompt that "hooks are new or changed" —\n'));
+          process.stdout.write(c(DIM,    '      Open Codex: it will prompt that "hooks are new or changed",\n'));
           process.stdout.write(c(DIM,    '      approve the cc-habits hooks (or enable them in Codex\'s Hooks view).\n'));
           process.stdout.write(c(DIM,    '      Until then Codex captures nothing; `cch bootstrap` still learns from past sessions.\n'));
+          // The hook only sees Codex's structured edit tool. When Codex (often with
+          // non-Anthropic models) edits via shell (sed/perl), the hook fires but has
+          // no diff to capture. Git capture is the reliable channel for those.
+          process.stdout.write(c(DIM,    '      Note: Codex often edits via shell (sed/perl) the hook cannot see.\n'));
+          process.stdout.write(c(DIM,    '      Enabling git capture below ensures those edits are still recorded.\n'));
         }
       } else if (tool.id === 'kimi') {
         const register = await promptYesNoDefaultTrue('  Register hooks in Kimi Code CLI? [Y/n] ');
@@ -213,6 +256,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
+          printHookProof('kimi', tool.settingsPath);
         }
       } else if (tool.id === 'cline') {
         const register = await promptYesNoDefaultTrue('  Register hooks in Cline/RooCode? [Y/n] ');
@@ -221,9 +265,10 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           const { postAdded, stopAdded } = registerClineHooks(tool.settingsPath, hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+          printHookProof('cline', tool.settingsPath);
         }
       } else if (tool.id === 'cursor') {
-        process.stdout.write(`  ${dash} Cursor detected, edits will be captured automatically via the VS Code extension or Git commits.\n`);
+        process.stdout.write(`  ${dash} Cursor has no hooks; enable Git capture below to learn from its edits.\n`);
       }
     }
     process.stdout.write('\n');
@@ -233,23 +278,29 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     process.stdout.write(`  ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
     process.stdout.write(`  ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
     const importAdded = addImportToClaudeMd();
-    process.stdout.write(`  ${importAdded ? tick : dash} habits.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
+    process.stdout.write(`  ${importAdded ? tick : dash} preferences.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
+    printHookProof('claude-code', '');
   }
-
-  const hasAnthropicEnv = !!process.env['ANTHROPIC_API_KEY'];
-  const hasConfigFile   = fs.existsSync(CONFIG_FILE);
 
   if (providerFlag) {
     await configureProvider(providerFlag, tick, dash);
-  } else if (hasAnthropicEnv) {
-    process.stdout.write(`  ${dash} ANTHROPIC_API_KEY found in environment\n`);
-  } else if (hasConfigFile) {
-    process.stdout.write(`  ${dash} Provider config already exists at ~/.cc-habits/config.yml\n`);
+  } else if (hasUsableProvider()) {
+    // A supported provider with its credential is already set up. Don't assume it
+    // silently: let the user keep it, switch provider/key, or use Ollama. A parked
+    // CLI provider is NOT usable, so it falls through to setup below instead of
+    // being offered as a "keep" option.
+    await reconfigureProviderMenu(resolveProviderLabel(), tick, dash);
   } else {
     await showProviderMenu(tick, dash);
   }
 
-  const providerReady = hasAnthropicEnv || fs.existsSync(CONFIG_FILE) || !!providerFlag;
+  const providerReady = hasUsableProvider();
+  if (!providerReady) {
+    process.stdout.write('\n');
+    process.stdout.write(c(DIM, '  cc-habits is capturing your edits now, but it needs an AI provider to turn them into habits.\n'));
+    process.stdout.write(c(DIM, '  Add one any time:  cch init --provider anthropic   (API key)\n'));
+    process.stdout.write(c(DIM, '  No key? Run a free local model:  https://ollama.com/download   then  cch init --provider ollama\n'));
+  }
   const habitsEmpty = parseHabits(readHabitsMd());
   const hasExistingHabits = Object.values(habitsEmpty).some(h => h.length > 0);
 
@@ -260,7 +311,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
       process.stdout.write(
         `  Found ${c(BOLD, String(sessions.length))} session${sessions.length === 1 ? '' : 's'}${formatSessionBreakdown(sessions)} for this project.\n`,
       );
-      const yes = await promptYesNo('  Bootstrap habits from past sessions? [y/N] ');
+      const yes = await promptYesNoDefaultTrue('  Bootstrap habits from past sessions? (learns habits from your existing work instantly) [Y/n] ');
       if (yes) {
         process.stdout.write('\n');
         process.stdout.write(c(DIM, '  Extracting patterns...\n'));
@@ -286,18 +337,40 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
 
   const inGitRepo = fs.existsSync('.git');
   if (inGitRepo) {
-    const installLocal = await promptYesNo('  Install git capture hook locally in this project? [y/N] ');
+    // When Codex is wired, git capture is the dependable channel for its
+    // shell-based edits, so recommend it (default Yes) rather than default No.
+    if (codexRegistered) {
+      process.stdout.write(c(DIM, '  Recommended for Codex: git capture records edits the hook misses (shell/sed/perl).\n'));
+    }
+    const installLocal = codexRegistered
+      ? await promptYesNoDefaultTrue('  Install git capture hook locally in this project? [Y/n] ')
+      : await promptYesNo('  Install git capture hook locally in this project? [y/N] ');
     if (installLocal) {
       const added = installLocalGitHook();
-      process.stdout.write(`  ${added ? tick : dash} Local Git post-commit hook ${added ? 'installed' : 'already installed or failed'}\n`);
+      const gitMark = added === 'installed' ? tick : added === 'already' ? dash : '!';
+      const gitMsg  = added === 'installed' ? 'installed' : added === 'already' ? 'already installed' : 'failed to install';
+      process.stdout.write(`  ${gitMark} Local Git post-commit hook ${gitMsg}\n`);
     }
     process.stdout.write('\n');
   }
 
-  const installGlobal = await promptYesNo('  Install git capture hook globally for all new repositories? [y/N] ');
-  if (installGlobal) {
-    const added = installGlobalGitTemplateHook();
-    process.stdout.write(`  ${added ? tick : dash} Global Git template post-commit hook ${added ? 'installed' : 'already installed or failed'}\n`);
+  const globalHookFile = path.join(os.homedir(), '.git-templates', 'hooks', 'post-commit');
+  let globalHookAlready = false;
+  try {
+    const ghContent = fs.readFileSync(globalHookFile, 'utf-8');
+    globalHookAlready = ghContent.includes('cc-habits git-capture') || ghContent.includes('cch git-capture');
+  } catch { /* not installed yet */ }
+
+  if (globalHookAlready) {
+    process.stdout.write(`  ${dash} Global Git template post-commit hook already installed\n`);
+  } else {
+    const installGlobal = await promptYesNo('  Install git capture hook globally for all new repositories? [y/N] ');
+    if (installGlobal) {
+      const added = installGlobalGitTemplateHook();
+      const gitMark = added === 'installed' ? tick : added === 'already' ? dash : '!';
+      const gitMsg  = added === 'installed' ? 'installed' : added === 'already' ? 'already installed' : 'failed to install';
+      process.stdout.write(`  ${gitMark} Global Git template post-commit hook ${gitMsg}\n`);
+    }
   }
   process.stdout.write('\n');
 
@@ -309,22 +382,31 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     process.stdout.write(c(DIM, '  To disable at any time: cch memories --disable\n'));
   }
 
-  process.stdout.write('\n');
-
   // One-time cold scan of this repository: infer habits from its source and
   // memories from its CLAUDE.md/AGENTS.md, applied directly. Runs once per repo
-  // (guarded); re-run any time with `cch learn --repo`.
-  process.stdout.write(c(DIM, '  Scanning this repository for habits...\n'));
-  try {
-    const scan = await scanRepo();
-    renderRepoScan(scan);
-  } catch (e) {
-    process.stdout.write(c(DIM, `  Repo scan skipped: ${String(e).slice(0, 80)}\n`));
+  // (guarded); re-run any time with `cch learn --repo`. Only attempted when a
+  // provider can actually run it: without one we already showed how to add one
+  // above, so printing a scan that is guaranteed to skip would just be noise.
+  if (providerReady) {
+    process.stdout.write('\n');
+    process.stdout.write(c(DIM, '  Scanning this repository for habits...\n'));
+    try {
+      const scan = await scanRepo({
+        confirm: () => promptYesNoDefaultTrue('   Proceed with scan? [Y/n] '),
+      });
+      renderRepoScan(scan);
+    } catch {
+      process.stdout.write(c(DIM, '  Repo scan skipped. Run `cch learn --repo` to retry.\n'));
+    }
   }
 
   process.stdout.write('\n\n');
   process.stdout.write(
     c(BOLD, 'cc-habits is ready.') + ' Start a coding session or commit changes to begin learning.\n',
+  );
+  process.stdout.write(
+    c(DIM, '  To verify: run `cch status` after your first session. It shows when each tool last fired the hook,\n') +
+    c(DIM, '  logged only when the tool itself runs it (liveness proof, not just "registered").\n'),
   );
   return 0;
 }
@@ -351,6 +433,45 @@ export function renderHabitsView(): number {
 
   renderBrandedCard('your coding habits', statusDisplay);
 
+  // Session awareness block
+  const activeSessionId = process.env['CLAUDE_SESSION_ID'];
+  const resolvedSessionId = activeSessionId || (allSignals.length > 0 ? allSignals[allSignals.length - 1].session_id : undefined);
+  if (resolvedSessionId) {
+    const sessionSignals = allSignals.filter(s => s.session_id === resolvedSessionId);
+    const sessionCreated: Habit[] = [];
+    const sessionReinforced: Habit[] = [];
+    for (const category of Object.keys(cats)) {
+      for (const h of cats[category]) {
+        if (h.last_session_id === resolvedSessionId) {
+          if ((h.sessions_seen ?? 1) === 1) {
+            sessionCreated.push(h);
+          } else {
+            sessionReinforced.push(h);
+          }
+        }
+      }
+    }
+    if (sessionSignals.length > 0 || sessionCreated.length > 0 || sessionReinforced.length > 0) {
+      process.stdout.write(
+        c(BOLD, '  ── This session ') + c(DIM, '─'.repeat(32)) + '\n'
+      );
+      process.stdout.write(`    Session ID: ${c(DIM, resolvedSessionId)}\n`);
+      process.stdout.write(`    Signals:    ${c(BOLD, String(sessionSignals.length))} captured\n`);
+      if (sessionCreated.length > 0 || sessionReinforced.length > 0) {
+        process.stdout.write(`    Changes:\n`);
+        for (const h of sessionCreated) {
+          process.stdout.write(`      ${c(GREEN, '+')} ${h.rule} (learning)\n`);
+        }
+        for (const h of sessionReinforced) {
+          process.stdout.write(`      ${c(CYAN, '^')} ${h.rule} (confidence: ${Math.round(h.confidence * 100)}%)\n`);
+        }
+      } else {
+        process.stdout.write(`    Changes:    no habit changes yet\n`);
+      }
+      process.stdout.write('\n');
+    }
+  }
+
   if (totalHabits === 0) {
     process.stdout.write(c(DIM, '  No habits learned yet.\n'));
     process.stdout.write(c(DIM, '  Use Claude Code for a session, then check back.\n'));
@@ -372,6 +493,9 @@ export function renderHabitsView(): number {
       c(DIM, `${learningHabits} learning  ·  ${totalSignals} ${sw} processed`) +
       c(DIM, memSuffix) + '\n',
     );
+    if (learningHabits > 0) {
+      process.stdout.write(c(DIM, '  (learning habits activate after 1 more session)\n'));
+    }
     process.stdout.write('\n');
 
     for (const category of Object.keys(cats).sort()) {
@@ -418,16 +542,45 @@ export async function cmdView(): Promise<number> {
     const choice = await runSelectMenu(
       `  ${c(BOLD + CYAN, 'Select what you would like to view (use ↑/↓ keys):')}`,
       [
-        { label: 'habits    Show current habits and recent signals', value: 'habits' },
-        { label: 'memories  Show coding memories', value: 'memories' },
+        { label: 'habits       Show current habits and recent signals', value: 'habits' },
+        { label: 'memories     Show coding memories', value: 'memories' },
+        { label: 'preferences  Show what your agents see (preferences.md)', value: 'prefs' },
       ]
     );
     if (!choice) return 0;
-    if (choice.value === 'memories') {
-      return cmdMemories();
-    }
+    if (choice.value === 'memories') return cmdMemories();
+    if (choice.value === 'prefs') return cmdPrefs();
   }
   return renderHabitsView();
+}
+
+/**
+ * `cch view prefs`, print the preferences.md that agents actually read via
+ * the @import in CLAUDE.md. Transparency: shows exactly what cc-habits injects.
+ */
+export function cmdPrefs(): number {
+  const prefsPath = storagePaths.preferencesFile;
+  renderBrandedCard('active preferences', `injected via @import into ~/.claude/CLAUDE.md`);
+  process.stdout.write(c(DIM, `  source: ${tildePath(prefsPath)}\n\n`));
+
+  if (!fs.existsSync(prefsPath)) {
+    process.stdout.write(c(DIM, '  No preferences.md yet.\n'));
+    process.stdout.write(c(DIM, '  Run `cch init` to set up hooks, then code a few sessions for habits to appear.\n\n'));
+    return 0;
+  }
+
+  const content = fs.readFileSync(prefsPath, 'utf-8').trim();
+  if (!content) {
+    process.stdout.write(c(DIM, '  preferences.md is empty, no active habits yet.\n'));
+    process.stdout.write(c(DIM, '  Habits appear after 2+ coding sessions where you correct the agent.\n\n'));
+    return 0;
+  }
+
+  process.stdout.write(content + '\n');
+  process.stdout.write(
+    c(DIM, '\n  ── edit: `cch view habits` · sync to other tools: `cch sync`\n\n'),
+  );
+  return 0;
 }
 
 
@@ -521,11 +674,11 @@ export function cmdMemoriesTombstones(): number {
 export function cmdMemoriesToggle(enabled: boolean): number {
   setMemoriesEnabled(enabled);
   if (enabled) {
-    process.stdout.write(c(GREEN, '  ✓ memory learning enabled.\n'));
+    process.stdout.write(c(GREEN, '  ✓ Memory learning on.\n'));
     process.stdout.write(c(DIM, '  Future sessions will learn from corrections you make to agent output.\n'));
     process.stdout.write(c(DIM, '  Next: keep coding, then run `cch memories` to see what was learned.\n'));
   } else {
-    process.stdout.write(c(DIM, '  memory learning disabled. Existing memories are kept.\n'));
+    process.stdout.write(c(DIM, '  ~ Memory learning off. Existing memories are kept.\n'));
   }
   return 0;
 }
@@ -629,9 +782,7 @@ export function cmdReset(yes: boolean): number {
     storagePaths.memoriesFile,
     storagePaths.logFile,
     storagePaths.snapshotFile,
-    storagePaths.pendingFile,
     storagePaths.memoryIndexFile,
-    storagePaths.memoryPendingFile,
   ]) {
     if (fs.existsSync(p)) {
       fs.unlinkSync(p);
@@ -741,65 +892,226 @@ export async function cmdUninstall(yes: boolean): Promise<number> {
   return 0;
 }
 
-// pending (A4) ─────────────────────────────────────────────────────────────
-export function cmdPending(action: 'show' | 'approve' | 'discard'): number {
-  const pending = readPending();
-  if (pending.length === 0) {
-    process.stdout.write(c(DIM, '  No pending updates.\n'));
-    process.stdout.write(c(DIM, '  New habits are automatically queued here after each session.\n'));
-    process.stdout.write(c(DIM, '  Set CC_HABITS_AUTO=1 to skip review and auto-apply all habits.\n'));
-    return 0;
-  }
-
-  if (action === 'show') {
-    process.stdout.write(c(BOLD, `\n  ${pending.length} pending update${pending.length === 1 ? '' : 's'}\n\n`));
-    for (const p of pending) {
-      const decisionColor = p.decision === 'create' ? GREEN : p.decision === 'contradict' ? RED : YELLOW;
-      process.stdout.write(`  ${c(decisionColor, term(p.decision.toUpperCase()))}  ${c(CYAN, `[${term(p.category)}]`)}  ${term(p.rule)}\n`);
-      if (p.reasoning) process.stdout.write(c(DIM, `    └─ ${term(p.reasoning)}\n`));
-    }
-    process.stdout.write('\n');
-    process.stdout.write(c(DIM, '  Run `cc-habits pending --approve` to apply, or `cc-habits pending --discard` to drop.\n\n'));
-    return 0;
-  }
-
-  if (action === 'discard') {
-    clearPending();
-    process.stdout.write(`  discarded ${pending.length} pending update${pending.length === 1 ? '' : 's'}\n`);
-    return 0;
-  }
-
-  // approve
-  const cats = parseHabits(readHabitsMd());
-  const [newCount, updatedCount] = applyUpdates(cats, pendingToUpdates(pending));
-  writeHabitsMd(serialiseHabits(cats));
-  writeSnapshot(cats);
-  clearPending();
-  process.stdout.write(`  applied ${newCount} new, ${updatedCount} updated\n`);
-  return 0;
-}
-
 // Shell wrapper (optional, opt-in) ─────────────────────────────────────────
-// Prints a pending-habits banner to stderr, used by the shell wrapper before
-// launching claude/gemini. Stays silent (and exits 0) when nothing is pending
-// so it never adds noise to a clean session.
+// Legacy session banner - kept as no-op to avoid breaking existing shell integrations.
 export function cmdSessionBanner(): number {
-  const pending = readPending();
-  if (pending.length === 0) return 0;
-  const noun = pending.length === 1 ? 'suggestion' : 'suggestions';
-  process.stderr.write(c(BOLD, `\n  cc-habits: ${pending.length} pending habit ${noun} to review\n`));
-  for (const p of pending.slice(0, 5)) {
-    process.stderr.write(c(DIM, `    - [${term(p.category)}] ${term(p.rule)}\n`));
-  }
-  if (pending.length > 5) process.stderr.write(c(DIM, `    ...and ${pending.length - 5} more\n`));
-  process.stderr.write(c(DIM, '  Run `cch pending` to review, `cch pending --approve` to accept.\n\n'));
   return 0;
 }
 
-// Emits a shell snippet that wraps `claude` and `gemini` so the pending banner
-// prints in the terminal before the tool launches. The user opts in by adding
-// `eval "$(cc-habits shell-init)"` to their ~/.zshrc or ~/.bashrc. We only print
-// the snippet, we never edit the user's rc file for them.
+// Human-readable "time since" for a signal timestamp, used by the liveness proof.
+export function formatTimeAgo(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return 'unknown';
+  const sec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} minute${min === 1 ? '' : 's'} ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hour${hr === 1 ? '' : 's'} ago`;
+  const day = Math.floor(hr / 24);
+  return `${day} day${day === 1 ? '' : 's'} ago`;
+}
+
+export interface FiredInfo { ts: string; count: number; file: string; }
+
+// Most-recent signal + count per capture source. This is the "proof for the
+// proof": these rows exist only because the official tool actually executed our
+// hook on the user's real edits, so a registered-but-never-fired tool is exposed.
+export function lastFiredBySource(signals: ReadonlyArray<{ ts: string; source?: string; file: string }>): Record<string, FiredInfo> {
+  const out: Record<string, FiredInfo> = {};
+  for (const s of signals) {
+    if (!s.source) continue;
+    const cur = out[s.source];
+    if (!cur) {
+      out[s.source] = { ts: s.ts, count: 1, file: s.file };
+      continue;
+    }
+    cur.count += 1;
+    if ((s.ts || '') > cur.ts) {
+      cur.ts = s.ts;
+      cur.file = s.file;
+    }
+  }
+  return out;
+}
+
+// status ─────────────────────────────────────────────────────────────────────
+// Read-only health check. Never throws, never writes. Answers "is it working?"
+// Renders a bordered, tabular key-value table sized to the current terminal width.
+export function cmdStatus(proof = false): number {
+  // Subtract 2 from the reported column count. Some terminals include scrollbar
+  // or decoration columns in process.stdout.columns, which causes content at the
+  // exact boundary to wrap and push the right border onto the next line.
+  const W  = Math.min(Math.max((process.stdout.columns ?? 80) - 2, 62), 118);
+  const IW = W - 4; // inner visible width: '│ ' prefix + content + ' │' suffix
+
+  const vis  = (s: string): number    => s.replace(/\x1b\[[0-9;]*m/g, '').length;
+  const pad  = (s: string, n: number): string => s + ' '.repeat(Math.max(0, n - vis(s)));
+  // ANSI-aware truncate: walks the string counting visible chars (skipping escape
+  // sequences atomically), stops at n-1 chars, appends RESET + ellipsis so the
+  // result is exactly n visible chars and no open color state is left behind.
+  const trunc = (s: string, n: number): string => {
+    if (vis(s) <= n) return s;
+    let count = 0; let i = 0;
+    while (i < s.length && count < n - 1) {
+      if (s[i] === '\x1b' && s[i + 1] === '[') {
+        const end = s.indexOf('m', i + 2);
+        if (end !== -1) { i = end + 1; continue; }
+      }
+      count++; i++;
+    }
+    return s.slice(0, i) + '\x1b[0m…';
+  };
+  const line = (s: string): string    => `│ ${pad(trunc(s, IW), IW)} │\n`;
+  const rule = (l: string, r: string): string => `${l}${'─'.repeat(W - 2)}${r}\n`;
+
+  const ok   = c(GREEN,  '✓');
+  const fail = c(YELLOW, '✗');
+  const git  = c(DIM,    '~');
+
+  // Read all state fresh. No cached snapshots, no stale module-level values.
+  let allSignals: ReturnType<typeof readSignals> = [];
+  try { allSignals = readSignals(); } catch { allSignals = []; }
+  const firedBySource = lastFiredBySource(allSignals);
+
+  let allHabits: Habit[] = [];
+  try { allHabits = Object.values(parseHabits(readHabitsMd())).flat(); } catch { allHabits = []; }
+  const activeCount   = allHabits.filter(h => (h.sessions_seen ?? 1) >= 2).length;
+  const learningCount = allHabits.filter(h => (h.sessions_seen ?? 1) < 2).length;
+
+  const sessionId   = process.env['CLAUDE_SESSION_ID']
+    ?? (allSignals.length > 0 ? allSignals[allSignals.length - 1].session_id : undefined);
+  const sessionSigs = sessionId ? allSignals.filter(s => s.session_id === sessionId).length : 0;
+
+  const providerUsable = hasUsableProvider();
+  const provider       = getConfigValue('provider');
+  const configPath     = storagePaths.configFile;
+  const configExists   = fs.existsSync(configPath);
+  const memsOn         = memoriesEnabled();
+
+  // Hook rows: one row per detected tool, glyph + name + liveness.
+  const NAMEW    = 14;
+  const hookRows: string[] = [];
+  const detected = detectInstalledTools();
+
+  if (detected.length === 0) {
+    hookRows.push(line(`${git}  ${c(DIM, 'No coding tools detected')}`));
+  } else {
+    for (const tool of detected) {
+      try {
+        if (tool.id === 'cursor') {
+          const cursorFired = firedBySource['vscode'];
+          const desc = cursorFired
+            ? c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(cursorFired.ts)} · ${path.basename(cursorFired.file)} · ${cursorFired.count} sig${cursorFired.count === 1 ? '' : 's'}`)
+            : c(DIM, 'git capture on commit');
+          hookRows.push(line(`${git}  ${pad(c(BOLD, 'Cursor'), NAMEW)}  ${desc}`));
+          continue;
+        }
+        const files      = hookProofPaths(tool.id, tool.settingsPath);
+        const entries    = files.flatMap(f => readRegisteredHooks(f).map(h => ({ ...h, file: f })));
+        const registered = tool.id === 'claude-code' ? areHooksRegistered() : entries.length > 0;
+        const fired      = firedBySource[tool.id];
+        const glyph      = registered ? ok : fail;
+        let desc: string;
+        if (!registered) {
+          desc = c(YELLOW, 'not registered, run `cch init`');
+        } else if (fired) {
+          desc = c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(fired.ts)} · ${path.basename(fired.file)} · ${fired.count} sig${fired.count === 1 ? '' : 's'}`);
+        } else {
+          desc = c(DIM, 'registered') + c(YELLOW, ` (edit in ${tool.name} to confirm)`);
+          if (tool.id === 'codex') desc += c(DIM, '  shell edits invisible');
+        }
+        hookRows.push(line(`${glyph}  ${pad(c(BOLD, tool.name), NAMEW)}  ${desc}`));
+        if (proof && registered && entries.length > 0) {
+          const where = [...new Set(entries.map(e => e.file))];
+          for (const file of where) {
+            hookRows.push(line(c(DIM, `      ${tildePath(file)}`)));
+            for (const e of entries.filter(x => x.file === file)) {
+              hookRows.push(line(c(DIM, `      ${(e.event + ':').padEnd(17)} ${e.command}`)));
+            }
+          }
+        }
+      } catch {
+        hookRows.push(line(`${git}  ${pad(c(BOLD, tool.name), NAMEW)}  ${c(DIM, '(could not read settings)')}`));
+      }
+    }
+  }
+
+  // Config rows: key padded to KEYW, value fills the rest.
+  const KEYW = 10;
+  const kv   = (key: string, value: string): string =>
+    line(`${c(DIM, key.padEnd(KEYW))}${value}`);
+
+  let providerVal: string;
+  if (providerUsable) {
+    const envKeyOnly = !configExists && !!process.env['ANTHROPIC_API_KEY'];
+    providerVal = c(BOLD, resolveProviderLabel()) + (envKeyOnly ? c(DIM, '  (ANTHROPIC_API_KEY env)') : '');
+  } else if (configExists && provider && !isParkedProvider(provider)) {
+    providerVal = c(BOLD, provider) + c(YELLOW, '  configured, no API key found');
+  } else {
+    providerVal = c(YELLOW, 'No provider configured') + c(DIM, '  extraction paused, capture continues');
+  }
+
+  const claudeMdPath = path.join(os.homedir(), '.claude', 'CLAUDE.md');
+  const importLine   = `@import ${storagePaths.preferencesFile}`;
+  let importVal: string;
+  try {
+    const content = fs.existsSync(claudeMdPath) ? fs.readFileSync(claudeMdPath, 'utf-8') : '';
+    importVal = content.includes(importLine)
+      ? ok + c(DIM, '  preferences.md in CLAUDE.md')
+      : fail + c(YELLOW, '  not imported, run `cch init`');
+  } catch {
+    importVal = c(DIM, 'could not read CLAUDE.md');
+  }
+
+  const habitsVal = (activeCount === 0 && learningCount === 0)
+    ? c(DIM, 'no habits yet')
+    : c(BOLD, String(activeCount)) + ' active' + (learningCount > 0 ? c(DIM, ` · ${learningCount} learning`) : '');
+
+  const signalsVal = allSignals.length === 0
+    ? c(DIM, '0 captured')
+    : c(BOLD, String(allSignals.length)) + ' total' + (sessionId ? c(DIM, ` · ${sessionSigs} this session`) : '');
+
+  const memoryVal  = memsOn ? c(GREEN, 'on') : c(DIM, 'off');
+  const versionVal = c(DIM, VERSION);
+
+  // Render the bordered table.
+  let out = rule('┌', '┐');
+  for (const r of hookRows) out += r;
+  out += rule('├', '┤');
+  out += kv('provider', providerVal);
+  out += kv('import', importVal);
+  out += kv('habits', habitsVal);
+  out += kv('signals', signalsVal);
+  out += kv('memory', memoryVal);
+  out += kv('version', versionVal);
+  out += rule('└', '┘');
+  process.stdout.write(out);
+
+  // Next step: single actionable line below the box.
+  try {
+    const cats   = parseHabits(readHabitsMd());
+    const active = Object.values(cats).flat().filter(h => (h.sessions_seen ?? 1) >= 2).length;
+    if (!providerUsable) {
+      process.stdout.write(c(DIM, '→ Run `cch init` to configure a provider.\n'));
+    } else if (allSignals.length === 0) {
+      process.stdout.write(c(DIM, '→ Run `cch bootstrap` to seed habits from past sessions.\n'));
+    } else if (active === 0) {
+      process.stdout.write(c(DIM, '  Keep coding, habits graduate after 2+ sessions.\n'));
+    } else {
+      process.stdout.write(c(GREEN, '  All good.') + c(DIM, ' Start a coding session to keep learning.\n'));
+    }
+  } catch {
+    process.stdout.write(c(DIM, '→ Run `cch init` to get started.\n'));
+  }
+
+  return 0;
+}
+
+// Emits a shell snippet that wraps `claude` and `gemini` so the cc-habits
+// session-banner runs in the terminal before the tool launches. The user opts
+// in by adding `eval "$(cc-habits shell-init)"` to their ~/.zshrc or ~/.bashrc.
+// We only print the snippet, we never edit the user's rc file for them.
 export function cmdShellInit(): number {
   // F5: embed the resolved absolute binary path so the wrapper does not depend on
   // PATH lookup of `cc-habits` (which a hijacked PATH entry could shadow). Fall
@@ -821,7 +1133,7 @@ export function cmdShellInit(): number {
 
   const snippet = `# cc-habits shell integration, add to ~/.zshrc or ~/.bashrc:
 #   eval "$(cc-habits shell-init)"
-# Prints pending habit suggestions before launching claude/gemini, then runs
+# Shows cc-habits session summary before launching claude/gemini, then runs
 # the real binary. The cc-habits path below is resolved at generation time to
 # avoid PATH-hijack. Safe no-op when the binary is missing.
 __cc_habits_banner() {
@@ -1208,7 +1520,7 @@ export function renderRepoScan(scan: RepoScanResult): void {
     if (scan.reason === 'already scanned') {
       process.stdout.write(c(DIM, '  This repo was already scanned. Re-run with `cch learn --repo`.\n'));
     } else if (scan.reason === 'no LLM provider configured') {
-      process.stdout.write(c(DIM, '  Repo scan skipped: no LLM provider configured (run `cch init`).\n'));
+      process.stdout.write(c(DIM, '  Repo scan skipped: no AI provider configured. Add one: `cch init --provider anthropic`.\n'));
     } else {
       process.stdout.write(c(DIM, `  Repo scan skipped: ${scan.reason ?? 'nothing to analyze'}.\n`));
     }
@@ -1266,7 +1578,10 @@ export function renderRepoScan(scan: RepoScanResult): void {
 export async function cmdLearnRepo(opts: { force?: boolean } = {}): Promise<number> {
   process.stdout.write(c(DIM, '  Scanning this repository...\n'));
   try {
-    const scan = await scanRepo({ force: opts.force ?? true });
+    const scan = await scanRepo({
+      force: opts.force ?? true,
+      confirm: () => promptYesNoDefaultTrue('   Proceed with scan? [Y/n] '),
+    });
     renderRepoScan(scan);
     return 0;
   } catch (e) {
@@ -1340,41 +1655,21 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
     process.stdout.write(c(YELLOW, `  ${hint}\n`));
     return 0;
   }
-  const changes: AppliedChange[] = [];
-  const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes });
-  
-  const autoApply = (process.env['CC_HABITS_AUTO'] || '').toLowerCase() === '1';
-  const creates = updates.filter(u => (u.decision ?? '').toLowerCase() === 'create');
-  let pendingCount = 0;
-  if (!autoApply && creates.length > 0) {
-    clearPending();
-    const toAdd = toPending(creates);
-    const deduped = toAdd.filter(p => p.rule);
-    if (deduped.length > 0) {
-      writePending(deduped);
-      pendingCount = deduped.length;
-    }
-  } else {
-    const warning = autoApplyWarning(creates.length);
-    if (warning) process.stderr.write(c(YELLOW, '  ' + warning + '\n'));
-  }
-
   const sessionLanguages = Array.from(
     new Set(capped.map(s => s.language).filter((l): l is string => !!l)),
   );
-  if (sessionLanguages.length > 0) {
-    for (const habits of Object.values(cats)) {
-      for (const h of habits) {
-        if (h.last_session_id !== sessionId) continue;
-        const existing = new Set(h.languages ?? []);
-        sessionLanguages.forEach(l => existing.add(l));
-        h.languages = Array.from(existing).sort();
-      }
-    }
-  }
-  
+  const fallbackLanguage = sessionLanguages.length === 1 ? sessionLanguages[0] : undefined;
+
+  const changes: AppliedChange[] = [];
+  const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes, fallbackLanguage });
+
+  const creates = updates.filter(u => (u.decision ?? '').toLowerCase() === 'create');
+  const warning = autoApplyWarning(creates.length);
+  if (warning) process.stderr.write(c(YELLOW, '  ' + warning + '\n'));
+
   const serialised = serialiseHabits(cats);
   writeHabitsMd(serialised);
+  writePreferencesFile(); // Phase 2: write preferences.md
   writeSnapshot(cats);
   appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised });
   
@@ -1408,7 +1703,8 @@ export async function cmdLearn(opts: { session?: string; since?: number } = {}):
     decayed,
     tombstoned: deleted.length,
     changes,
-    pendingCount,
+    signalsCount: capped.length,
+    learningCount: Object.values(cats).flat().filter(h => (h.sessions_seen ?? 1) < 2).length,
     memoryCandidatesCount,
     addedMemories,
     memoryCandidatesUpdated: updatedMemories.length,

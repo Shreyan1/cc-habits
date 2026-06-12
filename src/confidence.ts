@@ -1,4 +1,4 @@
-import type { HabitsMap, Habit, PendingUpdate } from './storage';
+import type { HabitsMap, Habit } from './storage';
 import { isTombstoned } from './storage';
 
 export const INITIAL = 0.50;
@@ -17,6 +17,7 @@ export interface RuleUpdate {
   decision: string;
   matched_habit_id: string;
   reasoning: string;
+  language?: string;
 }
 
 // Confidence math helpers ───────────────────────────────────────────────────
@@ -75,7 +76,7 @@ const SHELL_SUBST = /`[^`]*`|\$\([^)]*\)/g;
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
 // Zero-width / invisible characters an attacker inserts mid-keyword to defeat the
 // denylist while the text still renders as the keyword to an LLM (e.g. SYS​TEM:).
-const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF\u00AD]/g;
+const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF\u00AD]|\uDB40[\uDC00-\uDC7F]/g;
 // Unicode whitespace and line/paragraph separators that are not caught by \x00-\x1f
 // but can still inject structure or break the injection wrapper (U+2028, U+2029, …).
 const UNICODE_SEPARATORS = /[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g;
@@ -207,11 +208,19 @@ export function levenshtein(s1: string, s2: string): number {
 function findHabit(cats: HabitsMap, matchedId: string, ruleText: string): Habit | null {
   const normId = normalize(matchedId);
   const normRule = normalize(ruleText);
+
+  // Exact / containment pass. We normalise each stored rule once here and stash it
+  // into `entries` AFTER the match checks, so a hit returns immediately (no wasted
+  // work, identical to the original early-exit) while a full miss leaves every rule
+  // normalised exactly once for the fuzzy pass to reuse, instead of normalising the
+  // whole set a second time.
+  const entries: Array<{ h: Habit; stored: string }> = [];
   for (const habits of Object.values(cats)) {
     for (const h of habits) {
       const stored = normalize(h.rule ?? '');
       if (normId && (stored.includes(normId) || normId.includes(stored))) return h;
       if (normRule && stored === normRule) return h;
+      entries.push({ h, stored });
     }
   }
 
@@ -225,28 +234,25 @@ function findHabit(cats: HabitsMap, matchedId: string, ruleText: string): Habit 
   let bestMatch: Habit | null = null;
   let bestSimilarity = 0;
 
-  for (const habits of Object.values(cats)) {
-    for (const h of habits) {
-      const stored = normalize(h.rule ?? '');
-      if (!stored) continue;
+  for (const { h, stored } of entries) {
+    if (!stored) continue;
 
-      if (normId) {
-        const dist = levenshtein(normId, stored);
-        const maxLen = Math.max(normId.length, stored.length);
-        const sim = maxLen > 0 ? 1 - dist / maxLen : 0;
-        if (sim >= 0.70 && sim > bestSimilarity) {
-          bestSimilarity = sim;
-          bestMatch = h;
-        }
+    if (normId) {
+      const dist = levenshtein(normId, stored);
+      const maxLen = Math.max(normId.length, stored.length);
+      const sim = maxLen > 0 ? 1 - dist / maxLen : 0;
+      if (sim >= 0.70 && sim > bestSimilarity) {
+        bestSimilarity = sim;
+        bestMatch = h;
       }
-      if (normRule) {
-        const dist = levenshtein(normRule, stored);
-        const maxLen = Math.max(normRule.length, stored.length);
-        const sim = maxLen > 0 ? 1 - dist / maxLen : 0;
-        if (sim >= 0.70 && sim > bestSimilarity) {
-          bestSimilarity = sim;
-          bestMatch = h;
-        }
+    }
+    if (normRule) {
+      const dist = levenshtein(normRule, stored);
+      const maxLen = Math.max(normRule.length, stored.length);
+      const sim = maxLen > 0 ? 1 - dist / maxLen : 0;
+      if (sim >= 0.70 && sim > bestSimilarity) {
+        bestSimilarity = sim;
+        bestMatch = h;
       }
     }
   }
@@ -298,6 +304,7 @@ export interface ApplyOptions {
   // Optional collector: if provided, every applied change is pushed here.
   // Non-breaking, callers that don't need detail simply omit it.
   changes?: AppliedChange[];
+  fallbackLanguage?: string;
 }
 
 export function applyUpdates(
@@ -326,6 +333,14 @@ export function applyUpdates(
 
     const existing = findHabit(cats, update.matched_habit_id ?? '', ruleText);
 
+    // Resolve language to tag:
+    let resolvedLanguage: string | undefined = undefined;
+    if (update.language) {
+      resolvedLanguage = update.language.toLowerCase().trim();
+    } else if (options.fallbackLanguage) {
+      resolvedLanguage = options.fallbackLanguage.toLowerCase().trim();
+    } // else leave undefined (not tagged)
+
     if (decision === 'create') {
       // A2: never re-create a tombstoned rule.
       if (isTombstoned(ruleText)) continue;
@@ -340,6 +355,7 @@ export function applyUpdates(
           last_session_id: sessionId || undefined,
           first_learned: today,
           last_updated: today,
+          ...(resolvedLanguage ? { languages: [resolvedLanguage] } : {}),
         });
         newCount++;
         changes?.push({ category, rule: ruleText, decision: 'create', confidence: INITIAL });
@@ -349,6 +365,11 @@ export function applyUpdates(
         if (sessionId && existing.last_session_id !== sessionId) {
           existing.sessions_seen = (existing.sessions_seen ?? 1) + 1;
           existing.last_session_id = sessionId;
+        }
+        if (resolvedLanguage) {
+          const langs = new Set(existing.languages ?? []);
+          langs.add(resolvedLanguage);
+          existing.languages = Array.from(langs).sort();
         }
         existing.last_updated = today;
         updatedCount++;
@@ -362,6 +383,11 @@ export function applyUpdates(
           existing.sessions_seen = (existing.sessions_seen ?? 1) + 1;
           existing.last_session_id = sessionId;
         }
+        if (resolvedLanguage) {
+          const langs = new Set(existing.languages ?? []);
+          langs.add(resolvedLanguage);
+          existing.languages = Array.from(langs).sort();
+        }
         existing.last_updated = today;
         updatedCount++;
         changes?.push({ category, rule: ruleText, decision: 'reinforce', confidence: existing.confidence });
@@ -372,6 +398,11 @@ export function applyUpdates(
           existing.confidence - CONTRADICT_DELTA * contradictMultiplier,
         );
         existing.contradicting = (existing.contradicting ?? 0) + 1;
+        if (resolvedLanguage) {
+          const langs = new Set(existing.languages ?? []);
+          langs.add(resolvedLanguage);
+          existing.languages = Array.from(langs).sort();
+        }
         existing.last_updated = today;
         updatedCount++;
         changes?.push({ category, rule: ruleText, decision: 'contradict', confidence: existing.confidence });
@@ -383,33 +414,4 @@ export function applyUpdates(
   }
 
   return [newCount, updatedCount];
-}
-
-// Pending updates (A4) ──────────────────────────────────────────────────────
-export function toPending(updates: RuleUpdate[]): PendingUpdate[] {
-  const ts = new Date().toISOString();
-  return updates
-    .filter(u => (u.decision ?? '').toLowerCase() !== 'skip')
-    .map(u => ({
-      category: sanitizeCategory(u.category ?? 'Uncategorized'),
-      rule: sanitizeRule((u.rule ?? '').trim().replace(/\.$/, '')),
-      decision: (u.decision ?? '').toLowerCase(),
-      matched_habit_id: u.matched_habit_id,
-      reasoning: u.reasoning,
-      ts,
-    }))
-    .filter(u => u.rule)
-    // Never surface a tombstoned (or reworded-equivalent) rule for review, the
-    // user already rejected it, so it must not reappear in the pending queue.
-    .filter(u => !isTombstoned(u.rule));
-}
-
-export function pendingToUpdates(pending: PendingUpdate[]): RuleUpdate[] {
-  return pending.map(p => ({
-    category: p.category,
-    rule: p.rule,
-    decision: p.decision,
-    matched_habit_id: p.matched_habit_id ?? '',
-    reasoning: p.reasoning ?? '',
-  }));
 }

@@ -1,22 +1,22 @@
 import fs from 'fs';
 import path from 'path';
 import {
-  storagePaths, appendSignal, readSignals, readHabitsMd, parseHabits, writeHabitsMd,
+  storagePaths, appendSignal, readSignals, countSignals, readHabitsMd, parseHabits, writeHabitsMd,
   serialiseHabits, logError, sanitizeFilePath, detectManualDeletes, writeSnapshot,
-  addTombstone, writePending, readPending, clearPending,
+  addTombstone,
   appendHistory, appendProvenance, readMemoriesMd, applyMemoryUpdates, parseMemories,
   isMemoryTombstoned, getPaths, type StorageContext,
   type Memory,
 } from './storage';
 import { acquireLock, releaseLock } from './lock';
 import { normalizeInput, ALLOWED_ADAPTERS, type NormalizedHookInput } from './adapters';
-import { applyUpdates, applyDecay, toPending, pendingToUpdates, sanitizeRule, sanitizeCategory } from './confidence';
+import { applyUpdates, applyDecay, sanitizeRule, sanitizeCategory } from './confidence';
 import type { AppliedChange } from './confidence';
 import { extractRules, extractMemoryCandidates } from './extractor';
 import { capBatchCore } from './batch';
-import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
+import { ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './providers';
 import { memoriesEnabled, isGloballyDisabled } from './config';
-import { readSyncTargets, syncTargets } from './sync';
+import { readSyncTargets, syncTargets, writePreferencesFile } from './sync';
 import { validatePayload, logSchemaWarning, logUnknownEvent, KNOWN_UNSUPPORTED_EVENTS } from './hook-schema';
 
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit']);
@@ -170,7 +170,7 @@ export function captureDisabled(): boolean {
 export function buildSessionBanner(md: string, editCount: number): string | null {
   if (editCount !== 1) return null;
   const habits = selectInjectionHabits(md);
-  if (habits.length === 0) return null;
+  if (habits.length === 0) return `cc-habits: capturing this session (habits activate after 2 sessions)`;
   const n = habits.length;
   return `cc-habits: ${n} habit${n === 1 ? '' : 's'} active this session, \`cch view\` to see them`;
 }
@@ -181,17 +181,19 @@ function markerEnabled(): boolean {
   return v !== '0' && v !== 'false' && v !== 'off';
 }
 
-// Set CC_HABITS_AUTO=1 to skip the pending-review queue and auto-apply new
-// habits immediately (reverts to the original silent-learning behaviour).
+// Habits auto-apply to the Learning section unconditionally now, so there is no
+// pending-review queue to skip. CC_HABITS_AUTO is an opt-in transparency flag:
+// set it to 1 to print an explicit warning each time newly learned habits are
+// auto-applied, a heightened-awareness mode for working in untrusted repos.
 export function autoApplyEnabled(): boolean {
   const v = (process.env['CC_HABITS_AUTO'] ?? '').toLowerCase();
   return v === '1' || v === 'true' || v === 'on';
 }
 
-// F3: auto-apply removes the human-in-the-loop review that defends against a
-// hostile repo planting a semantically dangerous "habit". Warn whenever it
-// applies new rules so the bypass is never silent. Returns the warning line, or
-// null when no warning is warranted.
+// F3: auto-apply commits new rules without a human-in-the-loop review, which is
+// what a hostile repo would need to plant a semantically dangerous "habit". When
+// the warning is opted in, surface every applied rule so the bypass is never
+// silent. Returns the warning line, or null when no warning is warranted.
 export function autoApplyWarning(count: number): string | null {
   if (!autoApplyEnabled() || count <= 0) return null;
   const noun = count === 1 ? 'habit' : 'habits';
@@ -232,7 +234,7 @@ export function processPostToolUse(input: Record<string, unknown> | NormalizedHo
   // many habits are active. One truthful line beats a per-edit cry-wolf signal.
   if (markerEnabled() && (data.source === 'claude-code' || !data.source)) {
     try {
-      const count = readSignals(sessionId, ctx).length;
+      const count = countSignals(sessionId, ctx);
       const banner = buildSessionBanner(readHabitsMd(ctx), count);
       if (banner) process.stderr.write(banner + '\n');
     } catch { /* banner is cosmetic; swallow */ }
@@ -245,10 +247,9 @@ export interface StopResult {
   decayed: number;
   tombstoned: number;
   changes: AppliedChange[];
-  // New habits written to the Learning section AND queued for review. Zero when
-  // CC_HABITS_AUTO=1 (auto-applied immediately). Optional for backwards compat
-  // with callers that construct StopResult directly (e.g. test helpers).
-  pendingCount?: number;
+  signalsCount?: number;
+  learningCount?: number;
+  graduatedCount?: number;
   // New memory candidates added this session (CC_HABITS_MEMORIES=1 only).
   memoryCandidatesCount?: number;
   addedMemories?: string[];
@@ -263,6 +264,7 @@ export async function processStop(sessionId: string, ctx?: StorageContext): Prom
   const locked = await acquireLock(lockFile);
   if (!locked) {
     logError(`stop: failed to acquire lock for habits file after timeout`, ctx);
+    process.stderr.write('cc-habits: extraction skipped (another session is writing).\n');
     return null;
   }
 
@@ -292,52 +294,26 @@ export async function processStop(sessionId: string, ctx?: StorageContext): Prom
       );
     }
 
+    // Resolve fallback language for the session
+    const sessionLanguages = Array.from(
+      new Set(gated.map(s => s.language).filter((l): l is string => !!l)),
+    );
+    const fallbackLanguage = sessionLanguages.length === 1 ? sessionLanguages[0] : undefined;
+
     const updates = await extractRules(capped, habitsMd);
     const changes: AppliedChange[] = [];
-    const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes });
-
-    // Queue new-habit creates for user review (pending notification path).
-    // The habits ARE written to habits.md in the Learning quarantine section by
-    // applyUpdates above, the pending queue is an additional notification surface
-    // so users can tombstone proposed habits before they graduate. Skip queueing
-    // when CC_HABITS_AUTO=1 (fully-silent auto-apply mode).
-    // Clear stale pending from any previous session first, then write this session's
-    // new items, this ensures `cch pending` always reflects the latest session only.
-    const creates = updates.filter(u => (u.decision ?? '').toLowerCase() === 'create');
-    const pendingCount = creates.length;
-    if (!autoApplyEnabled() && creates.length > 0) {
-      try {
-        clearPending(ctx);
-        const toAdd = toPending(creates);
-        const deduped = toAdd.filter(p => p.rule);
-        if (deduped.length > 0) writePending(deduped, ctx);
-      } catch { /* pending write is best-effort; never block the session */ }
-    } else {
-      const warning = autoApplyWarning(creates.length);
-      if (warning) process.stderr.write(warning + '\n');
-    }
+    const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes, fallbackLanguage });
 
     // B2: record provenance, which signals contributed to each create/reinforce.
     recordProvenance(updates, gated, sessionId, ctx);
 
-    // B6: attach language tag to any habit touched this session.
-    const sessionLanguages = Array.from(
-      new Set(gated.map(s => s.language).filter((l): l is string => !!l)),
-    );
-    if (sessionLanguages.length > 0) {
-      for (const habits of Object.values(cats)) {
-        for (const h of habits) {
-          if (h.last_session_id !== sessionId) continue;
-          const existing = new Set(h.languages ?? []);
-          sessionLanguages.forEach(l => existing.add(l));
-          h.languages = Array.from(existing).sort();
-        }
-      }
-    }
-
     const serialised = serialiseHabits(cats);
     writeHabitsMd(serialised, ctx);
     writeSnapshot(cats, ctx);
+    // Reuse the in-memory map we just serialised: skips a redundant read-back and
+    // re-parse of the habits.md we wrote one line above.
+    writePreferencesFile(ctx, cats); // Phase 2: write clean preferences.md
+
     // B1: snapshot the habits.md state for `cc-habits diff`.
     appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised }, ctx);
 
@@ -366,13 +342,27 @@ export async function processStop(sessionId: string, ctx?: StorageContext): Prom
       logError(`stop: auto-sync failed: ${String(e)}`, ctx);
     }
 
+    let learningCount = 0;
+    for (const habits of Object.values(cats)) {
+      for (const h of habits) {
+        if ((h.sessions_seen ?? 1) < 2) learningCount++;
+      }
+    }
+
+    const graduatedCount = changes
+      .filter(c => c.decision === 'reinforce')
+      .filter(c => (cats[c.category] ?? []).find(x => x.rule === c.rule)?.sessions_seen === 2)
+      .length;
+
     return {
       newCount,
       updatedCount,
       decayed,
       tombstoned: deleted.length,
       changes,
-      pendingCount,
+      signalsCount: gated.length,
+      learningCount,
+      graduatedCount,
       memoryCandidatesCount,
       addedMemories,
       memoryCandidatesUpdated: updatedMemories.length,
@@ -395,25 +385,31 @@ export function formatStopSummary(result: StopResult): string {
   const created = changes.filter(c => c.decision === 'create');
   const reinforced = changes.filter(c => c.decision === 'reinforce');
   const contradicted = changes.filter(c => c.decision === 'contradict');
+  const memAdded = result.memoryCandidatesCount ?? 0;
+  const memUpdated = result.memoryCandidatesUpdated ?? 0;
+
+  if (created.length === 0 && reinforced.length === 0 && contradicted.length === 0 && decayed === 0 && tombstoned === 0 && memAdded === 0 && memUpdated === 0) {
+    const signalsCount = result.signalsCount ?? 0;
+    const learningCount = result.learningCount ?? 0;
+    const signalsStr = `${signalsCount} signal${signalsCount === 1 ? '' : 's'} captured`;
+    const learningStr = `${learningCount} habit${learningCount === 1 ? '' : 's'} learning`;
+    return `cc-habits: ${signalsStr} · ${learningStr} · cch view for details`;
+  }
 
   const pct = (n: number): string => `${Math.round(n * 100)}%`;
   const lines: string[] = ['cc-habits: session summary'];
 
-  const pendingCount = result.pendingCount ?? 0;
-
-  // New habits go to the Learning quarantine AND the pending review queue.
-  // We show the creates from changes (written to Learning) and separately call
-  // out the pending count so users know to run `cch pending` to review them.
   if (created.length > 0) {
-    lines.push(`  + ${created.length} new habit${created.length === 1 ? '' : 's'} proposed (Learning quarantine)`);
+    lines.push(`  + ${created.length} new habit${created.length === 1 ? '' : 's'} proposed (not yet active)`);
     for (const c of created) lines.push(`      [${c.category}] ${c.rule}`);
-  }
-  if (pendingCount > 0) {
-    lines.push(`    → run \`cch pending\` to review · \`cch pending --discard\` to reject`);
   }
   if (reinforced.length > 0) {
     lines.push(`  ^ reinforced ${reinforced.length}`);
     for (const c of reinforced) lines.push(`      [${c.category}] ${c.rule} -> ${pct(c.confidence)}`);
+  }
+  if (result.graduatedCount && result.graduatedCount > 0) {
+    const n = result.graduatedCount;
+    lines.push(`  * ${n} habit${n === 1 ? '' : 's'} now active (promoted from learning)`);
   }
   if (contradicted.length > 0) {
     lines.push(`  v contradicted ${contradicted.length}`);
@@ -425,13 +421,8 @@ export function formatStopSummary(result: StopResult): string {
   if (tombstoned > 0) tail.push(`${tombstoned} tombstoned (you deleted them)`);
   if (tail.length > 0) lines.push(`  ~ ${tail.join(', ')}`);
 
-  if (created.length === 0 && reinforced.length === 0 && contradicted.length === 0 && tail.length === 0) {
-    lines.push('  no habit changes this session');
-  }
-
-  if ((result.memoryCandidatesCount ?? 0) > 0) {
-    const n = result.memoryCandidatesCount!;
-    lines.push(`  + ${n} new memory candidate${n === 1 ? '' : 's'} added, run \`cch memories\` to review`);
+  if (memAdded > 0) {
+    lines.push(`  + ${memAdded} new memory candidate${memAdded === 1 ? '' : 's'} added, run \`cch memories\` to review`);
     if (result.addedMemories && result.addedMemories.length > 0) {
       for (const m of result.addedMemories) {
         lines.push(`      • ${m}`);
@@ -439,9 +430,8 @@ export function formatStopSummary(result: StopResult): string {
     }
   }
 
-  if ((result.memoryCandidatesUpdated ?? 0) > 0) {
-    const n = result.memoryCandidatesUpdated!;
-    lines.push(`  ^ reinforced ${n} memory candidate${n === 1 ? '' : 's'}`);
+  if (memUpdated > 0) {
+    lines.push(`  ^ reinforced ${memUpdated} memory candidate${memUpdated === 1 ? '' : 's'}`);
     if (result.updatedMemories && result.updatedMemories.length > 0) {
       for (const m of result.updatedMemories) {
         lines.push(`      • ${m}`);
@@ -449,7 +439,7 @@ export function formatStopSummary(result: StopResult): string {
     }
   }
 
-  lines.push('  habits.md updated · run `cc-habits view` for the full picture');
+  lines.push('  habits.md updated · cch view for details');
   return lines.join('\n');
 }
 
@@ -630,15 +620,40 @@ export function tokenise(s: string): Set<string> {
   return result;
 }
 
-export function scoreMemoryRelevance(memory: Memory, promptText: string): number {
+// Build the case-insensitive word-boundary matcher for a cleaned trigger term or
+// its synonym: escapes regex metacharacters and adds \b boundaries plus an
+// optional trailing plural "s". Identical logic was inlined twice (term + synonym);
+// extracting it removes the duplication and lets a caller-supplied cache compile a
+// term shared by several memories only once per selection pass.
+function triggerBoundaryRegex(term: string, cache?: Map<string, RegExp>): RegExp {
+  const cached = cache?.get(term);
+  if (cached) return cached;
+  const escaped = term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const startBoundary = /^[a-zA-Z0-9_]/.test(term) ? '\\b' : '';
+  const endBoundary = /[a-zA-Z0-9_]$/.test(term) ? 's?\\b' : '';
+  const re = new RegExp(startBoundary + escaped + endBoundary, 'i');
+  cache?.set(term, re);
+  return re;
+}
+
+export function scoreMemoryRelevance(memory: Memory, promptText: string, promptTokens?: Set<string>, regexCache?: Map<string, RegExp>): number {
   if (memory.trigger.length === 0) return 0;
   const haystack = promptText.toLowerCase();
   const normalizedHaystack = haystack.replace(/[-_]/g, ' ');
   let score = 0;
+  // Tier-3 prompt token set. Reused across this memory's trigger terms, and when
+  // the caller supplies it (selectInjectionMemories), across every memory for this
+  // prompt: the prompt is tokenised at most once per UserPromptSubmit instead of
+  // once per multi-word trigger term. Falls back to a lazy single compute for
+  // direct callers so we still never tokenise unless a Tier-3 term needs it.
+  let tokens = promptTokens;
 
   for (const term of memory.trigger) {
     const cleanTerm = term.trim().toLowerCase();
     if (cleanTerm.length < 3 && !TRIGGER_SYNONYMS[cleanTerm]) continue;
+    // Cap trigger term length: a poisoned memories.md could insert a very long term
+    // causing slow regex construction/execution. 60 chars is ample for any real keyword.
+    if (cleanTerm.length > 60) continue;
 
     // Ignore generic short verbs
     if (cleanTerm.length < 4 && SCORING_STOPWORDS.has(cleanTerm)) {
@@ -646,10 +661,7 @@ export function scoreMemoryRelevance(memory: Memory, promptText: string): number
     }
 
     // Tier 1: word-boundary regex on raw haystack + normalized haystack (hyphens replaced with spaces)
-    const escaped = cleanTerm.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const startBoundary = /^[a-zA-Z0-9_]/.test(cleanTerm) ? '\\b' : '';
-    const endBoundary = /[a-zA-Z0-9_]$/.test(cleanTerm) ? 's?\\b' : '';
-    const regex = new RegExp(startBoundary + escaped + endBoundary, 'i');
+    const regex = triggerBoundaryRegex(cleanTerm, regexCache);
 
     if (regex.test(haystack) || regex.test(normalizedHaystack)) {
       score++;
@@ -659,10 +671,7 @@ export function scoreMemoryRelevance(memory: Memory, promptText: string): number
     // Tier 2: synonym lookup, then regex match on synonym
     const synonym = TRIGGER_SYNONYMS[cleanTerm];
     if (synonym) {
-      const escapedSyn = synonym.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-      const startBoundarySyn = /^[a-zA-Z0-9_]/.test(synonym) ? '\\b' : '';
-      const endBoundarySyn = /[a-zA-Z0-9_]$/.test(synonym) ? 's?\\b' : '';
-      const regexSyn = new RegExp(startBoundarySyn + escapedSyn + endBoundarySyn, 'i');
+      const regexSyn = triggerBoundaryRegex(synonym, regexCache);
       if (regexSyn.test(haystack) || regexSyn.test(normalizedHaystack)) {
         score++;
         continue;
@@ -672,10 +681,10 @@ export function scoreMemoryRelevance(memory: Memory, promptText: string): number
     // Tier 3: token-overlap for multi-word trigger phrases only (>= 2 tokens)
     const triggerTokens = tokenise(cleanTerm);
     if (triggerTokens.size >= 2) {
-      const promptTokens = tokenise(promptText);
+      tokens ??= tokenise(promptText);
       let allOverlap = true;
       for (const tToken of triggerTokens) {
-        if (!promptTokens.has(tToken)) {
+        if (!tokens.has(tToken)) {
           allOverlap = false;
           break;
         }
@@ -692,13 +701,20 @@ export function scoreMemoryRelevance(memory: Memory, promptText: string): number
 
 export function selectInjectionMemories(memoriesMd: string, promptText: string): Memory[] {
   const sections = parseMemories(memoriesMd);
+  // Tokenise the prompt once for the whole selection pass. Every memory scored
+  // below shares this set instead of re-tokenising the same prompt per memory.
+  const promptTokens = tokenise(promptText);
+  // Pass-scoped regex cache: a trigger term shared by several memories (common dev
+  // words like "hooks" or "config") is escaped + compiled once, not per memory.
+  // Scoped to this call so it is garbage-collected after, never an unbounded module cache.
+  const regexCache = new Map<string, RegExp>();
   const candidates: Array<{ memory: Memory; score: number }> = [];
   for (const memories of Object.values(sections)) {
     for (const m of memories) {
       if ((m.sessions_seen ?? 1) < 2) continue;
       if (m.confidence < MEMORY_MIN_CONFIDENCE) continue;
       if (isMemoryTombstoned(m.text)) continue;
-      const score = scoreMemoryRelevance(m, promptText);
+      const score = scoreMemoryRelevance(m, promptText, promptTokens, regexCache);
       if (score > 0) candidates.push({ memory: m, score });
     }
   }
@@ -746,44 +762,22 @@ export function processUserPromptSubmit(data: Record<string, unknown>, ctx?: Sto
   return habitsContext ?? memoriesContext;
 }
 
-// Cap the SessionStart reminder so we never blow past a tool's context limit
-// (Claude Code caps additionalContext at 10k chars; we stay well under).
-const MAX_SESSION_START_CONTEXT = 4000;
-
 // Builds the SessionStart reminder. Habits/memories are already injected via the
 // CLAUDE.md/GEMINI.md @import and the UserPromptSubmit hook, so re-injecting them
-// here would duplicate context. The distinct value of SessionStart is reminding
-// the developer about pending suggestions they would otherwise forget to review.
+// here would duplicate context. The session-start banner lets the user know
+// how many habits are active this session.
 // Returns null when there is nothing actionable so the session stays quiet.
-export function processSessionStart(): string | null {
-  if (isGloballyDisabled()) return null;
-  let pending: ReturnType<typeof readPending>;
+export function processSessionStart(ctx?: StorageContext): string | null {
+  if (isGloballyDisabled(ctx)) return null;
   try {
-    pending = readPending();
+    const habitsMd = readHabitsMd(ctx);
+    const habits = selectInjectionHabits(habitsMd);
+    if (habits.length === 0) return null;
+    const n = habits.length;
+    return `cc-habits: ${n} habit${n === 1 ? '' : 's'} active this session`;
   } catch {
     return null;
   }
-  if (!pending.length) return null;
-
-  const count = pending.length;
-  const noun = count === 1 ? 'habit suggestion' : 'habit suggestions';
-  // Re-sanitize at emit time as defence-in-depth: this text goes straight into
-  // the agent's SessionStart additionalContext. pending.json is sanitized at
-  // write time (toPending), but it is a plain file a user or another process may
-  // hand-edit, so we re-sanitize here exactly as buildInjectionContext does for
-  // habits.md. Never inject pending text into the agent without this pass.
-  const lines = pending
-    .slice(0, 5)
-    .map(p => `  - [${sanitizeCategory(p.category)}] ${sanitizeRule(p.rule)}`);
-  const more = count > 5 ? `  ...and ${count - 5} more\n` : '';
-  const msg =
-    `cc-habits: ${count} pending ${noun} awaiting review:\n` +
-    `${lines.join('\n')}\n${more}` +
-    `Run \`cch pending\` to review, \`cch pending --approve\` to accept, or \`cch pending --discard\` to reject.`;
-
-  return msg.length > MAX_SESSION_START_CONTEXT
-    ? msg.slice(0, MAX_SESSION_START_CONTEXT)
-    : msg;
 }
 
 // stdin/stdout wrappers ────────────────────────────────────────────────────
@@ -894,12 +888,22 @@ export async function handleStop(): Promise<void> {
       process.stderr.write(formatStopSummary(result) + '\n');
     }
   } catch (e) {
-    if (e instanceof ProviderRateLimitError || e instanceof ProviderTimeoutError || e instanceof ProviderPayloadError) {
-      process.stderr.write(`cc-habits: ${e.message}\n`);
+    const msg = String(e instanceof Error ? e.message : e);
+    if (e instanceof ProviderAuthError) {
+      process.stderr.write('cc-habits: authentication failed. Check your API key with `cch status`.\n');
+    } else if (e instanceof ProviderNotInstalledError) {
+      process.stderr.write('cc-habits: provider CLI not found. Run `cch init --provider <name>` to reconfigure.\n');
+    } else if (e instanceof ProviderQuotaError) {
+      process.stderr.write('cc-habits: provider quota exceeded. Check your billing status.\n');
+    } else if (e instanceof ProviderRateLimitError) {
+      process.stderr.write('cc-habits: rate limit hit. Extraction skipped this session.\n');
+    } else if (e instanceof ProviderTimeoutError) {
+      process.stderr.write('cc-habits: provider timed out. Extraction skipped this session.\n');
+    } else if (e instanceof ProviderPayloadError) {
+      process.stderr.write('cc-habits: session diff too large. Extraction skipped this session.\n');
     } else {
-      const msg = String(e);
       if (msg.includes('not set') && msg.includes('config')) {
-        process.stderr.write('cc-habits: no provider configured. Run `cc-habits init` to set one up.\n');
+        process.stderr.write('cc-habits: capturing signals (no provider set, extraction skipped).\n');
       }
       logError(`stop: ${msg}`);
     }
@@ -947,7 +951,7 @@ export function hookMain(): void {
     if (ALLOWED_ADAPTERS.has(candidate)) {
       adapter = candidate;
     } else {
-      process.stderr.write(`cc-habits: invalid adapter: ${candidate}. Supported adapters: ${[...ALLOWED_ADAPTERS].join(', ')}. Falling back to claude-code.\n`);
+      logError(`hook: unknown adapter argument: ${candidate}, falling back to claude-code`);
       adapter = 'claude-code';
     }
   }
@@ -980,4 +984,3 @@ export function hookMain(): void {
 }
 
 // Re-export for callers that want to stage pending updates without applying.
-export { writePending, readPending, clearPending, toPending, pendingToUpdates };

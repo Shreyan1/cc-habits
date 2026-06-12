@@ -19,12 +19,6 @@ export interface MemoryItem {
   isCandidate: boolean;
 }
 
-export interface PendingItem {
-  rule: string;
-  category: string;
-  reasoning: string;
-}
-
 export function parseHabitsFile(md: string): Map<string, HabitItem[]> {
   const result = new Map<string, HabitItem[]>();
   let currentCategory = '';
@@ -160,21 +154,4 @@ export function parseMemoriesFile(md: string): Map<string, MemoryItem[]> {
   }
   flush();
   return result;
-}
-
-export function parsePendingFile(raw: string): PendingItem[] {
-  try {
-    const data = JSON.parse(raw) as unknown;
-    if (!Array.isArray(data)) return [];
-    return data
-      .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
-      .map(x => ({
-        rule: typeof x['rule'] === 'string' ? x['rule'] : '',
-        category: typeof x['category'] === 'string' ? x['category'] : 'Uncategorized',
-        reasoning: typeof x['reasoning'] === 'string' ? x['reasoning'] : '',
-      }))
-      .filter(p => p.rule.length > 0);
-  } catch {
-    return [];
-  }
 }

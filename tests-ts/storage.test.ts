@@ -6,6 +6,7 @@ import {
   storagePaths,
   appendSignal,
   readSignals,
+  countSignals,
   initHabitsMd,
   initLog,
   initMemoriesMd,
@@ -40,9 +41,7 @@ beforeEach(() => {
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
   storagePaths.memoryTombstonesFile = path.join(tmpDir, '.memory-tombstones.json');
   storagePaths.memoryIndexFile = path.join(tmpDir, '.memory-index.json');
-  storagePaths.memoryPendingFile = path.join(tmpDir, '.memory-pending.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
-  storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   initHabitsMd();
   initMemoriesMd();
   initLog();
@@ -67,6 +66,41 @@ describe('storage', () => {
     expect(readSignals('a')).toHaveLength(1);
     expect(readSignals('b')).toHaveLength(1);
     expect(readSignals()).toHaveLength(2);
+  });
+
+  describe('countSignals (parse-free count, must equal readSignals().length)', () => {
+    it('returns 0 for an empty / absent log', () => {
+      expect(countSignals('any')).toBe(0);
+      expect(countSignals()).toBe(0);
+    });
+
+    it('counts per session and in total without parsing', () => {
+      appendSignal({ ts: '2026-05-18T00:00:00Z', session_id: 'a', type: 'edit', file: 'a.py', diff: '-x\n+y' });
+      appendSignal({ ts: '2026-05-18T00:00:01Z', session_id: 'a', type: 'edit', file: 'c.py', diff: '-x\n+y' });
+      appendSignal({ ts: '2026-05-18T00:00:02Z', session_id: 'b', type: 'edit', file: 'b.py', diff: '-x\n+y' });
+      expect(countSignals('a')).toBe(readSignals('a').length);
+      expect(countSignals('b')).toBe(readSignals('b').length);
+      expect(countSignals()).toBe(readSignals().length);
+      expect(countSignals('a')).toBe(2);
+      expect(countSignals()).toBe(3);
+    });
+
+    it('matches a UUID-style session id exactly, not a prefix', () => {
+      const full = '550e8400-e29b-41d4-a716-446655440000';
+      const other = '550e8400-e29b-41d4-a716-446655440099';
+      appendSignal({ ts: '2026-05-18T00:00:00Z', session_id: full, type: 'edit', file: 'a.py', diff: '-x\n+y' });
+      appendSignal({ ts: '2026-05-18T00:00:01Z', session_id: other, type: 'edit', file: 'b.py', diff: '-x\n+y' });
+      expect(countSignals(full)).toBe(1);
+      expect(countSignals(other)).toBe(1);
+    });
+
+    it('is unaffected by a session id that requires JSON escaping', () => {
+      const tricky = 'sess"with\\quote';
+      appendSignal({ ts: '2026-05-18T00:00:00Z', session_id: tricky, type: 'edit', file: 'a.py', diff: '-x\n+y' });
+      appendSignal({ ts: '2026-05-18T00:00:01Z', session_id: 'plain', type: 'edit', file: 'b.py', diff: '-x\n+y' });
+      expect(countSignals(tricky)).toBe(readSignals(tricky).length);
+      expect(countSignals(tricky)).toBe(1);
+    });
   });
 
   it('initHabitsMd creates the file with header', () => {

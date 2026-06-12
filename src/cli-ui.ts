@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import { type Memory, getRuleHash } from './storage';
 
 export const BOLD   = '\x1b[1m';
@@ -13,6 +14,13 @@ export const NO_COLOR = !process.stdout.isTTY || !!process.env['NO_COLOR'];
 
 export function c(code: string, text: string): string {
   return NO_COLOR ? text : `${code}${text}${RESET}`;
+}
+
+// Collapse the user's home directory to ~ for readable, copy-pasteable proof
+// paths. Returns the path unchanged when it is not under the home directory.
+export function tildePath(p: string): string {
+  const home = os.homedir();
+  return p === home || p.startsWith(home + '/') ? '~' + p.slice(home.length) : p;
 }
 
 // Strip terminal control characters (ESC, BEL, CSI sequences, C0/C1 controls) from

@@ -4,14 +4,14 @@ import path from 'path';
 import { storagePaths } from './storage';
 
 // Mutable so tests can redirect to temp directories.
-// habitsMdPath / importLine are kept in sync with storagePaths.habitsFile so
+// habitsMdPath / importLine are kept in sync with storagePaths.preferencesFile so
 // that CC_HABITS_DIR overrides flow through to the @import line in CLAUDE.md.
 export const installPaths = {
   claudeDir: path.join(os.homedir(), '.claude'),
   settingsFile: path.join(os.homedir(), '.claude', 'settings.json'),
   claudeMd: path.join(os.homedir(), '.claude', 'CLAUDE.md'),
-  habitsMdPath: storagePaths.habitsFile,
-  importLine: `@import ${storagePaths.habitsFile}`,
+  habitsMdPath: storagePaths.preferencesFile,
+  importLine: `@import ${storagePaths.preferencesFile}`,
 };
 
 export interface InstallContext {
@@ -54,8 +54,8 @@ function makeHooks(hookBin: string): { postToolUse: object; stop: object; userPr
     userPromptSubmit: {
       hooks: [{ type: 'command', command: `${safeBin} user-prompt-submit --adapter claude-code || true` }],
     },
-    // SessionStart surfaces pending habit suggestions automatically at the top of
-    // each session, so the developer does not have to remember to run cch pending.
+    // SessionStart prints a one-line "N habits active this session" banner so the
+    // developer can see how many learned habits are guiding the session.
     sessionStart: {
       hooks: [{ type: 'command', command: `${safeBin} session-start --adapter claude-code || true` }],
     },
@@ -174,6 +174,92 @@ export function registerHooks(hookBin?: string, ctx?: InstallContext): HookRegis
   return { postAdded, stopAdded, promptAdded, sessionStartAdded };
 }
 
+// Read-only hook detection. Returns true if ANY cc-habits hook entry is present
+// in settings.json without mutating anything. Uses the same cc-habits-hook marker
+// string as cleanOldHabitsHooks (install.ts:115), no parallel logic invented.
+export function areHooksRegistered(ctx?: InstallContext): boolean {
+  try {
+    const settings = loadSettings(ctx); // loadSettings is private; valid as same-module access
+    const hooks = settings['hooks'] as Record<string, unknown[]> | undefined;
+    if (!hooks) return false;
+    const marker = 'cc-habits-hook';
+    const check = (list: unknown[] = []): boolean =>
+      list.some(entry => {
+        const hs = ((entry as Record<string, unknown>)['hooks'] as Array<Record<string, unknown>>) ?? [];
+        return hs.some(h => typeof h['command'] === 'string' && (h['command'] as string).includes(marker));
+      });
+    return check(hooks['PostToolUse']) || check(hooks['Stop']) || check(hooks['UserPromptSubmit']);
+  } catch { return false; }
+}
+
+export interface RegisteredHook {
+  event: string;
+  command: string;
+}
+
+// Where a tool's cc-habits hooks actually live on disk. Most tools store them in
+// the settings file we detected, but Codex writes a sidecar hooks.json and Cline
+// uses one shell file per event. Returning the real path(s) lets the CLI prove to
+// the user exactly which file changed, instead of merely asserting it did.
+export function hookProofPaths(toolId: string, settingsPath: string): string[] {
+  if (toolId === 'claude-code') return [installPaths.settingsFile];
+  if (toolId === 'codex') return [path.join(path.dirname(settingsPath), 'hooks.json')];
+  if (toolId === 'cline') return [path.join(settingsPath, 'PostToolUse'), path.join(settingsPath, 'Stop')];
+  return [settingsPath];
+}
+
+// Read back the cc-habits hook entries currently present in a settings file, so
+// the CLI can show real proof (the bytes on disk) rather than echoing intent.
+// Format-agnostic: JSON settings (Claude/Gemini/Codex) are parsed structurally;
+// TOML (Kimi) and shell hook files (Cline) are scanned line by line. Never throws.
+export function readRegisteredHooks(filePath: string): RegisteredHook[] {
+  let raw = '';
+  try {
+    raw = fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return [];
+  }
+  const out: RegisteredHook[] = [];
+
+  if (raw.trimStart().startsWith('{')) {
+    try {
+      const json = JSON.parse(raw) as {
+        hooks?: Record<string, Array<{ hooks?: Array<{ command?: unknown }> }>>;
+      };
+      const hooks = json.hooks ?? {};
+      for (const event of Object.keys(hooks)) {
+        for (const entry of hooks[event] ?? []) {
+          for (const h of entry.hooks ?? []) {
+            if (typeof h.command === 'string' && h.command.includes('cc-habits-hook')) {
+              out.push({ event, command: h.command });
+            }
+          }
+        }
+      }
+      return out;
+    } catch {
+      // Not valid JSON, fall through to the line scan below.
+    }
+  }
+
+  // TOML [[hooks]] blocks (event/command keys) or shell hook files (Cline). The
+  // event for a shell file is its name, so fall back to the file basename.
+  let currentEvent = '';
+  for (const line of raw.split('\n')) {
+    const evMatch = line.match(/^\s*event\s*=\s*['"]([^'"]+)['"]/);
+    if (evMatch) {
+      currentEvent = evMatch[1] ?? '';
+      continue;
+    }
+    if (line.includes('cc-habits-hook')) {
+      const cmdMatch = line.match(/command\s*=\s*['"](.+)['"]\s*$/);
+      const command = cmdMatch ? cmdMatch[1]! : line.trim();
+      out.push({ event: currentEvent || path.basename(filePath), command });
+    }
+  }
+  return out;
+}
+
 function atomicWriteText(filePath: string, content: string): void {
   const tmpPath = `${filePath}.tmp.${process.pid}`;
   try {
@@ -206,9 +292,9 @@ export function addImportToClaudeMd(ctx?: InstallContext): boolean {
 
 import { execFileSync } from 'child_process';
 
-export function installLocalGitHook(): boolean {
+export function installLocalGitHook(): 'installed' | 'already' | 'failed' {
   try {
-    if (!fs.existsSync('.git')) return false;
+    if (!fs.existsSync('.git')) return 'failed';
 
     const stat = fs.statSync('.git');
     let hooksDir = '';
@@ -219,7 +305,7 @@ export function installLocalGitHook(): boolean {
         const gitDir = execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf-8' }).trim();
         hooksDir = path.join(gitDir, 'hooks');
       } catch {
-        return false;
+        return 'failed';
       }
     }
 
@@ -230,19 +316,19 @@ export function installLocalGitHook(): boolean {
     if (fs.existsSync(hookFile)) {
       const content = fs.readFileSync(hookFile, 'utf-8');
       if (content.includes('cc-habits git-capture') || content.includes('cch git-capture')) {
-        return false;
+        return 'already';
       }
       fs.appendFileSync(hookFile, `\n${command}\n`);
     } else {
       fs.writeFileSync(hookFile, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
     }
-    return true;
+    return 'installed';
   } catch {
-    return false;
+    return 'failed';
   }
 }
 
-export function installGlobalGitTemplateHook(): boolean {
+export function installGlobalGitTemplateHook(): 'installed' | 'already' | 'failed' {
   try {
     const templateDir = path.join(os.homedir(), '.git-templates');
     const hooksDir = path.join(templateDir, 'hooks');
@@ -251,9 +337,12 @@ export function installGlobalGitTemplateHook(): boolean {
     const hookFile = path.join(hooksDir, 'post-commit');
     const command = 'cc-habits git-capture || true';
 
+    let result: 'installed' | 'already' = 'installed';
     if (fs.existsSync(hookFile)) {
       const content = fs.readFileSync(hookFile, 'utf-8');
-      if (!content.includes('cc-habits git-capture') && !content.includes('cch git-capture')) {
+      if (content.includes('cc-habits git-capture') || content.includes('cch git-capture')) {
+        result = 'already';
+      } else {
         fs.appendFileSync(hookFile, `\n${command}\n`);
       }
     } else {
@@ -264,9 +353,9 @@ export function installGlobalGitTemplateHook(): boolean {
     // containing shell metacharacters ($(...), backticks, ...) cannot trigger
     // command substitution. Replaces the previous double-quoted execSync.
     execFileSync('git', ['config', '--global', 'init.templateDir', templateDir]);
-    return true;
+    return result;
   } catch {
-    return false;
+    return 'failed';
   }
 }
 
@@ -446,6 +535,17 @@ export function registerCodexHooks(targetFile: string, hookBin: string): HookReg
 // (WriteFile/StrReplaceFile), so the PostToolUse matcher targets those.
 const KIMI_EDIT_MATCHER = 'WriteFile|StrReplaceFile';
 
+// Remove every cc-habits [[hooks]] block from a Kimi TOML config, preserving the
+// preamble (everything before the first [[hooks]]) and any blocks the user or
+// other tools added. Shared by the register path (de-dup before re-adding) and
+// the deregister path. Splitting on '\n[[hooks]]' mirrors how we write blocks.
+function stripKimiHabitsBlocks(content: string): string {
+  return content
+    .split('\n[[hooks]]')
+    .filter((block, idx) => idx === 0 || !block.includes('cc-habits'))
+    .join('\n[[hooks]]');
+}
+
 export function registerKimiHooks(targetFile: string, hookBin: string): HookRegistration {
   const safeBin = `"${hookBin.replace(/"/g, '\\"')}"`;
   const postCmd = `${safeBin} post-tool-use --adapter kimi || true`;
@@ -458,18 +558,29 @@ export function registerKimiHooks(targetFile: string, hookBin: string): HookRegi
     content = fs.readFileSync(targetFile, 'utf-8');
   }
 
-  // Append a [[hooks]] block only if this exact command is not already present.
-  const appendHook = (event: string, command: string, matcher?: string): boolean => {
-    if (content.includes(command)) return false;
+  // Capture whether each hook was already present with the *current* binary path
+  // before stripping, so the "registered" vs "already registered" report stays
+  // honest on an idempotent re-run.
+  const postAdded = !content.includes(postCmd);
+  const stopAdded = !content.includes(stopCmd);
+  const promptAdded = !content.includes(promptCmd);
+  const sessionStartAdded = !content.includes(sessionStartCmd);
+
+  // Drop any prior cc-habits blocks (possibly carrying a stale binary path) so we
+  // re-add exactly one block per event rather than appending duplicates. Without
+  // this, a re-init after the resolved hook path changed leaves 8+ Kimi hooks and
+  // each edit fires twice. The JSON adapters get this via cleanOldHabitsHooks.
+  content = stripKimiHabitsBlocks(content);
+
+  const appendHook = (event: string, command: string, matcher?: string): void => {
     const matcherLine = matcher ? `matcher = ${tomlString(matcher)}\n` : '';
     content += `\n[[hooks]]\nevent = ${tomlString(event)}\n${matcherLine}command = ${tomlString(command)}\n`;
-    return true;
   };
 
-  const postAdded = appendHook('PostToolUse', postCmd, KIMI_EDIT_MATCHER);
-  const stopAdded = appendHook('Stop', stopCmd);
-  const promptAdded = appendHook('UserPromptSubmit', promptCmd);
-  const sessionStartAdded = appendHook('SessionStart', sessionStartCmd);
+  appendHook('PostToolUse', postCmd, KIMI_EDIT_MATCHER);
+  appendHook('Stop', stopCmd);
+  appendHook('UserPromptSubmit', promptCmd);
+  appendHook('SessionStart', sessionStartCmd);
 
   if (fs.existsSync(targetFile) && fs.lstatSync(targetFile).isSymbolicLink()) {
     throw new Error(`refusing to write through symlink: ${targetFile}`);
@@ -687,15 +798,9 @@ export function deregisterJsonHooks(targetFile: string): HookRegistration {
 export function deregisterKimiHooks(targetFile: string): boolean {
   if (!fs.existsSync(targetFile)) return false;
   const content = fs.readFileSync(targetFile, 'utf-8');
-  if (!content.includes('cc-habits-hook') && !content.includes('cc-habits')) return false;
+  if (!content.includes('cc-habits')) return false;
 
-  const blocks = content.split('\n[[hooks]]');
-  const cleanedBlocks = blocks.filter((block, idx) => {
-    if (idx === 0) return true;
-    return !block.includes('cc-habits-hook') && !block.includes('cc-habits');
-  });
-
-  const cleaned = cleanedBlocks.join('\n[[hooks]]').trim() + '\n';
+  const cleaned = stripKimiHabitsBlocks(content).trim() + '\n';
   fs.writeFileSync(targetFile, cleaned, 'utf-8');
   return true;
 }

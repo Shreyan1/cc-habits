@@ -15,7 +15,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { label: 'tools',          args: ['tools'],     hint: 'List supported coding tools' },
   { label: 'learn',          args: ['learn'],     hint: 'Learn habits from repository scan or signals' },
   { label: 'view',           args: ['view'],      hint: 'Show current habits or coding memories' },
-  { label: 'pending',        args: ['pending'],   hint: 'Review queued habit suggestions' },
+  { label: 'status',         args: ['status'],    hint: 'Show setup health and current activity' },
   { label: 'bootstrap',      args: ['bootstrap'], hint: 'Learn habits from past sessions' },
   { label: 'memories',       args: ['memories'],  hint: 'Show coding memories' },
   { label: 'sync',           args: ['sync'],      hint: 'Share habits with your other tools' },

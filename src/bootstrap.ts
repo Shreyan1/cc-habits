@@ -12,6 +12,7 @@ import { extractRules } from './extractor';
 import type { Signal } from './storage';
 import { fromCodex } from './adapters/codex';
 import { fromGemini } from './adapters/gemini';
+import { writePreferencesFile } from './sync';
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 const MAX_BOOTSTRAP_SIGNALS = 40;
@@ -493,6 +494,7 @@ export async function bootstrap(opts?: {
 
   const serialised = serialiseHabits(cats);
   writeHabitsMd(serialised, ctx);
+  writePreferencesFile(ctx);
   writeSnapshot(cats, ctx);
   appendHistory({ ts: new Date().toISOString(), session_id: 'bootstrap', habits_md: serialised }, ctx);
   writeBootstrapped(processedIds, ctx);

@@ -130,7 +130,7 @@ Under the Digital Personal Data Protection Act 2023:
 - Treat `~/.cc-habits/` as you would any folder containing source-code diffs.
 - Store your provider API key via your secrets manager rather than in `config.yml`.
 - Periodically run `cch reset --yes` to clear local history.
-- Do not enable `CC_HABITS_AUTO` in untrusted repositories. It auto-applies learned habits without your review. cc-habits warns whenever auto-apply runs.
+- Habits learned from a repository auto-apply to your Learning section. In untrusted repositories, add a `.cc-habits-ignore` file (or set `CC_HABITS_DISABLE=1`) to stop capture, and review what was learned with `cch view`. Set `CC_HABITS_AUTO=1` to print an explicit warning each time new habits are auto-applied.
 
 ---
 
@@ -162,4 +162,4 @@ If you believe cc-habits has leaked data or has a vulnerability with privacy imp
 
 ---
 
-*Last updated: v0.5.4, 2026-06-05.*
+*Last updated: v0.7.6, 2026-06-11.*

@@ -17,7 +17,6 @@ beforeEach(() => {
   storagePaths.logFile = path.join(tmpDir, 'log.jsonl');
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
   storagePaths.tombstonesFile = path.join(tmpDir, '.tombstones.json');
-  storagePaths.pendingFile = path.join(tmpDir, '.pending.json');
   storagePaths.snapshotFile = path.join(tmpDir, '.snapshot.json');
   storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
   storagePaths.provenanceFile = path.join(tmpDir, '.provenance.json');
@@ -33,7 +32,7 @@ import { isGloballyDisabled, setGloballyDisabled } from '../src/config';
 import { captureDisabled, processSessionStart, processUserPromptSubmit } from '../src/hook';
 import { cmdOn, cmdOff, cmdTombstone } from '../src/cli';
 import { nextSteps } from '../src/suggestions';
-import { addTombstone, writePending } from '../src/storage';
+import { addTombstone } from '../src/storage';
 
 describe('Global Enable/Disable Toggle', () => {
   it('toggles disabled flag in config.yml correctly', () => {
@@ -83,7 +82,6 @@ describe('Global Enable/Disable Toggle', () => {
     expect(resPromptDisabled).toBeNull();
 
     // Session Start check should be blocked (return null immediately)
-    writePending([{ category: 'Style', rule: 'Test rule', decision: 'create', ts: '2026-06-05' }]);
     const resStartDisabled = processSessionStart();
     expect(resStartDisabled).toBeNull();
   });
@@ -145,15 +143,7 @@ describe('Smart suggestions', () => {
     expect(steps).toEqual(['cch on                enable cc-habits (resume capture and prompt injection)']);
   });
 
-  it('suggests cch pending if pending queue has entries', () => {
-    setGloballyDisabled(false);
-    writePending([{ category: 'Style', rule: 'Test rule', decision: 'create', ts: '2026-06-05' }]);
-
-    const steps = nextSteps('view', []);
-    expect(steps).toContain('cch pending           review proposed habits');
-  });
-
-  it('suggests cch sync if no pending queue entries', () => {
+  it('suggests cch sync when globally enabled', () => {
     setGloballyDisabled(false);
     
     const steps = nextSteps('view', []);

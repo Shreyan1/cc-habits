@@ -91,18 +91,6 @@ describe('formatStopSummary', () => {
     expect(out).toContain('[Conditionals] Prefer ternary operators');
   });
 
-  it('shows pending review guidance when pendingCount is non-zero', () => {
-    const out = formatStopSummary(emptyResult({
-      newCount: 2,
-      pendingCount: 2,
-      changes: [
-        { category: 'TS', rule: 'Use strict mode', decision: 'create', confidence: 0.5 },
-        { category: 'TS', rule: 'Use explicit types', decision: 'create', confidence: 0.5 },
-      ],
-    }));
-    expect(out).toContain('cch pending');
-    expect(out).toContain('2 new habit');
-  });
 
   it('shows reinforced habits with their resulting confidence percentage', () => {
     const out = formatStopSummary(emptyResult({
@@ -139,14 +127,14 @@ describe('formatStopSummary', () => {
 
   it('renders an explicit no-change line when nothing happened', () => {
     const out = formatStopSummary(emptyResult());
-    expect(out).toContain('no habit changes this session');
+    expect(out).toContain('cc-habits: 0 signals captured · 0 habits learning · cch view for details');
   });
 
-  it('always points the user to `cc-habits view`', () => {
+  it('always points the user to `cch view`', () => {
     const out = formatStopSummary(emptyResult({
       changes: [{ category: 'TS', rule: 'Use strict mode', decision: 'create', confidence: 0.5 }],
     }));
-    expect(out).toContain('cc-habits view');
+    expect(out).toContain('cch view for details');
   });
 
   it('contains no ANSI escape codes (hook stderr is piped, not a TTY)', () => {

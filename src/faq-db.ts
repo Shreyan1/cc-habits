@@ -154,7 +154,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Hooks & Capture',
     question: 'The log.jsonl file is getting very large',
     keywords: ['log', 'size', 'disk', 'large', 'rotate', 'jsonl', 'grow', 'space', 'storage', 'cleanup', 'delete', 'clean'],
-    answer: 'cc-habits automatically rotates `log.jsonl` when it exceeds 2 MB, keeping the most recent 5,000 signals. If you want to clear the log manually, run `cch reset --yes` (this also clears habits and pending, so export first: `cch export ~/habits-backup.md`). The error log at `~/.cc-habits/error.log` is separate and not auto-rotated.'
+    answer: 'cc-habits automatically rotates `log.jsonl` when it exceeds 2 MB, keeping the most recent 5,000 signals. If you want to clear the log manually, run `cch reset --yes` (this also clears habits, so export first: `cch export ~/habits-backup.md`). The error log at `~/.cc-habits/error.log` is separate and not auto-rotated.'
   },
   {
     id: 'git-capture',
@@ -178,14 +178,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Learning & Habits',
     question: 'When does cc-habits actually learn and update my habits?',
     keywords: ['learn', 'when', 'trigger', 'update', 'session', 'stop', 'automatic', 'end', 'extract', 'automatically'],
-    answer: 'Learning happens when a Claude Code session ends (the Stop hook fires). cc-habits collects all edit signals from the session and sends them to your LLM provider to extract style patterns. New habits go to `pending` first (review with `cch pending`). If you want to trigger learning manually, run `cch learn`.'
-  },
-  {
-    id: 'pending-what-is',
-    category: 'Learning & Habits',
-    question: 'What is "pending" and why do new habits need review?',
-    keywords: ['pending', 'review', 'approve', 'queue', 'new', 'habit', 'suggestions', 'proposals', 'apply', 'accept', 'discard'],
-    answer: '`pending` is a review queue for newly proposed habits. Instead of auto-writing habits to CLAUDE.md (which could introduce bad rules), cc-habits puts new `create` decisions in pending so you can review them. Run `cch pending` to see them, `cch pending --approve` to accept, or `cch pending --discard` to drop them.'
+    answer: 'Learning happens when a Claude Code session ends (the Stop hook fires). cc-habits collects all edit signals from the session and sends them to your LLM provider to extract style patterns. New habits graduate and are applied directly once seen in multiple sessions. If you want to trigger learning manually, run `cch learn`.'
   },
   {
     id: 'not-enough-signals',
@@ -229,13 +222,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     keywords: ['explain', 'provenance', 'source', 'where', 'signal', 'history', 'contribute', 'audit', 'why', 'reason', 'diffs'],
     answer: 'Run `cch explain "<rule text>"` with any substring of the rule. It shows the confidence score, how many sessions reinforced vs. contradicted it, and the specific file diffs that contributed. This is useful for auditing why a habit exists or deciding whether to tombstone it.'
   },
-  {
-    id: 'auto-apply',
-    category: 'Learning & Habits',
-    question: 'How do I skip the pending review and apply habits automatically?',
-    keywords: ['auto', 'automatic', 'skip', 'pending', 'review', 'CC_HABITS_AUTO', 'auto-approve', 'bypass'],
-    answer: 'Set `CC_HABITS_AUTO=1` in your shell or in your `.bashrc`/`.zshrc`. With this flag, newly proposed habits are applied directly to habits.md without going through the pending queue. Use with caution, you lose the review step that prevents bad rules from accumulating.'
-  },
+
 
   // ── Viewing & Diffing ──────────────────────────────────────────────────────
 
@@ -316,7 +303,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Shell Integration',
     question: 'What does "cch shell-init" do and do I need it?',
     keywords: ['shell', 'shell-init', 'wrapper', 'banner', 'zsh', 'bash', 'eval', 'alias', 'terminal', 'integration'],
-    answer: '`cch shell-init` prints a shell wrapper that wraps the `claude` and `gemini` commands to show a session banner (pending habit count, etc.) when you start a session. Add it to your shell profile:\n\n```\neval "$(cch shell-init)"\n```\n\nIt is optional but useful for staying aware of pending habit reviews.'
+    answer: '`cch shell-init` prints a shell wrapper that wraps the `claude` and `gemini` commands. Add it to your shell profile: `eval "$(cch shell-init)"`. It is optional.'
   },
 
   // ── Configuration ──────────────────────────────────────────────────────────
@@ -405,7 +392,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Migrations & Resets',
     question: 'How do I start fresh and clear all habits?',
     keywords: ['reset', 'clear', 'fresh', 'start over', 'delete', 'wipe', 'all', 'wipe-all', 'factory-reset', 'delete-habits'],
-    answer: '`cch reset --yes` deletes: habits.md, log.jsonl, pending, and snapshot files. Hooks and tombstones are preserved. Export first if you want a backup: `cch export ~/habits-backup.md`. There is no undo.'
+    answer: '`cch reset --yes` deletes: habits.md, log.jsonl, and snapshot files. Hooks and tombstones are preserved. Export first if you want a backup: `cch export ~/habits-backup.md`. There is no undo.'
   },
 
   // ── Troubleshooting ────────────────────────────────────────────────────────
@@ -438,13 +425,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     keywords: ['settings', 'json', 'parse', 'error', 'corrupt', 'invalid', 'comments', 'JSON5', 'json-parse-failed', 'settings.json-broken'],
     answer: 'Claude Code\'s `settings.json` may have JSON5 comments or trailing commas that are not valid JSON. cc-habits warns and starts with an empty config rather than crashing. To fix permanently: open `~/.claude/settings.json` and remove any `//` or `/* */` comments, then run `cch init` again.'
   },
-  {
-    id: 'pending-on-startup',
-    category: 'Troubleshooting',
-    question: 'I see a "pending habit suggestion" banner at the start of every session',
-    keywords: ['banner', 'pending', 'session', 'start', 'notification', 'every time', 'disable-banner', 'stop-banner'],
-    answer: 'That is the SessionStart hook surfacing un-reviewed pending habits. It will keep appearing until you review them:\n- `cch pending`, view what is pending\n- `cch pending --approve`, accept and apply to habits.md\n- `cch pending --discard`, drop without applying'
-  },
+
 
   // ── Advanced ───────────────────────────────────────────────────────────────
 

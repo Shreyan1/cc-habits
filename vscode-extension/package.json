@@ -47,11 +47,6 @@
           "id": "cchabits.memories",
           "name": "Memories",
           "icon": "$(history)"
-        },
-        {
-          "id": "cchabits.pending",
-          "name": "Pending Review",
-          "icon": "$(clock)"
         }
       ]
     },
@@ -87,18 +82,6 @@
         "icon": "$(trash)"
       },
       {
-        "command": "cchabits.approvePending",
-        "title": "Approve All",
-        "category": "cc-habits",
-        "icon": "$(check-all)"
-      },
-      {
-        "command": "cchabits.discardPending",
-        "title": "Discard All",
-        "category": "cc-habits",
-        "icon": "$(close-all)"
-      },
-      {
         "command": "cchabits.sync",
         "title": "Sync to AGENTS.md / Cursor / Cline",
         "category": "cc-habits",
@@ -109,7 +92,7 @@
       "view/title": [
         {
           "command": "cchabits.refresh",
-          "when": "view == cchabits.habits || view == cchabits.memories || view == cchabits.pending",
+          "when": "view == cchabits.habits || view == cchabits.memories",
           "group": "navigation"
         },
         {
@@ -120,16 +103,6 @@
         {
           "command": "cchabits.openMemories",
           "when": "view == cchabits.memories",
-          "group": "navigation"
-        },
-        {
-          "command": "cchabits.approvePending",
-          "when": "view == cchabits.pending",
-          "group": "navigation"
-        },
-        {
-          "command": "cchabits.discardPending",
-          "when": "view == cchabits.pending",
           "group": "navigation"
         },
         {

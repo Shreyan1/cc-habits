@@ -46,7 +46,6 @@ beforeEach(() => {
   storagePaths.errorLog = path.join(tmpDir, 'habits', 'error.log');
   storagePaths.tombstonesFile = path.join(tmpDir, 'habits', '.tombstones.json');
   storagePaths.snapshotFile = path.join(tmpDir, 'habits', '.snapshot.json');
-  storagePaths.pendingFile = path.join(tmpDir, 'habits', '.pending.json');
   // configFile must be co-located with habitsFile, redirect it too.
   storagePaths.configFile = path.join(tmpDir, 'habits', 'config.yml');
   installPaths.claudeDir = path.join(tmpDir, 'dot_claude');

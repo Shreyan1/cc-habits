@@ -35,7 +35,6 @@ beforeEach(() => {
   storagePaths.errorLog = path.join(tmpDir, 'habits', 'error.log');
   storagePaths.tombstonesFile = path.join(tmpDir, 'habits', '.tombstones.json');
   storagePaths.snapshotFile = path.join(tmpDir, 'habits', '.snapshot.json');
-  storagePaths.pendingFile = path.join(tmpDir, 'habits', '.pending.json');
   storagePaths.historyFile = path.join(tmpDir, 'habits', '.history.jsonl');
   storagePaths.provenanceFile = path.join(tmpDir, 'habits', '.provenance.json');
   storagePaths.configFile = path.join(tmpDir, 'habits', 'config.yml');

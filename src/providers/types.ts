@@ -26,3 +26,28 @@ export class ProviderPayloadError extends Error {
     this.name = 'ProviderPayloadError';
   }
 }
+
+export class ProviderAuthError extends Error {
+  readonly side = 'user-auth' as const;
+  constructor(provider: string, message?: string) {
+    super(message || `${provider}: authentication failed (check API key or CLI login).`);
+    this.name = 'ProviderAuthError';
+  }
+}
+
+export class ProviderNotInstalledError extends Error {
+  readonly side = 'setup' as const;
+  constructor(provider: string, message?: string) {
+    super(message || `${provider}: executable not found in PATH.`);
+    this.name = 'ProviderNotInstalledError';
+  }
+}
+
+export class ProviderQuotaError extends Error {
+  readonly side = 'provider' as const;
+  constructor(provider: string, message?: string) {
+    super(message || `${provider}: quota/credit balance exhausted.`);
+    this.name = 'ProviderQuotaError';
+  }
+}
+

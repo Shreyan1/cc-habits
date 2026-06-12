@@ -45,6 +45,9 @@ beforeEach(() => {
   secretDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-sec-secret-'));
   process.env['CC_HABITS_DIR'] = storeDir;
   pointStorageAt(storeDir);
+  // A usable provider must exist for the scan to reach the extractor (it now gates
+  // on this before any analysis). The extractor is mocked, so no real call is made.
+  fs.writeFileSync(path.join(storeDir, 'config.yml'), 'provider: anthropic\nanthropic_api_key: test-key\n');
   vi.mocked(extractor.extractHabitsFromRepo).mockResolvedValue([] as any);
   vi.mocked(extractor.extractMemoriesFromDocs).mockResolvedValue([] as any);
 });

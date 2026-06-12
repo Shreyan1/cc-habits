@@ -363,8 +363,12 @@ CURRENT MEMORIES:
 OUTPUT:`;
 
 function buildFilesBlock(files: RepoFile[]): string {
+  // Wrap each file's content in explicit data delimiters so the LLM clearly sees
+  // the boundary between prompt instructions (above) and untrusted file content (inside).
+  // This is a defence-in-depth layer against indirect prompt injection via repo docs
+  // (e.g. a CLAUDE.md that embeds "IGNORE ALL PREVIOUS INSTRUCTIONS").
   return files
-    .map(f => `### ${f.path}\n${f.content}`)
+    .map(f => `### ${f.path}\n<file-content>\n${f.content}\n</file-content>`)
     .join('\n\n');
 }
 

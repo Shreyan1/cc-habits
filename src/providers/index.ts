@@ -5,18 +5,22 @@ import { AnthropicProvider } from './anthropic';
 import { OpenAIProvider } from './openai';
 import { GroqProvider } from './groq';
 import { OllamaProvider } from './ollama';
+import { ClaudeCliProvider } from './claude-cli';
+import { GeminiCliProvider } from './gemini-cli';
+import { CodexCliProvider } from './codex-cli';
+import { spawnSync } from 'child_process';
 import { storagePaths } from '../storage';
 
 // Re-export the contract and error types so existing importers of './providers'
 // keep working. The definitions live in types.ts to avoid an import cycle.
 import type { Provider } from './types';
-export { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './types';
+export { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError } from './types';
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const REPO_SCAN_TIMEOUT_MS = 90_000;
 
 export interface ProviderConfig {
-  provider: 'anthropic' | 'openai' | 'groq' | 'ollama';
+  provider: 'anthropic' | 'openai' | 'groq' | 'ollama' | 'claude-cli' | 'gemini-cli' | 'codex-cli';
   anthropic_api_key?: string;
   openai_api_key?: string;
   openai_model?: string;
@@ -50,7 +54,7 @@ function readConfig(): ProviderConfig {
       return m ? m[1] : undefined;
     };
     const provider = read('provider');
-    if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic') {
+    if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic' || provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli') {
       cfg.provider = provider;
     }
     cfg.anthropic_api_key = read('anthropic_api_key');
@@ -66,6 +70,60 @@ function readConfig(): ProviderConfig {
   return cfg;
 }
 
+// Human-readable name of the provider extraction will actually use, honoring the
+// same precedence as selectProvider (CC_HABITS_PROVIDER env > config file >
+// ANTHROPIC_API_KEY env). Returns 'none' when nothing usable is configured. Used
+// so the repo-scan warning and `cch status` name the concrete provider rather
+// than a vague "your configured AI provider".
+//
+// A parked CLI provider sitting in config.yml (e.g. a leftover `provider:
+// codex-cli` from `--provider` experimentation) is NOT a usable provider in this
+// release, so it resolves to 'none' rather than being named as if it were active.
+// An explicit CC_HABITS_PROVIDER override is still honored verbatim, since that is
+// a deliberate, current choice rather than stale config.
+export function resolveProviderLabel(): string {
+  const forced = process.env['CC_HABITS_PROVIDER'];
+  if (forced) return forced;
+  const configExists = fs.existsSync(storagePaths.configFile)
+    || (!process.env['CC_HABITS_DIR'] && fs.existsSync(path.join(os.homedir(), '.cc-habits', 'config.yml')));
+  if (!configExists) {
+    return process.env['ANTHROPIC_API_KEY'] ? 'anthropic' : 'none';
+  }
+  const cfg = readConfig();
+  if (isParkedProvider(cfg.provider)) return 'none';
+  if (cfg.provider === 'ollama') return `ollama (${cfg.ollama_model ?? 'llama3.2'})`;
+  return cfg.provider;
+}
+
+// CLI-linking providers are parked for this release (reachable only via an
+// explicit --provider, never the default UX). Treated as not-usable everywhere
+// the front door decides whether to offer or run an extraction.
+const PARKED_PROVIDERS: readonly string[] = ['claude-cli', 'gemini-cli', 'codex-cli'];
+
+export function isParkedProvider(provider: string): boolean {
+  return PARKED_PROVIDERS.includes(provider);
+}
+
+// The single "can we actually extract right now?" gate. True only for a supported
+// (non-parked) provider that has the credential it needs. Mirrors selectProvider's
+// credential precedence so the front door never promises a scan it cannot run, and
+// never prints "analyzing with X" only to fail with "no provider". Synchronous and
+// network-free: a configured Ollama is assumed reachable (a real connection error
+// is surfaced honestly by the scan itself, not masked as "no provider").
+export function hasUsableProvider(): boolean {
+  try {
+    const cfg = readConfig();
+    const provider = process.env['CC_HABITS_PROVIDER'] ?? cfg.provider;
+    if (isParkedProvider(provider)) return false;
+    if (provider === 'ollama') return true;
+    if (provider === 'openai') return !!(process.env['OPENAI_API_KEY'] ?? cfg.openai_api_key);
+    if (provider === 'groq') return !!(process.env['GROQ_API_KEY'] ?? cfg.groq_api_key);
+    return !!(process.env['ANTHROPIC_API_KEY'] ?? cfg.anthropic_api_key); // anthropic (default)
+  } catch {
+    return false;
+  }
+}
+
 export function selectProvider(): Provider {
   const cfg = readConfig();
 
@@ -73,6 +131,15 @@ export function selectProvider(): Provider {
   const forced = process.env['CC_HABITS_PROVIDER'];
   const chosen = (forced ?? cfg.provider) as ProviderConfig['provider'];
 
+  if (chosen === 'claude-cli') {
+    return new ClaudeCliProvider();
+  }
+  if (chosen === 'gemini-cli') {
+    return new GeminiCliProvider();
+  }
+  if (chosen === 'codex-cli') {
+    return new CodexCliProvider();
+  }
   if (chosen === 'openai') {
     const key = process.env['OPENAI_API_KEY'] ?? cfg.openai_api_key;
     if (!key) throw new Error('OpenAI provider selected but OPENAI_API_KEY/openai_api_key not set.');
@@ -158,6 +225,18 @@ export async function selectProviderAsync(): Promise<Provider> {
       process.stderr.write(`cc-habits: no provider configured, using local Ollama (${found.model})\n`);
     }
     return new OllamaProvider(found.url, found.model);
+  }
+}
+
+export function probeCliProvider(name: 'claude' | 'gemini' | 'codex'): boolean {
+  try {
+    const result = spawnSync(name, ['--version'], {
+      timeout: 2000,
+      encoding: 'utf-8',
+    });
+    return !result.error && result.status === 0;
+  } catch {
+    return false;
   }
 }
 
