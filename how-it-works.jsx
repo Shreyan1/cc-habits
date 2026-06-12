@@ -115,29 +115,29 @@ function HowItWorks() {
 
         <div className="hiw__panels">
           <div className="hiw__panel">
-            <TerminalPanel header="PostToolUse  ·  captures the diff">
+            <TerminalPanel header="1  ·  Capture">
               <PanelBody text={P1_TEXT} />
             </TerminalPanel>
             <p className="hiw__panel-cap">
-              Every Write/Edit/MultiEdit captures a diff to <code>log.jsonl</code>. Locally, with no network call.
+              As you edit, cc-habits quietly notes each change to a local log. No network call, never blocks your terminal. <code>PostToolUse</code>.
             </p>
           </div>
 
           <div className="hiw__panel">
-            <TerminalPanel header="Stop  ·  extracts patterns">
+            <TerminalPanel header="2  ·  Learn">
               <PanelBody text={P2_TEXT} />
             </TerminalPanel>
             <p className="hiw__panel-cap">
-              At session end, one small-model call extracts patterns into <code>habits.md</code>.
+              At session end, one small-model call turns those edits into your style and saves it to <code>habits.md</code>. <code>Stop</code>.
             </p>
           </div>
 
           <div className="hiw__panel">
-            <TerminalPanel header="UserPromptSubmit  ·  re-asserts your habits">
+            <TerminalPanel header="3  ·  Apply">
               <Panel3Body />
             </TerminalPanel>
             <p className="hiw__panel-cap">
-              Every new prompt re-injects your strongest active habits - surviving context compaction.
+              Every new prompt gets your strongest habits handed back, so they survive even when the context compacts. <code>UserPromptSubmit</code>.
             </p>
           </div>
         </div>

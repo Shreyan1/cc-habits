@@ -53,6 +53,63 @@ function TheProblem() {
   );
 }
 
+function OutcomeStrip() {
+  const copy = useCopy();
+  return (
+    <section className="section section--dark">
+      <div className="container">
+        <h2 className="t-display-2" style={{ maxWidth: "24ch", textWrap: "balance" }}>
+          {copy.outcomeTitle}
+        </h2>
+        <p className="t-h3" style={{ marginTop: "1.5rem", color: "var(--accent)" }}>
+          {copy.outcomeSub}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+const BENEFITS = [
+  {
+    n: "01",
+    title: "Writes in your style, everywhere.",
+    body: "Naming, error handling, the abstractions you reach for. Learned once, applied in every tool you open, from Claude Code to Cursor to Codex."
+  },
+  {
+    n: "02",
+    title: "Learns on its own.",
+    body: "No forms, no rules files to maintain. It watches the edits you already make and quietly gets sharper in the background, session after session."
+  },
+  {
+    n: "03",
+    title: "Never leaves your machine.",
+    body: "Your habits live in plain text on your disk. No telemetry, no server, no analytics. Run it fully offline with Ollama for $0."
+  }
+];
+
+function WhatYouGet() {
+  const copy = useCopy();
+  return (
+    <section id="what-you-get" className="section section--lime">
+      <div className="container">
+        <div className="section-head">
+          <p className="t-caption ink-dim">{copy.getCaption}</p>
+          <h2 className="t-display-2">{copy.getTitle}</h2>
+        </div>
+        <ul className="guardrails">
+          {BENEFITS.map((b) =>
+            <li key={b.n} className="guardrail">
+              <span className="t-caption guardrail__num">{b.n}</span>
+              <p className="guardrail__title">{b.title}</p>
+              <p className="t-body guardrail__body">{b.body}</p>
+            </li>
+          )}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
 function WhatItCaptures() {
   const copy = useCopy();
   const subLabel = { margin: "0 0 1.25rem", letterSpacing: "0.04em" };
@@ -488,6 +545,8 @@ function FinalCta() {
 
 Object.assign(window, {
   TheProblem,
+  OutcomeStrip,
+  WhatYouGet,
   WhatItCaptures,
   Guardrails,
   Performance,

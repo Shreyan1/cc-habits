@@ -18,10 +18,14 @@ window.useTweakSet = useTweakSet;
 const COPY = {
   heroHeadline: "Every coding agent, writing like you.",
   heroCaption: "cc-habits  ·  v0.7.10  ·  open source",
-  heroTagline: "It learns your style from the edits you already make, and feeds it back into every session, automatically.",
+  heroTagline: "Stop re-explaining your style to every AI tool. cc-habits learns how you code once, and makes Claude Code, Cursor, Codex, and the rest write like you, automatically.",
   heroSub:
-    "A local-first CLI that writes your style to a plain habits.md every agent reads every session, across Claude Code, Gemini CLI, Codex, Kimi, Cursor, Cline, and any Git workflow. Capture runs locally with no network call and never blocks your terminal. No lock-in.",
-  problemCaption: "00  ·  why this exists",
+    "It runs quietly in the background, learns from the edits you already make, and keeps one private profile every agent reads. Local-first. No telemetry. No rules files to babysit.",
+  outcomeTitle: "You've trained your agents for months by correcting them. cc-habits is the first one that remembers.",
+  outcomeSub: "One profile. Every AI tool. Always in your style.",
+  getCaption: "01  ·  what you get",
+  getTitle: "Three reasons it sticks.",
+  problemCaption: "02  ·  the problem",
   problemPull: "You've been training your agents all along. They just haven't been listening.",
   problemBody: [
     "Every developer has a fingerprint: the names you reach for, how you handle errors, the abstractions you prefer. None of it is in any prompt you've written.",
@@ -30,29 +34,29 @@ const COPY = {
   ],
   problemContrastLeft: "what the agent wrote",
   problemContrastRight: "what you changed it to",
-  hiwCaption: "01  ·  how cc-habits works",
-  hiwTitle: "A few hooks. One markdown file. Zero config.",
-  hiwSub: "cc-habits plugs into your tool's lifecycle hooks. Capture fires on every edit, inject on every prompt, the same way in each tool, with no per-project setup.",
-  hiwFooter: "The capture and inject hooks run locally in milliseconds. The session-end hook makes a single small-model call, prints a one-line receipt of exactly what was learned, and a session-start hook shows how many habits are active. You choose the provider.",
-  capturesCaption: "02  ·  what it captures",
+  hiwCaption: "03  ·  how it works",
+  hiwTitle: "Three steps. Zero config.",
+  hiwSub: "cc-habits learns while you work. It captures the edits you make, turns them into your style at session end, and hands those habits back to every new prompt, automatically, in every tool, with no per-project setup.",
+  hiwFooter: "Capture and inject run locally in milliseconds and never block your session. Once per session, one small-model call turns your edits into habits and prints a one-line receipt of exactly what it learned. You choose the provider, cloud or fully local.",
+  capturesCaption: "04  ·  what it captures",
   capturesTitle: "Two kinds of memory, both in plain text.",
   capturesSub: "Habits are how you write code. Memories are the mistakes you don't want to repeat. cc-habits learns both from the edits you already make, and writes them to files you can read, edit, and own.",
   capturesBody: <span>Both are human-readable markdown you can read, edit, delete, or commit to git, documented as an open spec. Memories are on by default; turn them off any time with <strong><em>cch memories --disable</em></strong>. Same graduation gate, same tombstones, same files you own.</span>,
-  guardCaption: "03  ·  accuracy",
+  guardCaption: "05  ·  accuracy",
   guardTitle: "Four guardrails so it won't poison your context.",
-  perfCaption: "04  ·  performance  ·  measured, not claimed",
-  perfTitle: "We profiled it. Here are the real numbers.",
-  perfBody: "Every number here comes from benchmarking the actual hook binary, not a guess. The capture hook does its work in about five milliseconds. Nearly all of the rest is the Node runtime starting up, the same tax any CLI pays, and none of it blocks your session.",
-  portableCaption: "05  ·  portable  ·  the standard that travels with you",
+  portableCaption: "06  ·  portable  ·  the standard that travels with you",
   portableTitle: "Your habits aren't locked to one tool.",
   portableBody: [
     <span><strong><em>cch sync</em></strong> writes your active habits into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and <code>.clinerules</code>, and <strong><em>cch export/import</em></strong> moves a whole profile to a new machine or a teammate from a file or an <code>https://</code> URL.</span>,
     <span>Your habits are a portable asset you own, in an open format, not a setting trapped inside one vendor. A convention learned once can spread to a whole team, so the layer gets more valuable the more it is used.</span>
   ],
-  installCaption: "06  ·  install",
+  perfCaption: "07  ·  the proof  ·  measured, not claimed",
+  perfTitle: "No daemon. No token burn. No lag.",
+  perfBody: "We don't ask you to trust the marketing. Every number below comes from benchmarking the real hook binary. Capture does its work in under five milliseconds, the rest is just process startup, the tax every CLI pays, and nothing runs in the background between sessions. Zero runtime LLM cost, ever.",
+  installCaption: "08  ·  install",
   installTitle: "Two commands. You're done.",
   installBody: <span><strong><em>cch init</em></strong> detects your tools and walks you through picking a provider: Anthropic for the cheapest run, Ollama for a free local run, or OpenAI/Groq keys. It even offers to bootstrap habits from your past sessions instantly.</span>,
-  faqCaption: "07  ·  faq",
+  faqCaption: "09  ·  faq",
   faqTitle: "Common questions.",
   ctaTitle: "Make every agent write like you.",
 };
@@ -259,12 +263,14 @@ function App() {
       <main>
         <Hero />
         <LogoMarquee />
+        <OutcomeStrip />
+        <WhatYouGet />
         <TheProblem />
         <HowItWorks />
         <WhatItCaptures />
         <Guardrails />
-        <Performance />
         <UseAnywhere />
+        <Performance />
         <Install />
         <Faq />
         <FinalCta />
