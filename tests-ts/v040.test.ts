@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { storagePaths, initHabitsMd, initLog, readHabitsMd, readSignals, writeHabitsMd, serialiseHabits, readHistory } from '../src/storage';
+import { storagePaths, initHabitsMd, initLog, readHabitsMd, readSignals, writeHabitsMd, readHistory } from '../src/storage';
 import { runMigration } from '../src/migrate';
 import { captureFromCli } from '../src/capture';
 import { runGitCapture, shouldTriggerGitLearn } from '../src/git-collector';

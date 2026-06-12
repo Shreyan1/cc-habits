@@ -301,17 +301,32 @@ export function readSignals(sessionId?: string, ctx?: StorageContext): Signal[] 
  */
 export function countSignals(sessionId?: string, ctx?: StorageContext): number {
   const paths = getPaths(ctx);
-  if (!fs.existsSync(paths.logFile)) return 0;
-  // Same runaway-file guard as readSignals: skip rather than risk memory blowup.
-  const stat = fs.statSync(paths.logFile);
-  if (stat.size > MAX_LOG_READ_BYTES) {
-    logError(`countSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
-    return 0;
+  // No existsSync precheck: an absent file throws ENOENT, which the catch turns
+  // into 0. This also closes the existsSync -> stat -> read TOCTOU gap where the
+  // file could vanish or change between the calls. Read raw bytes and scan the
+  // Buffer directly: the file is UTF-8, so matching the UTF-8-encoded needle
+  // against the bytes avoids decoding the whole 2 MB log into a UTF-16 string
+  // just to count a substring.
+  let buf: Buffer;
+  let fd: number | null = null;
+  try {
+    // Same runaway-file guard as readSignals: skip rather than risk memory blowup.
+    const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
+    fd = fs.openSync(paths.logFile, fs.constants.O_RDONLY | oNoFollow);
+    const st = fs.fstatSync(fd);
+    if (st.size > MAX_LOG_READ_BYTES) {
+      logError(`countSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
+      fs.closeSync(fd);
+      return 0;
+    }
+    buf = fs.readFileSync(fd);
+    fs.closeSync(fd);
+  } catch {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
+    }
+    return 0; // absent, vanished mid-read, or unreadable
   }
-  // Read raw bytes and scan the Buffer directly: the file is UTF-8, so matching
-  // the UTF-8-encoded needle against the bytes avoids decoding the whole 2 MB log
-  // into a UTF-16 string just to count a substring.
-  const buf = fs.readFileSync(paths.logFile);
   // With a session id, match its exact serialized field; without one, match the
   // field key present on every signal line (counts all sessions).
   const needleStr = sessionId ? `"session_id":${JSON.stringify(sessionId)}` : '"session_id":';

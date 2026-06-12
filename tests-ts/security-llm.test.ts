@@ -30,7 +30,7 @@ import { isNoise } from '../src/hook';
 // Batch capping
 import { capBatch } from '../src/batch';
 // SessionStart context builder + memory relevance scorer
-import { processSessionStart, scoreMemoryRelevance } from '../src/hook';
+import { scoreMemoryRelevance } from '../src/hook';
 import type { Memory } from '../src/storage';
 
 // ─── Test isolation ──────────────────────────────────────────────────────────

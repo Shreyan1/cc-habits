@@ -27,11 +27,11 @@ import { extractRules, extractMemoryCandidates } from './extractor';
 import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError, resolveProviderLabel, hasUsableProvider, isParkedProvider } from './providers';
 import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent, setGloballyDisabled, getConfigValue, isGloballyDisabled } from './config';
 import { formatStopSummary, autoApplyWarning } from './hook';
-import { detectInstalledTools, isCliOnPath } from './detect';
+import { detectInstalledTools } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.7.10';
+export const VERSION = '0.7.11';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -112,8 +112,6 @@ export {
   printMemoriesEmptyState, renderMemoryLine,
   promptChoice, promptSecret
 };
-
-const CONFIG_FILE = storagePaths.configFile;
 
 const CONSENT_NOTICE = `
   cc-habits captures code diffs from your AI coding sessions and sends them to

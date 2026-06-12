@@ -60,23 +60,28 @@ const MAX_FILE_BYTES = 1_000_000;
 // via a planted link), a non-regular file, oversized, or unreadable. Uses an
 // fd + bounded buffer so an oversized file is never fully loaded into memory.
 function readRegularFileBounded(abs: string, cap: number): string | null {
-  let st: fs.Stats;
-  try {
-    st = fs.lstatSync(abs); // lstat: do NOT resolve a symlink target
-  } catch {
-    return null;
-  }
-  if (!st.isFile()) return null;        // skip symlinks, dirs, sockets, devices
-  if (st.size > MAX_FILE_BYTES) return null;
+  // O_NOFOLLOW (POSIX) makes open() fail atomically if the final path component
+  // is a symlink, closing the lstat->open race where a regular file could be
+  // swapped for a link to a sensitive file between the check and the read. We
+  // then stat the open fd (not the path) so the type and size checks see exactly
+  // the bytes we are about to read.
+  const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
   let fd: number | null = null;
   try {
-    fd = fs.openSync(abs, 'r');
+    fd = fs.openSync(abs, fs.constants.O_RDONLY | oNoFollow);
+    if (!oNoFollow && fs.lstatSync(abs).isSymbolicLink()) {
+      fs.closeSync(fd);
+      return null;
+    }
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) return null;        // skip dirs, sockets, devices, fifos
+    if (st.size > MAX_FILE_BYTES) return null;
     const len = Math.min(cap, st.size);
     const buf = Buffer.alloc(len);
     const read = fs.readSync(fd, buf, 0, len, 0);
     return buf.subarray(0, read).toString('utf-8');
   } catch {
-    return null;
+    return null; // ELOOP (symlink under O_NOFOLLOW), ENOENT, unreadable, etc.
   } finally {
     if (fd !== null) try { fs.closeSync(fd); } catch { /* best-effort */ }
   }

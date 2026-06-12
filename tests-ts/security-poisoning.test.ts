@@ -6,7 +6,7 @@ import {
   storagePaths, initHabitsMd, initLog, writeHabitsMd, readHabitsMd,
   parseHabits, serialiseHabits, appendSignal
 } from '../src/storage';
-import { sanitizeRule, sanitizeCategory, applyUpdates, applyDecay, RuleUpdate } from '../src/confidence';
+import { applyUpdates, RuleUpdate } from '../src/confidence';
 import { selectInjectionHabits, buildInjectionContext, processStop } from '../src/hook';
 import * as extractor from '../src/extractor';
 
