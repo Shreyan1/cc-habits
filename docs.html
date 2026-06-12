@@ -94,6 +94,7 @@
             <li><a href="#what-it-learns">What it learns</a></li>
             <li><a href="#memories">Mistake memories</a></li>
             <li><a href="#view">View your habits</a></li>
+            <li><a href="#status">Status &amp; health</a></li>
           </ul>
           <p class="t-caption ink-dim">reference</p>
           <ul>
@@ -317,6 +318,38 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
   Wrap external I/O in try/except and re-raise as RuntimeError
   [███████████░░░░░░░░░░░] 55%  ↑2  ↓0  · since 2026-05-19</code></pre>
 
+          <h2 id="status">Status &amp; health</h2>
+          <p>
+            <code><strong><em>cch status</em></strong></code> (alias
+            <code><strong><em>cch doctor</em></strong></code>) is a one-glance health
+            check: which tools are wired up, whether each one has actually
+            <em>fired</em> its hook (a liveness proof, not just &ldquo;registered&rdquo;),
+            your provider, and your habit and signal counts.
+          </p>
+          <pre class="code"><code>$ <strong><em>cch status</em></strong>
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │ ✓  Claude Code     live · 2 minutes ago · 546 sigs           │
+  │ ~  Cursor          git capture on commit                     │
+  │ ✓  Gemini CLI      live · 7 days ago · 1 sig                 │
+  │ ✓  Codex CLI       registered (edit in Codex CLI to confirm) │
+  │ ✓  Kimi Code CLI   registered (edit in Kimi Code CLI)        │
+  ├──────────────────────────────────────────────────────────────┤
+  │ provider  ollama (gemma3:27b)                                │
+  │ import    ✓  preferences.md in CLAUDE.md                     │
+  │ habits    19 active · 3 learning                             │
+  │ signals   1362 total · 5 this session                        │
+  │ memory    on                                                 │
+  │ version   0.7.10                                             │
+  └──────────────────────────────────────────────────────────────┘
+  All good. Start a coding session to keep learning.</code></pre>
+          <p>
+            The &ldquo;live · N ago&rdquo; line is logged only when the tool itself
+            runs the hook, so it is a real liveness signal rather than a claim that
+            the config exists. Add <code>--proof</code> to print the exact hook
+            commands written into each tool's config.
+          </p>
+
           <hr class="hairline" />
 
           <h2 id="confidence">The confidence math</h2>
@@ -353,7 +386,9 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
           <h2 id="commands">Commands</h2>
           <pre class="code"><code><strong><em>cch init</em></strong>                        # install hooks, choose a provider
 <strong><em>cch bootstrap</em></strong>                   # learn habits from past Claude Code sessions
-<strong><em>cch view</em></strong>                        # show current habits + recent signals
+<strong><em>cch learn --repo</em></strong>                # scan this repo with the LLM and learn directly
+<strong><em>cch view</em></strong> [habits|memories|prefs] # show current habits, memories, or preferences
+<strong><em>cch memories</em></strong>                    # show coding memories (cch memories --enable to turn on)
 <strong><em>cch diff</em></strong> [--since N]            # changes since the last write
 <strong><em>cch explain</em></strong> "&lt;rule&gt;"            # show signals that produced a habit
 <strong><em>cch lint</em></strong> &lt;file&gt; [--json]        # check a source file against your habits
@@ -366,6 +401,8 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
 <strong><em>cch faq</em></strong> [query]               # search the built-in FAQ, or browse categories
 <strong><em>cch on</em></strong>                        # re-enable capture after cch off
 <strong><em>cch off</em></strong>                        # pause all capture globally (reversible)
+<strong><em>cch migrate</em></strong>                     # migrate storage to ~/.cc-habits/
+<strong><em>cch shell-init</em></strong>                  # print a shell wrapper: eval "$(cch shell-init)"
 <strong><em>cch uninstall</em></strong>                  # remove all hooks and config
 <strong><em>cch tombstone</em></strong> "&lt;rule&gt;"          # block a rule permanently
 <strong><em>cch tombstone</em></strong>                   # list tombstoned rules
