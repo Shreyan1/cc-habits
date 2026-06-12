@@ -364,8 +364,8 @@ function Footer() {
           <div className="footer__col">
             <h4>Product</h4>
             <ul>
-              <li><a href="#docs">Docs</a></li>
-              <li><a href="#spec">Spec</a></li>
+              <li><a href="docs.html">Docs</a></li>
+              <li><a href="docs.html#spec">Spec</a></li>
               <li><a href="https://github.com/Shreyan1/cc-habits" target="_blank" rel="noreferrer">GitHub</a></li>
               <li><a href="https://www.npmjs.com/package/cc-habits" target="_blank" rel="noreferrer">npm</a></li>
             </ul>
