@@ -29,7 +29,7 @@ function writeSecretFile(filePath: string, content: string): void {
   fs.writeFileSync(filePath, content);
 }
 
-function readSecretFile(filePath: string): string {
+function readFileContent(filePath: string): string {
   return fs.readFileSync(filePath, 'utf-8');
 }
 
@@ -45,7 +45,7 @@ describe('installLocalGitHook symlink safety', () => {
 
     expect(result).toBe('failed');
     // The target file must be untouched (no append through the symlink).
-    expect(readSecretFile(secret)).toBe('SENSITIVE\n');
+    expect(readFileContent(secret)).toBe('SENSITIVE\n');
     // The hook path is still the planted symlink, not overwritten.
     expect(fs.lstatSync(hookFile).isSymbolicLink()).toBe(true);
   });
@@ -58,7 +58,7 @@ describe('installLocalGitHook symlink safety', () => {
     const st = fs.lstatSync(hookFile);
     expect(st.isSymbolicLink()).toBe(false);
     expect(st.isFile()).toBe(true);
-    expect(fs.readFileSync(hookFile, 'utf-8')).toContain('cc-habits git-capture');
+    expect(readFileContent(hookFile)).toContain('cc-habits git-capture');
   });
 
   it('is idempotent: a second install reports already', () => {
