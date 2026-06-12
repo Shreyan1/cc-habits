@@ -143,7 +143,7 @@ $ <strong><em>cch init</em></strong>        # cch is short for cc-habits</code><
           <p>
             <code>cch</code> is a short alias for <code>cc-habits</code>. All
             commands work with either form (<code><strong><em>cch init</em></strong></code>,
-            <code><strong><em>cch view</em></strong></code>, <code><strong><em>cch pending</em></strong></code>, etc.).
+            <code><strong><em>cch view</em></strong></code>, <code><strong><em>cch status</em></strong></code>, etc.).
           </p>
           <p>
             <code><strong><em>cch init</em></strong></code> walks you through provider setup interactively.
@@ -205,8 +205,8 @@ UserPromptSubmit (every prompt)
   → set CC_HABITS_INJECT=0 to disable
 
 SessionStart (session begins)
-  → surfaces any pending suggestions waiting for review
-  → stays silent when nothing is pending</code></pre>
+  → prints "cc-habits: N habits active this session"
+  → stays silent when nothing is active</code></pre>
           <p>
             <code>habits.md</code> is also auto-imported into every session via an
             <code>@import</code> line in your tool's memory file (for example
@@ -220,6 +220,15 @@ SessionStart (session begins)
             No per-project setup. Hooks live at the user level; habits live in
             <code>~/.cc-habits/</code>. cc-habits works globally across every
             repository you open.
+          </p>
+          <p>
+            For tools without a hook mechanism (Cursor, Windsurf, Copilot),
+            there is nothing to install: run <code><strong><em>cch sync</em></strong></code>
+            and your habits land in their rules files. And for <em>any</em>
+            workflow at all, <code><strong><em>cch git-capture</em></strong></code>
+            mines your commit history for patterns; <code><strong><em>cch init</em></strong></code>
+            can install a Git post-commit hook so this happens automatically
+            every time you commit.
           </p>
 
           <h2 id="what-it-learns">What it learns</h2>
@@ -351,14 +360,16 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
 <strong><em>cch export</em></strong> [path]               # print habits.md (or write to path)
 <strong><em>cch import</em></strong> &lt;file&gt;               # merge a portable habits file
 <strong><em>cch sync</em></strong> [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline
-<strong><em>cch pending</em></strong> [--approve|--discard]  # review queued updates
+<strong><em>cch git-capture</em></strong> [--range r]      # learn from your Git commit history
+<strong><em>cch status</em></strong> [--proof]            # health check: hooks, provider, last-fired liveness
+<strong><em>cch tools</em></strong>                       # list supported tools and which are detected
 <strong><em>cch faq</em></strong> [query]               # search the built-in FAQ, or browse categories
 <strong><em>cch on</em></strong>                        # re-enable capture after cch off
 <strong><em>cch off</em></strong>                        # pause all capture globally (reversible)
 <strong><em>cch uninstall</em></strong>                  # remove all hooks and config
 <strong><em>cch tombstone</em></strong> "&lt;rule&gt;"          # block a rule permanently
-<strong><em>cch tombstones</em></strong>                  # list tombstoned rules
-<strong><em>cch reset</em></strong> --yes                 # wipe habits.md, log.jsonl, pending
+<strong><em>cch tombstone</em></strong>                   # list tombstoned rules
+<strong><em>cch reset</em></strong> --yes                 # wipe habits.md, preferences.md, memories.md, log.jsonl
 <strong><em>cch --version</em></strong>                   # print installed version</code></pre>
 
           <h2 id="guarantees">Safety guarantees</h2>
@@ -399,7 +410,7 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
             <div class="row"><span>Signal log</span><span>~/.cc-habits/log.jsonl</span><span>0600</span></div>
             <div class="row"><span>Snapshot</span><span>~/.cc-habits/.snapshot.json</span><span>0600</span></div>
             <div class="row"><span>Tombstones</span><span>~/.cc-habits/.tombstones.json</span><span>0600</span></div>
-            <div class="row"><span>Pending</span><span>~/.cc-habits/.pending.json</span><span>0600</span></div>
+            <div class="row"><span>Memories</span><span>~/.cc-habits/memories.md</span><span>0600</span></div>
             <div class="row"><span>Error log</span><span>~/.cc-habits/error.log</span><span>0600</span></div>
             <div class="row"><span>Config (API key)</span><span>~/.cc-habits/config.yml</span><span>0600</span></div>
           </div>
@@ -456,7 +467,7 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
           <ul class="docs-list">
             <li>Treat <code>~/.cc-habits/</code> as you would any folder containing source-code diffs.</li>
             <li>Set your provider key (for example <code>ANTHROPIC_API_KEY</code>) via your secrets manager rather than storing it in <code>config.yml</code>.</li>
-            <li>Periodically run <code><strong><em>cch reset --yes</em></strong></code> (or <code><strong><em>cch reset --yes</em></strong></code>) to clear local history. Tombstones survive.</li>
+            <li>Periodically run <code><strong><em>cch reset --yes</em></strong></code> to clear local history. Tombstones survive.</li>
             <li>For air-gapped contexts, do not run <code><strong><em>cch init</em></strong></code>. Without an API key, the Stop hook fails closed.</li>
           </ul>
 
@@ -485,8 +496,8 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
           <h3 id="privacy-never">What cc-habits will never do</h3>
           <ul class="docs-list">
             <li>It will not phone home. There is no cc-habits server.</li>
-            <li>It will not modify code in your repositories. It only writes to <code>~/.claude/</code>.</li>
-            <li>It will not register itself with any tool without <code><strong><em>cch init</em></strong></code> (or <code><strong><em>cch init</em></strong></code>) running explicitly.</li>
+            <li>It will not modify code in your repositories. It only writes to <code>~/.cc-habits/</code> and your tools' own config files.</li>
+            <li>It will not register itself with any tool without <code><strong><em>cch init</em></strong></code> running explicitly.</li>
             <li>It will not fail a coding session. Every hook is wrapped in <code>try/catch</code> and exits 0 on error.</li>
           </ul>
 
@@ -639,7 +650,7 @@ $ <strong><em>cch memories</em></strong>              # view what's been remembe
             <div class="row"><span>.snapshot.json</span><span>Last-written state, used to detect manual deletes</span></div>
             <div class="row"><span>.history.jsonl</span><span>Append-only log of past habits.md contents</span></div>
             <div class="row"><span>.provenance.json</span><span>Map of rule → contributing signals</span></div>
-            <div class="row"><span>.pending.json</span><span>Staged updates awaiting user approval</span></div>
+            <div class="row"><span>.memory-tombstones.json</span><span>Memories the user has manually blocked</span></div>
           </div>
 
           <h2 id="spec-tombstones">5. Tombstones</h2>

@@ -20,7 +20,7 @@ const COPY = {
   heroCaption: "cc-habits  ·  v0.7.10  ·  open source",
   heroTagline: "It learns your style from the edits you already make, and feeds it back into every session, automatically.",
   heroSub:
-    "A local-first CLI that writes your style to a plain habits.md every agent reads every session, across Claude Code, Gemini CLI, Codex, and Kimi. Capture runs locally with no network call and never blocks your terminal. No lock-in.",
+    "A local-first CLI that writes your style to a plain habits.md every agent reads every session, across Claude Code, Gemini CLI, Codex, Kimi, Cursor, Cline, and any Git workflow. Capture runs locally with no network call and never blocks your terminal. No lock-in.",
   problemCaption: "00  ·  why this exists",
   problemPull: "You've been training your agents all along. They just haven't been listening.",
   problemBody: [
@@ -33,7 +33,7 @@ const COPY = {
   hiwCaption: "01  ·  how cc-habits works",
   hiwTitle: "A few hooks. One markdown file. Zero config.",
   hiwSub: "cc-habits plugs into your tool's lifecycle hooks. Capture fires on every edit, inject on every prompt, the same way in each tool, with no per-project setup.",
-  hiwFooter: "The capture and inject hooks run locally in milliseconds. The session-end hook makes a single small-model call, and a session-start hook surfaces anything waiting for your review. You choose the provider.",
+  hiwFooter: "The capture and inject hooks run locally in milliseconds. The session-end hook makes a single small-model call, prints a one-line receipt of exactly what was learned, and a session-start hook shows how many habits are active. You choose the provider.",
   capturesCaption: "02  ·  what it captures",
   capturesTitle: "Two kinds of memory, both in plain text.",
   capturesSub: "Habits are how you write code. Memories are the mistakes you don't want to repeat. cc-habits learns both from the edits you already make, and writes them to files you can read, edit, and own.",

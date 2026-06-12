@@ -128,8 +128,8 @@ const GUARDRAILS = [
   },
   {
     n: "04",
-    title: "Preview before apply.",
-    body: "cch pending shows queued updates; --approve or --discard is yours to call."
+    title: "Per-repo opt-out.",
+    body: "Drop a .cc-habits-ignore file in any repository and capture and extraction stop there entirely, no signals, no calls."
   }
 ];
 
@@ -404,7 +404,7 @@ const FAQ_GROUPS = [
       },
       {
         q: "What if it learns the wrong thing?",
-        a: <span>A new habit sits in <code>## Learning</code>, invisible to your agent, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Run <strong><em>cch pending</em></strong> to approve or discard before anything applies.</span>
+        a: <span>A new habit sits in <code>## Learning</code>, invisible to your agent, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Every session ends with a one-line receipt in your terminal showing exactly what was learned.</span>
       },
       {
         q: "Do I need a separate API key on top of my coding-tool plan?",

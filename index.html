@@ -160,7 +160,7 @@
             {
               "@type": "Question",
               "name": "What if cc-habits learns the wrong thing?",
-              "acceptedAnswer": { "@type": "Answer", "text": "A new habit sits in the Learning section, invisible to your agent, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Run cch pending to approve or discard before anything applies." }
+              "acceptedAnswer": { "@type": "Answer", "text": "A new habit sits in the Learning section, invisible to your agent, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Every session ends with a one-line receipt in your terminal showing exactly what was learned." }
             },
             {
               "@type": "Question",
@@ -195,7 +195,7 @@
 
     <!-- App: single pre-built, minified bundle (React compiled in, no runtime
          transpile, no third-party CDN). Built from *.jsx via `npm run build`. -->
-    <link rel="preload" href="app.js?v=1" as="script" />
+    <link rel="preload" href="app.js?v=2" as="script" />
   </head>
   <body>
     <!-- Interactive app mounts here (JS visitors). -->
@@ -274,7 +274,7 @@ cch init</code></pre>
       <p>No. The capture and inject hooks run locally with no network call, and the capture work itself takes a few milliseconds. Every hook is wrapped in try/catch and exits 0 on error, so cc-habits can never fail or block a session.</p>
 
       <h3>What if cc-habits learns the wrong thing?</h3>
-      <p>A new habit sits in the Learning section, invisible to your agent, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Run <code>cch pending</code> to approve or discard before anything applies.</p>
+      <p>A new habit sits in the Learning section, invisible to your agent, until you repeat it in a second distinct session. Delete a rule and a tombstone blocks it forever; unused habits decay and get pruned. Every session ends with a one-line receipt in your terminal showing exactly what was learned.</p>
 
       <h3>Do I need a separate API key on top of my coding-tool plan?</h3>
       <p>They are separate purchases. If you only have a tool subscription, run with Ollama: free and fully local, no key required. Anthropic Haiku (about $0.09/month), OpenAI, and Groq are also supported.</p>
@@ -298,6 +298,6 @@ cch init</code></pre>
       </footer>
     </main>
 
-    <script src="app.js?v=1" defer></script>
+    <script src="app.js?v=2" defer></script>
   </body>
 </html>
