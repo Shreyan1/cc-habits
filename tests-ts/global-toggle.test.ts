@@ -127,7 +127,7 @@ describe('Simplified cmdTombstone', () => {
 
     const hash = getRuleHash('Use strict mode');
 
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const res = cmdTombstone(hash);
     expect(res).toBe(0);
 

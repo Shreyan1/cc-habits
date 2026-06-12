@@ -1,4 +1,3 @@
-import fs from 'fs';
 import os from 'os';
 import { type Memory, getRuleHash } from './storage';
 

@@ -313,14 +313,23 @@ export function installLocalGitHook(): 'installed' | 'already' | 'failed' {
     const hookFile = path.join(hooksDir, 'post-commit');
     const command = 'cc-habits git-capture || true';
 
+    // A cloned repo could plant .git/hooks/post-commit as a symlink to a
+    // sensitive file; refuse to read or write through it, and use O_NOFOLLOW on
+    // the writes so a link swapped in after the check is rejected atomically.
+    const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
     if (fs.existsSync(hookFile)) {
+      if (fs.lstatSync(hookFile).isSymbolicLink()) return 'failed';
       const content = fs.readFileSync(hookFile, 'utf-8');
       if (content.includes('cc-habits git-capture') || content.includes('cch git-capture')) {
         return 'already';
       }
-      fs.appendFileSync(hookFile, `\n${command}\n`);
+      const fd = fs.openSync(hookFile, fs.constants.O_WRONLY | fs.constants.O_APPEND | oNoFollow);
+      try { fs.writeSync(fd, `\n${command}\n`); } finally { fs.closeSync(fd); }
     } else {
-      fs.writeFileSync(hookFile, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
+      // O_CREAT | O_EXCL: create a fresh regular file, never follow or clobber a
+      // link that appeared between the existsSync check and here.
+      const fd = fs.openSync(hookFile, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | oNoFollow, 0o755);
+      try { fs.writeSync(fd, `#!/bin/sh\n${command}\n`); } finally { fs.closeSync(fd); }
     }
     return 'installed';
   } catch {

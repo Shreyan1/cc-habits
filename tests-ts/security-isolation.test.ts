@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { storagePaths, initHabitsMd, writeHabitsMd, writeMemoriesMd, readHabitsMd } from '../src/storage';
+import { storagePaths, initHabitsMd, writeHabitsMd, writeMemoriesMd } from '../src/storage';
 import { buildProfile } from '../src/portable';
 import { captureDisabled, buildInjectionContext, processPostToolUse } from '../src/hook';
 

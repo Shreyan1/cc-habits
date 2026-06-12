@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import {
-  storagePaths, appendSignal, readSignals, countSignals, readHabitsMd, parseHabits, writeHabitsMd,
+  appendSignal, readSignals, countSignals, readHabitsMd, parseHabits, writeHabitsMd,
   serialiseHabits, logError, sanitizeFilePath, detectManualDeletes, writeSnapshot,
   addTombstone,
   appendHistory, appendProvenance, readMemoriesMd, applyMemoryUpdates, parseMemories,
