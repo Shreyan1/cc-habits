@@ -84,6 +84,8 @@ Your AI coding agent is great, but out of the box it doesn't know *your* style. 
 | ❌ Rewrite rules files manually | ✅ **Personalize everywhere**: Syncs to Cursor, Cline, Claude Code, and more |
 | ❌ Lose preferences when switching agents | ✅ **Keep improving**: Self-corrects and adapts as your style evolves |
 
+**Learn once. Personalized everywhere.** That is the whole product: one local profile of how you actually code, shared across every agent you open. Everything below, the comparisons, the architecture, the security, exists to serve that one idea.
+
 ---
 
 ## cc-habits vs Alternatives
