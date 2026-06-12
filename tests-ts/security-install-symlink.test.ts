@@ -25,11 +25,19 @@ afterEach(() => {
   fs.rmSync(repoDir, { recursive: true, force: true });
 });
 
+function writeSecretFile(filePath: string, content: string): void {
+  fs.writeFileSync(filePath, content);
+}
+
+function readSecretFile(filePath: string): string {
+  return fs.readFileSync(filePath, 'utf-8');
+}
+
 describe('installLocalGitHook symlink safety', () => {
   it('refuses to write through a symlinked post-commit hook and leaves the target intact', () => {
     if (isWindows) return; // symlink creation needs privileges on Windows
     const secret = path.join(repoDir, 'secret.txt');
-    fs.writeFileSync(secret, 'SENSITIVE\n');
+    writeSecretFile(secret, 'SENSITIVE\n');
     const hookFile = path.join(repoDir, '.git', 'hooks', 'post-commit');
     fs.symlinkSync(secret, hookFile);
 
@@ -37,7 +45,7 @@ describe('installLocalGitHook symlink safety', () => {
 
     expect(result).toBe('failed');
     // The target file must be untouched (no append through the symlink).
-    expect(fs.readFileSync(secret, 'utf-8')).toBe('SENSITIVE\n');
+    expect(readSecretFile(secret)).toBe('SENSITIVE\n');
     // The hook path is still the planted symlink, not overwritten.
     expect(fs.lstatSync(hookFile).isSymbolicLink()).toBe(true);
   });

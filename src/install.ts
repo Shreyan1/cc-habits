@@ -317,21 +317,59 @@ export function installLocalGitHook(): 'installed' | 'already' | 'failed' {
     // sensitive file; refuse to read or write through it, and use O_NOFOLLOW on
     // the writes so a link swapped in after the check is rejected atomically.
     const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
-    if (fs.existsSync(hookFile)) {
-      if (fs.lstatSync(hookFile).isSymbolicLink()) return 'failed';
-      const content = fs.readFileSync(hookFile, 'utf-8');
+    let fd: number | null = null;
+    try {
+      // Try to open the existing hook file for reading and writing.
+      // If it doesn't exist, this throws ENOENT.
+      fd = fs.openSync(hookFile, fs.constants.O_RDWR | oNoFollow);
+
+      // Best-effort symlink check on Windows where O_NOFOLLOW is a no-op
+      if (!oNoFollow && fs.lstatSync(hookFile).isSymbolicLink()) {
+        fs.closeSync(fd);
+        return 'failed';
+      }
+
+      const st = fs.fstatSync(fd);
+      if (!st.isFile()) {
+        fs.closeSync(fd);
+        return 'failed';
+      }
+
+      const buf = Buffer.alloc(st.size);
+      let readBytes = 0;
+      if (st.size > 0) {
+        readBytes = fs.readSync(fd, buf, 0, st.size, 0);
+      }
+      const content = buf.subarray(0, readBytes).toString('utf-8');
       if (content.includes('cc-habits git-capture') || content.includes('cch git-capture')) {
+        fs.closeSync(fd);
         return 'already';
       }
-      const fd = fs.openSync(hookFile, fs.constants.O_WRONLY | fs.constants.O_APPEND | oNoFollow);
-      try { fs.writeSync(fd, `\n${command}\n`); } finally { fs.closeSync(fd); }
-    } else {
-      // O_CREAT | O_EXCL: create a fresh regular file, never follow or clobber a
-      // link that appeared between the existsSync check and here.
-      const fd = fs.openSync(hookFile, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | oNoFollow, 0o755);
-      try { fs.writeSync(fd, `#!/bin/sh\n${command}\n`); } finally { fs.closeSync(fd); }
+
+      fs.writeSync(fd, `\n${command}\n`, st.size);
+      fs.closeSync(fd);
+      return 'installed';
+    } catch (e: any) {
+      if (fd !== null) {
+        try { fs.closeSync(fd); } catch {}
+      }
+      if (e && e.code === 'ENOENT') {
+        // Create fresh hook file atomically
+        let writeFd: number | null = null;
+        try {
+          writeFd = fs.openSync(hookFile, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | oNoFollow, 0o755);
+          fs.writeSync(writeFd, `#!/bin/sh\n${command}\n`);
+          return 'installed';
+        } catch {
+          return 'failed';
+        } finally {
+          if (writeFd !== null) {
+            try { fs.closeSync(writeFd); } catch {}
+          }
+        }
+      }
+      return 'failed';
     }
-    return 'installed';
   } catch {
     return 'failed';
   }

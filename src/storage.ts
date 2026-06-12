@@ -308,15 +308,23 @@ export function countSignals(sessionId?: string, ctx?: StorageContext): number {
   // against the bytes avoids decoding the whole 2 MB log into a UTF-16 string
   // just to count a substring.
   let buf: Buffer;
+  let fd: number | null = null;
   try {
     // Same runaway-file guard as readSignals: skip rather than risk memory blowup.
-    const size = fs.statSync(paths.logFile).size;
-    if (size > MAX_LOG_READ_BYTES) {
+    const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
+    fd = fs.openSync(paths.logFile, fs.constants.O_RDONLY | oNoFollow);
+    const st = fs.fstatSync(fd);
+    if (st.size > MAX_LOG_READ_BYTES) {
       logError(`countSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
+      fs.closeSync(fd);
       return 0;
     }
-    buf = fs.readFileSync(paths.logFile);
+    buf = fs.readFileSync(fd);
+    fs.closeSync(fd);
   } catch {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
+    }
     return 0; // absent, vanished mid-read, or unreadable
   }
   // With a session id, match its exact serialized field; without one, match the

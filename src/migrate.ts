@@ -23,13 +23,35 @@ function rewriteClaudeMdImport(
   habitsFilePath: string,
   preferencesFilePath: string,
 ): boolean {
-  if (!fs.existsSync(claudeMdPath)) return false;
-  if (fs.existsSync(claudeMdPath) && fs.lstatSync(claudeMdPath).isSymbolicLink()) return false;
+  const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
+  let fd: number | null = null;
   try {
-    let content = fs.readFileSync(claudeMdPath, 'utf-8');
+    fd = fs.openSync(claudeMdPath, fs.constants.O_RDWR | oNoFollow);
+
+    // Best-effort symlink check on Windows where O_NOFOLLOW is a no-op
+    if (!oNoFollow && fs.lstatSync(claudeMdPath).isSymbolicLink()) {
+      fs.closeSync(fd);
+      return false;
+    }
+
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) {
+      fs.closeSync(fd);
+      return false;
+    }
+
+    const buf = Buffer.alloc(st.size);
+    let readBytes = 0;
+    if (st.size > 0) {
+      readBytes = fs.readSync(fd, buf, 0, st.size, 0);
+    }
+    let content = buf.subarray(0, readBytes).toString('utf-8');
     const newImport = `@import ${preferencesFilePath}`;
     // Already correct, idempotent no-op.
-    if (content.includes(newImport)) return false;
+    if (content.includes(newImport)) {
+      fs.closeSync(fd);
+      return false;
+    }
     let updated = false;
     // Pattern 1: legacy pre-rename install (~/.claude/habits/habits.md).
     const oldDirImport = `@import ${path.join(OLD_DIR, 'habits.md')}`;
@@ -43,14 +65,21 @@ function rewriteClaudeMdImport(
       content = content.replace(currentHabitsImport, newImport);
       updated = true;
     }
-    if (!updated) return false;
-    // Write through O_NOFOLLOW so a symlink swapped in after the lstat guard
-    // above is rejected atomically rather than followed to its target.
-    const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
-    const fd = fs.openSync(claudeMdPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | oNoFollow, 0o666);
-    try { fs.writeSync(fd, content); } finally { fs.closeSync(fd); }
+    if (!updated) {
+      fs.closeSync(fd);
+      return false;
+    }
+    fs.ftruncateSync(fd, 0);
+    fs.writeSync(fd, content, 0);
+    fs.closeSync(fd);
     return true;
-  } catch (e) {
+  } catch (e: any) {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
+    }
+    if (e && e.code === 'ENOENT') {
+      return false;
+    }
     logError(`migration: failed to update CLAUDE.md: ${String(e)}`);
     return false;
   }

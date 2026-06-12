@@ -68,12 +68,10 @@ function readRegularFileBounded(abs: string, cap: number): string | null {
   const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
   let fd: number | null = null;
   try {
-    if (oNoFollow) {
-      fd = fs.openSync(abs, fs.constants.O_RDONLY | oNoFollow);
-    } else {
-      // Windows fallback: no O_NOFOLLOW; best-effort lstat guard before open.
-      if (!fs.lstatSync(abs).isFile()) return null;
-      fd = fs.openSync(abs, 'r');
+    fd = fs.openSync(abs, fs.constants.O_RDONLY | oNoFollow);
+    if (!oNoFollow && fs.lstatSync(abs).isSymbolicLink()) {
+      fs.closeSync(fd);
+      return null;
     }
     const st = fs.fstatSync(fd);
     if (!st.isFile()) return null;        // skip dirs, sockets, devices, fifos
