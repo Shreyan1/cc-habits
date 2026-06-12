@@ -10,7 +10,7 @@
 Local-first and private: no telemetry, no server, no analytics. Your habits never leave your machine except the one small extraction call to the LLM provider you choose, or $0 and fully offline with Ollama.
 
 ```bash
-npm install -g cc-habits && cc-habits init
+npm install -g cc-habits@latest && cc-habits init
 ```
 
 > *Learn once. Personalized everywhere. One local profile shared across Claude Code, Cursor, Codex, Cline, Windsurf, Gemini, and Copilot.*
