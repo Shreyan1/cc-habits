@@ -37,7 +37,7 @@ const COPY = {
   capturesCaption: "02  ·  what it captures",
   capturesTitle: "Two kinds of memory, both in plain text.",
   capturesSub: "Habits are how you write code. Memories are the mistakes you don't want to repeat. cc-habits learns both from the edits you already make, and writes them to files you can read, edit, and own.",
-  capturesBody: <span>Both are human-readable markdown you can read, edit, delete, or commit to git, documented as an open spec. Memories are opt-in, turned on with <strong><em>cch memories --enable</em></strong>. Same review queue, same tombstones, same files you own.</span>,
+  capturesBody: <span>Both are human-readable markdown you can read, edit, delete, or commit to git, documented as an open spec. Memories are on by default; turn them off any time with <strong><em>cch memories --disable</em></strong>. Same graduation gate, same tombstones, same files you own.</span>,
   guardCaption: "03  ·  accuracy",
   guardTitle: "Four guardrails so it won't poison your context.",
   perfCaption: "04  ·  performance  ·  measured, not claimed",
