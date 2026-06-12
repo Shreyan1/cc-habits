@@ -310,12 +310,12 @@ Stop (session end)
   → makes one small-model call to extract habit patterns
   → reinforcements / contradictions applied immediately
   → new habits: written to the `## Learning` section (activate after a 2nd session)
-  → if CC_HABITS_MEMORIES=1: second pass extracts mistake patterns → memories.md
+  → second pass extracts mistake patterns → memories.md (on by default; CC_HABITS_MEMORIES=0 to skip)
   → prints a session receipt: "N signals captured · M habits learning · cch view for details"
 
 UserPromptSubmit (every prompt)
   → injects top-12 active habits by confidence (~150-350 tokens depending on habit count), dynamically filtered to match the programming languages of files edited in the current session
-  → if CC_HABITS_MEMORIES=1: also injects top-3 trigger-matched memories (~40-90 tokens)
+  → also injects top-3 trigger-matched memories (~40-90 tokens), unless memories are disabled
   → total injection overhead: < 0.5% of a typical 100k context window
   → set CC_HABITS_INJECT=0 to disable
 
@@ -373,12 +373,13 @@ It merges a marked block into existing files, so your hand-written content is pr
 
 ### Mistake memory
 
-Set `CC_HABITS_MEMORIES=1` and cc-habits also learns what your agent gets **wrong**.
+Out of the box, cc-habits also learns what your agent gets **wrong**. Memory learning is on by default; turn it off with `cch memories --disable` (or `CC_HABITS_MEMORIES=0`).
 
 At the end of each session, a second extraction pass looks for mistake patterns, cases where you rewrote or reverted what the agent produced. Candidates are written to `memories.md` alongside your habits. Unlike habits (which are injected broadly), memories are retrieved selectively: only the memories whose trigger terms match your current prompt are injected, capped at 3.
 
 ```bash
 cc-habits memories                        # view active memories + candidates
+cc-habits memories --disable              # turn memory learning off (on by default)
 cc-habits memories --delete "<text>"      # tombstone a wrong memory permanently
 ```
 
@@ -620,7 +621,7 @@ cc-habits off                         # disable all capture and injection persis
 cc-habits bootstrap                   # learn habits from past sessions in this project
 cc-habits view                        # show current habits + recent signals
 cc-habits status [--proof]            # health check: hooks, provider, import, activity (alias: doctor). Shows when each tool last fired the hook (liveness proof); --proof prints the exact hook commands written to each tool's config
-cc-habits memories                    # show coding memories (enable with CC_HABITS_MEMORIES=1)
+cc-habits memories                    # show coding memories (on by default; cch memories --disable to turn off)
 cc-habits memories --delete "<text>"  # tombstone a memory so it is never re-learned
 cc-habits memories --tombstones       # list tombstoned memories
 cc-habits log [--limit N]             # show capture log, audit trail of what was sent
@@ -652,7 +653,7 @@ cc-habits --version                   # print installed version
 | `CC_HABITS_PROVIDER` | `anthropic` | Switch extractor backend: `anthropic`, `openai`, `groq`, `ollama`, `claude-cli`, `gemini-cli`. |
 | `CC_HABITS_INJECT` | `1` (on) | Set to `0`/`false`/`off` to disable prompt-time habit injection. |
 | `CC_HABITS_MARKER` | `1` (on) | Set to `0`/`false`/`off` to silence the session-start "N habits active" banner. |
-| `CC_HABITS_MEMORIES` | `0` (off) | Set to `1` to enable memory extraction. New candidates are written to `memories.md` at session end. |
+| `CC_HABITS_MEMORIES` | `1` (on) | Memory extraction runs by default. Set to `0` to skip it; new candidates are written to `memories.md` at session end. |
 | `CC_HABITS_DISABLE` | `0` (off) | Set to `1` to disable all capture and extraction for this shell session. |
 | `ANTHROPIC_API_KEY` | (from config.yml) | Bypass `config.yml` storage. |
 | `OPENAI_API_KEY` / `GROQ_API_KEY` | (from config.yml) | Required when using those providers. |
@@ -767,7 +768,7 @@ npm test    # 710 tests, runs serially for isolation (~12s on macOS M-series)
 ├── habits.md              ← learned habits (internal store, auto-updated)
 ├── preferences.md         ← clean human-voice rules (auto-imported into your tools)
 ├── habits.lock            ← process-aware concurrency lock file
-├── memories.md            ← agent mistake memory (CC_HABITS_MEMORIES=1)
+├── memories.md            ← agent mistake memory (on by default; CC_HABITS_MEMORIES=0 to skip)
 ├── log.jsonl              ← signal log (append-only)
 ├── config.yml             ← API key (written by cc-habits init)
 ├── .tombstones.json       ← permanently blocked habit rules
