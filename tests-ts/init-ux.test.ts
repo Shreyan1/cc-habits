@@ -263,4 +263,20 @@ describe('reconfigureProviderMenu, non-interactive keeps the existing provider',
     expect(out).toContain('Switch to Ollama');
     expect(out).toContain('Keeping anthropic.');
   });
+
+  it('keeps the provider and hides the redundant switch option if the current provider is Ollama', async () => {
+    const writes: string[] = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation(((s: string | Uint8Array): boolean => {
+      writes.push(String(s));
+      return true;
+    }) as typeof process.stdout.write);
+
+    await reconfigureProviderMenu('ollama (gemma4:31b-cloud)', '✓', '~');
+
+    const out = writes.join('');
+    expect(out).toContain('already has an AI provider configured');
+    expect(out).toContain('Keep ollama (gemma4:31b-cloud)');
+    expect(out).not.toContain('Switch to Ollama');
+    expect(out).toContain('Keeping ollama (gemma4:31b-cloud).');
+  });
 });

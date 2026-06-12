@@ -299,19 +299,23 @@ export async function reconfigureProviderMenu(
   tick: string,
   dash: string,
 ): Promise<void> {
+  const isOllama = currentLabel.toLowerCase().startsWith('ollama');
   process.stdout.write('\n  cc-habits already has an AI provider configured.\n\n');
   process.stdout.write(`  [1] Keep ${currentLabel}\n`);
   process.stdout.write('  [2] Use a different provider or key\n');
-  process.stdout.write('  [3] Switch to Ollama' + c(DIM, '  (free, local, no key needed)') + '\n');
+  if (!isOllama) {
+    process.stdout.write('  [3] Switch to Ollama' + c(DIM, '  (free, local, no key needed)') + '\n');
+  }
   process.stdout.write('\n');
 
-  const choice = await promptChoice('  Enter choice [1-3]: ', 1, 3);
+  const maxChoice = isOllama ? 2 : 3;
+  const choice = await promptChoice(`  Enter choice [1-${maxChoice}]: `, 1, maxChoice);
 
   if (choice === null || choice === 1) {
     process.stdout.write(`  ${tick} Keeping ${currentLabel}.\n`);
     return;
   }
-  if (choice === 3) {
+  if (!isOllama && choice === 3) {
     await configureProvider('ollama', tick, dash);
     return;
   }
