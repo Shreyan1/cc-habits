@@ -737,7 +737,7 @@ cc-habits is designed to never add perceptible latency to your coding sessions. 
 | **PostToolUse hook** (capture) | < 50ms | Synchronous path: diff extraction, PII redaction, append to log.jsonl |
 | **UserPromptSubmit hook** (injection) | < 5ms | Reads habits.md, filters top 12 habits, writes to stdout |
 | **SessionStart hook** (active-habits banner) | < 5ms | Reads habits.md, counts active habits, writes to stdout |
-| **Stop hook** (extraction) | 1–4s | One LLM call per session; signal batch capped at 50 signals / 180 KB |
+| **Stop hook** (extraction) | 1–4s | One LLM call per session; signal batch capped at 50 signals / 140 KB |
 | **`cch view`** | < 100ms | Reads habits.md + log.jsonl, renders to terminal |
 | **`cch sync`** | < 200ms | Writes one rules file per target; no LLM call |
 
@@ -746,7 +746,7 @@ cc-habits is designed to never add perceptible latency to your coding sessions. 
 | Limit | Value | Purpose |
 |---|---|---|
 | Max signals per extraction | 50 | Prevents provider 413 / context-length errors |
-| Max diff bytes per batch | 180 KB | Well under Groq's 200 KB hard limit |
+| Max diff bytes per batch | 140 KB | Leaves ~60 KB headroom for prompt + habits overhead under Groq's 200 KB limit |
 | Max diff bytes per signal | 4 KB | Signals above this are truncated |
 | Max stdin bytes per hook | 4 MB | Anomalous payloads are discarded |
 | Log rotation threshold | 2 MB | `log.jsonl` trimmed to 5,000 most-recent signals |
@@ -755,10 +755,10 @@ cc-habits is designed to never add perceptible latency to your coding sessions. 
 
 ### Test suite
 
-710 tests across 45 files, including 8 dedicated security suites (red-team, filesystem hardening, sanitizer fuzzing, adversarial corpus, LLM-specific prompt-injection and memory-poisoning). CI runs the full suite on Linux, macOS, and Windows. See [SECURITY.md](SECURITY.md) for the full breakdown of attack vectors tested.
+724 tests across 47 files, including 8 dedicated security suites (red-team, filesystem hardening, sanitizer fuzzing, adversarial corpus, LLM-specific prompt-injection and memory-poisoning). CI runs the full suite on Linux, macOS, and Windows. See [SECURITY.md](SECURITY.md) for the full breakdown of attack vectors tested.
 
 ```bash
-npm test    # 710 tests, runs serially for isolation (~12s on macOS M-series)
+npm test    # 724 tests, runs serially for isolation (~12s on macOS M-series)
 ```
 
 ---

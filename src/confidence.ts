@@ -331,6 +331,11 @@ export function applyUpdates(
     const ruleText = sanitizeRule(rawRule);
     if (!ruleText) continue;
 
+    // Block tombstoned rules at EVERY decision (create, reinforce, contradict), not
+    // just create. A rejected rule that still lingers in habits.md must never be
+    // silently reinforced or otherwise touched back to life.
+    if (isTombstoned(ruleText)) continue;
+
     const existing = findHabit(cats, update.matched_habit_id ?? '', ruleText);
 
     // Resolve language to tag:
@@ -342,8 +347,6 @@ export function applyUpdates(
     } // else leave undefined (not tagged)
 
     if (decision === 'create') {
-      // A2: never re-create a tombstoned rule.
-      if (isTombstoned(ruleText)) continue;
       if (!cats[category]) cats[category] = [];
       if (existing === null) {
         cats[category].push({

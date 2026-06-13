@@ -6,7 +6,7 @@ cc-habits is a local-first tool. It is designed so that **you** are the only dat
 
 ## What is stored, where
 
-Everything lives under `~/.cc-habits/` (override with `CC_HABITS_DIR`). All files are written owner-only (`0600`) via symlink-guarded atomic writes.
+Everything lives under `~/.cc-habits/` (override with `CC_HABITS_DIR`). Private files there are written owner-only (`0600`) via symlink-guarded atomic writes, and cc-habits tightens any file an older version may have left more permissive on startup. (The portable files cc-habits writes into your repositories, such as `AGENTS.md`, follow your normal file permissions so your tools and teammates can read them.)
 
 | Artifact | Path | Contents |
 |---|---|---|
