@@ -13,6 +13,7 @@ import { suggest, looksLikeEnvVar, nextSteps } from './suggestions';
 import { runInteractiveMenu, runSelectMenu, MENU_ITEMS } from './menu';
 import { maybeUpdateNotice } from './update-check';
 import { isGloballyDisabled, memoriesEnabled } from './config';
+import { tightenLegacyModes } from './storage';
 
 // Print follow-up suggestions to stderr so stdout pipes stay clean. Only when
 // the command succeeded and we are attached to an interactive terminal.
@@ -107,6 +108,14 @@ async function main(): Promise<void> {
   // Silent auto-migration on startup
   try {
     runMigration();
+  } catch {
+    // ignore
+  }
+
+  // One-time permission hardening: tighten any store file an older version left
+  // group/other-readable (e.g. a pre-0600 log.jsonl). Best-effort, never blocks.
+  try {
+    tightenLegacyModes();
   } catch {
     // ignore
   }

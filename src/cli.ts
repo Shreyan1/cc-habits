@@ -31,7 +31,7 @@ import { detectInstalledTools } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.7.11';
+export const VERSION = '0.7.12';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -933,6 +933,49 @@ export function lastFiredBySource(signals: ReadonlyArray<{ ts: string; source?: 
   return out;
 }
 
+// Extraction liveness, used by `cch status`. Compares the last successful learn
+// (a history snapshot) against the most recent extraction failure recorded in
+// error.log. `failing` means the latest failure is newer than the latest success,
+// so extraction is currently broken even though capture is still running. Read-only
+// and never throws.
+export interface ExtractionHealth {
+  lastSuccessTs?: string;
+  lastFailureTs?: string;
+  lastFailureMsg?: string;
+  failing: boolean;
+}
+
+export function readExtractionHealth(): ExtractionHealth {
+  let lastSuccessTs: string | undefined;
+  try {
+    const hist = readHistory();
+    if (hist.length > 0) lastSuccessTs = hist[hist.length - 1].ts;
+  } catch { /* history unreadable: treat as no known success */ }
+
+  let lastFailureTs: string | undefined;
+  let lastFailureMsg: string | undefined;
+  try {
+    const errPath = storagePaths.errorLog;
+    if (fs.existsSync(errPath)) {
+      const lines = fs.readFileSync(errPath, 'utf-8').split('\n');
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const m = lines[i].match(/^\[([^\]]+)\]\s+((?:stop|learn):\s+.*)$/);
+        if (!m) continue;
+        const msg = m[2]!;
+        // Skip secondary, non-fatal failures so the line reflects the real extraction
+        // outcome, not a downstream sync/memory hiccup.
+        if (/memory extraction failed|auto-sync failed|sync failed/.test(msg)) continue;
+        lastFailureTs = m[1];
+        lastFailureMsg = msg.replace(/^(?:stop|learn):\s+/, '').replace(/^Error:\s+/, '').slice(0, 42);
+        break;
+      }
+    }
+  } catch { /* error.log unreadable: treat as no known failure */ }
+
+  const failing = !!lastFailureTs && (!lastSuccessTs || lastFailureTs > lastSuccessTs);
+  return { lastSuccessTs, lastFailureTs, lastFailureMsg, failing };
+}
+
 // status ─────────────────────────────────────────────────────────────────────
 // Read-only health check. Never throws, never writes. Answers "is it working?"
 // Renders a bordered, tabular key-value table sized to the current terminal width.
@@ -1073,6 +1116,20 @@ export function cmdStatus(proof = false): number {
   const memoryVal  = memsOn ? c(GREEN, 'on') : c(DIM, 'off');
   const versionVal = c(DIM, VERSION);
 
+  // Extraction liveness: last successful learn vs the most recent extraction failure
+  // in error.log. Surfaces a silently-failing provider, since capture keeps running
+  // so the habits/signals counts alone would still read as healthy.
+  const health = readExtractionHealth();
+  let extractionVal: string;
+  if (health.failing) {
+    extractionVal = fail + c(YELLOW, `  last attempt failed ${formatTimeAgo(health.lastFailureTs!)}`)
+      + (health.lastFailureMsg ? c(DIM, ` (${health.lastFailureMsg})`) : '');
+  } else if (health.lastSuccessTs) {
+    extractionVal = ok + c(DIM, `  last learned ${formatTimeAgo(health.lastSuccessTs)}`);
+  } else {
+    extractionVal = git + c(DIM, '  no extraction yet');
+  }
+
   // Render the bordered table.
   let out = rule('┌', '┐');
   for (const r of hookRows) out += r;
@@ -1081,6 +1138,7 @@ export function cmdStatus(proof = false): number {
   out += kv('import', importVal);
   out += kv('habits', habitsVal);
   out += kv('signals', signalsVal);
+  out += kv('extract', extractionVal);
   out += kv('memory', memoryVal);
   out += kv('version', versionVal);
   out += rule('└', '┘');
@@ -1094,6 +1152,11 @@ export function cmdStatus(proof = false): number {
       process.stdout.write(c(DIM, '→ Run `cch init` to configure a provider.\n'));
     } else if (allSignals.length === 0) {
       process.stdout.write(c(DIM, '→ Run `cch bootstrap` to seed habits from past sessions.\n'));
+    } else if (health.failing) {
+      process.stdout.write(
+        c(YELLOW, '→ Extraction is failing. ')
+        + c(DIM, `Last error: ${health.lastFailureMsg ?? 'see `cch log`'}. Capture continues; run \`cch learn\` to retry.\n`),
+      );
     } else if (active === 0) {
       process.stdout.write(c(DIM, '  Keep coding, habits graduate after 2+ sessions.\n'));
     } else {
@@ -1174,8 +1237,8 @@ export function cmdTombstone(rule: string): number {
     return cmdTombstones();
   }
   let targetRule = rule.trim();
+  const cats = parseHabits(readHabitsMd());
   if (/^cch[a-f0-9]{8}$/i.test(targetRule)) {
-    const cats = parseHabits(readHabitsMd());
     let found = false;
     for (const habits of Object.values(cats)) {
       const match = habits.find(h => getRuleHash(h.rule) === targetRule.toLowerCase());
@@ -1191,7 +1254,23 @@ export function cmdTombstone(rule: string): number {
     }
   }
   addTombstone(targetRule);
+
+  // Tombstoning must also remove the rule from the active store and the injected
+  // preferences.md. Otherwise a graduated habit the user just blocked keeps being
+  // injected (and shown by `cch view`) until some later decay happens to drop it.
+  let removed = false;
+  for (const category of Object.keys(cats)) {
+    const before = cats[category].length;
+    cats[category] = cats[category].filter(h => h.rule !== targetRule);
+    if (cats[category].length !== before) removed = true;
+  }
+  if (removed) {
+    writeHabitsMd(serialiseHabits(cats));
+    writePreferencesFile();
+  }
+
   process.stdout.write(`  tombstoned: ${targetRule}\n`);
+  if (removed) process.stdout.write(c(DIM, '  Removed from active habits and preferences.md.\n'));
   process.stdout.write(c(DIM, '  This rule will not be re-learned.\n'));
   return 0;
 }

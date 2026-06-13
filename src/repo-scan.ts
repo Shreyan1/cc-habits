@@ -124,7 +124,7 @@ function markScanned(repoRoot: string): void {
   set.add(repoRoot);
   try {
     fs.mkdirSync(path.dirname(scannedPath()), { recursive: true });
-    fs.writeFileSync(scannedPath(), JSON.stringify([...set], null, 2) + '\n', 'utf-8');
+    fs.writeFileSync(scannedPath(), JSON.stringify([...set], null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
   } catch (e) {
     logError(`repo-scan: failed to persist scan marker: ${String(e)}`);
   }

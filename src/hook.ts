@@ -260,6 +260,52 @@ export interface StopResult {
 export async function processStop(sessionId: string, ctx?: StorageContext): Promise<StopResult | null> {
   if (captureDisabled()) return null;
 
+  // Phase 1 (no lock): read + gate signals, then run the slow LLM extraction. These
+  // steps only READ shared state before hitting the provider, which can take 60-180s
+  // on Ollama. Holding the cross-process habits.lock across that round-trip serialises
+  // every concurrent session and makes overlapping sessions time out waiting for the
+  // lock (the "failed to acquire lock" errors). So the lock is taken only for the fast
+  // read-modify-write phase below.
+  const signals = readSignals(sessionId, ctx);
+  if (signals.length < MIN_SIGNALS) return null;
+
+  const gated = signals.filter(s => !isNoise(s.diff ?? ''));
+  if (gated.length < MIN_SIGNALS) return null;
+
+  // Cap to a signal count AND a byte budget so large diffs (e.g. whole-file git
+  // commits) don't cause a provider 413 on top of the count cap. Shared with the
+  // CLI sync path via batch.ts so both honour the same provider limits.
+  const capped = capBatchCore(gated);
+  if (capped.length < gated.length) {
+    process.stderr.write(
+      `cc-habits: ${gated.length} signals this session, using the most recent ${capped.length}\n`,
+    );
+  }
+
+  // Resolve fallback language for the session.
+  const sessionLanguages = Array.from(
+    new Set(gated.map(s => s.language).filter((l): l is string => !!l)),
+  );
+  const fallbackLanguage = sessionLanguages.length === 1 ? sessionLanguages[0] : undefined;
+
+  // The LLM round-trips happen here, OUTSIDE the lock. extractRules throwing
+  // propagates to the hook entry's fail-open catch (which logs `stop: <error>`).
+  const updates = await extractRules(capped, readHabitsMd(ctx));
+
+  // Memory candidates also hit the provider; extract before taking the lock so the
+  // second round-trip is likewise outside the critical section. A failure here must
+  // not block the habits write, so it is caught and logged.
+  let memoryCandidates: Awaited<ReturnType<typeof extractMemoryCandidates>> | null = null;
+  if (memoriesEnabled(ctx)) {
+    try {
+      memoryCandidates = await extractMemoryCandidates(capped, readMemoriesMd(ctx));
+    } catch (e) {
+      logError(`stop: memory extraction failed: ${String(e)}`, ctx);
+    }
+  }
+
+  // Phase 2 (locked): fast read-modify-write of the shared store only. Re-read
+  // habits.md fresh inside the lock so a concurrent session's write is not clobbered.
   const lockFile = path.join(getPaths(ctx).habitsDir, 'habits.lock');
   const locked = await acquireLock(lockFile);
   if (!locked) {
@@ -269,13 +315,7 @@ export async function processStop(sessionId: string, ctx?: StorageContext): Prom
   }
 
   try {
-    const signals = readSignals(sessionId, ctx);
-    if (signals.length < MIN_SIGNALS) return null;
-
-    const gated = signals.filter(s => !isNoise(s.diff ?? ''));
-    if (gated.length < MIN_SIGNALS) return null;
-    const habitsMd = readHabitsMd(ctx);
-    const cats = parseHabits(habitsMd);
+    const cats = parseHabits(readHabitsMd(ctx));
 
     // A2: detect manual deletes since last write and tombstone them.
     const deleted = detectManualDeletes(cats, ctx);
@@ -284,23 +324,6 @@ export async function processStop(sessionId: string, ctx?: StorageContext): Prom
     // B4: decay stale habits before applying new updates.
     const decayed = applyDecay(cats);
 
-    // Cap to a signal count AND a byte budget so large diffs (e.g. whole-file git
-    // commits) don't cause a provider 413 on top of the count cap. Shared with the
-    // CLI sync path via batch.ts so both honour the same provider limits.
-    const capped = capBatchCore(gated);
-    if (capped.length < gated.length) {
-      process.stderr.write(
-        `cc-habits: ${gated.length} signals this session, using the most recent ${capped.length}\n`,
-      );
-    }
-
-    // Resolve fallback language for the session
-    const sessionLanguages = Array.from(
-      new Set(gated.map(s => s.language).filter((l): l is string => !!l)),
-    );
-    const fallbackLanguage = sessionLanguages.length === 1 ? sessionLanguages[0] : undefined;
-
-    const updates = await extractRules(capped, habitsMd);
     const changes: AppliedChange[] = [];
     const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes, fallbackLanguage });
 
@@ -317,19 +340,13 @@ export async function processStop(sessionId: string, ctx?: StorageContext): Prom
     // B1: snapshot the habits.md state for `cc-habits diff`.
     appendHistory({ ts: new Date().toISOString(), session_id: sessionId, habits_md: serialised }, ctx);
 
-    // Memory extraction: opt-in via CC_HABITS_MEMORIES=1. Runs after habit
-    // extraction so it never blocks or delays the habits path on failure.
+    // Apply the memory candidates extracted above. The provider call already ran
+    // outside the lock; this is just the fast file write.
     let memoryCandidatesCount = 0;
     const addedMemories: string[] = [];
     const updatedMemories: string[] = [];
-    if (memoriesEnabled(ctx)) {
-      try {
-        const memoriesMd = readMemoriesMd(ctx);
-        const candidates = await extractMemoryCandidates(capped, memoriesMd);
-        memoryCandidatesCount = applyMemoryUpdates(candidates, ctx, addedMemories, updatedMemories);
-      } catch (e) {
-        logError(`stop: memory extraction failed: ${String(e)}`, ctx);
-      }
+    if (memoryCandidates) {
+      memoryCandidatesCount = applyMemoryUpdates(memoryCandidates, ctx, addedMemories, updatedMemories);
     }
 
     // Auto-sync targets if configured in config.yml

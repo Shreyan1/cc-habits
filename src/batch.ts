@@ -5,7 +5,11 @@ import type { Signal } from './storage';
 // providers return 413 when the request body exceeds their hard limit, so a
 // count cap alone is not enough when diffs are large (e.g. committing big files).
 export const MAX_BATCH_SIGNALS = 50;
-export const MAX_BATCH_BYTES = 180_000; // ~180 KB, well under Groq's 200 KB request limit
+// The byte budget below counts diff content only. The extraction prompt template,
+// the current habits.md, and the rejected-rules block all add more on top of it, so
+// keep a generous margin under Groq's ~200 KB request limit rather than packing the
+// batch to the edge (which still 413'd once habits.md and the prompt were added in).
+export const MAX_BATCH_BYTES = 140_000; // diff bytes; leaves ~60 KB for prompt + habits
 
 // Cap a signal batch to at most MAX_BATCH_SIGNALS entries AND at most
 // MAX_BATCH_BYTES of total diff content. Walks newest-first so the most recent

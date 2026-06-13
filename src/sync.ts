@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { readHabitsMd, parseHabits, HabitsMap, Habit, storagePaths, getPaths, type StorageContext } from './storage';
+import { readHabitsMd, parseHabits, HabitsMap, Habit, storagePaths, getPaths, readTombstones, isTombstoned, type StorageContext } from './storage';
 import { sanitizeRule } from './confidence';
 
 // cc-habits sync, emit Claude-learned habits into portable preference files that
@@ -19,10 +19,16 @@ const DEFAULT_MIN_CONFIDENCE = 0.3;
 // Only active, sufficiently-confident habits leave the cc-habits store. Learning-section
 // (single-session) habits are never exported, they are not yet trusted.
 function activeHabits(cats: HabitsMap, minConfidence: number): HabitsMap {
+  // A tombstoned rule must never be injected or synced, even if it still lingers in
+  // habits.md (e.g. blocked via `cch tombstone` before the next decay removes it).
+  // Read tombstones once: when there are none (the common case) skip the per-habit
+  // isTombstoned check entirely.
+  const hasTombstones = readTombstones().length > 0;
   const active: HabitsMap = {};
   for (const category of Object.keys(cats)) {
     for (const h of cats[category] ?? []) {
-      if ((h.sessions_seen ?? 1) >= 2 && h.confidence >= minConfidence) {
+      if ((h.sessions_seen ?? 1) >= 2 && h.confidence >= minConfidence
+          && !(hasTombstones && isTombstoned(h.rule))) {
         if (!active[category]) active[category] = [];
         active[category].push(h);
       }
@@ -219,7 +225,7 @@ export function writePreferencesFile(ctx?: StorageContext, cats?: HabitsMap): vo
 
   const tmpPath = `${dest}.tmp.${process.pid}`;
   try {
-    fs.writeFileSync(tmpPath, content + '\n', 'utf-8');
+    fs.writeFileSync(tmpPath, content + '\n', { encoding: 'utf-8', mode: 0o600 });
     fs.renameSync(tmpPath, dest);
   } catch (e) {
     try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }

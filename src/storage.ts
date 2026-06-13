@@ -935,6 +935,34 @@ export function logError(msg: string, ctx?: StorageContext): void {
   }
 }
 
+/**
+ * Tighten any private store file an older cc-habits version may have created with
+ * group/other-readable permissions. Newer writes use FILE_MODE (0600), but O_CREAT
+ * does not change an existing file's mode, so e.g. a log.jsonl created before the
+ * 0600 enforcement keeps its old 0644. Runs once per CLI invocation; best-effort and
+ * silent so it can never block a command. Symlinks are skipped, never chmod'd through.
+ */
+export function tightenLegacyModes(ctx?: StorageContext): void {
+  const dir = getPaths(ctx).habitsDir;
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return; // store dir absent: nothing to tighten
+  }
+  for (const name of entries) {
+    const f = path.join(dir, name);
+    try {
+      const st = fs.lstatSync(f);
+      if (st.isFile() && !st.isSymbolicLink() && (st.mode & 0o077) !== 0) {
+        fs.chmodSync(f, FILE_MODE);
+      }
+    } catch {
+      // absent, unstattable, or chmod denied: skip this entry
+    }
+  }
+}
+
 // Path sanitization (S4) ───────────────────────────────────────────────────
 export function sanitizeFilePath(p: string): string {
   // Strip any traversal segments; collapse to a safe representation.
