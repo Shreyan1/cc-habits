@@ -117,66 +117,74 @@ describe('known API key prefixes', () => {
     // Under 20 chars after prefix, not a real key
     expect(redact('"sk-ant-REPLACE"')).not.toContain('<REDACTED:api-key>');
   });
+
+  it('does not redact a short Stripe placeholder', () => {
+    expect(redact('"sk_live_REPLACE"'))
+        .not.toContain('<REDACTED:api-key>');
+  });
+
   it('redacts GitHub OAuth token (gho_)', () => {
-  const r = redact(
-    'token = "gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234"'
-  );
-  expect(r).toContain('<REDACTED:api-key>');
+    const r = redact(
+        'token = "gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234"'
+    );
 
+    expect(r).toContain('<REDACTED:api-key>');
   });
-
+  
   it('redacts GitHub user token (ghu_)', () => {
-  const r = redact(
-    'token = "ghu_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234"'
-  );
-  expect(r).toContain('<REDACTED:api-key>');
+    const r = redact(
+        'token = "ghu_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234"'
+    );
+
+    expect(r).toContain('<REDACTED:api-key>');
   });
 
- it('redacts GitHub refresh token (ghr_)', () => {
-  const r = redact(
-    'token = "ghr_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234"'
-  );
-  expect(r).toContain('<REDACTED:api-key>');
+  it('redacts GitHub refresh token (ghr_)', () => {
+    const r = redact(
+        'token = "ghr_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234"'
+    );
+
+    expect(r).toContain('<REDACTED:api-key>');
   });
 
   it('redacts Google API key (AIza)', () => {
-  const googleKey = ['AIza', 'SyABCDEFGHIJKLMNOPQRSTUVWXYZ123456'].join('');
+    const googleKey = ['AIza', 'SyABCDEFGHIJKLMNOPQRSTUVWXYZ123456'].join('');
 
-  const r = redact(`key = "${googleKey}"`);
+    const r = redact(`key = "${googleKey}"`);
 
-  expect(r).toContain('<REDACTED:api-key>');
+    expect(r).toContain('<REDACTED:api-key>');
   });
 
   it('redacts Slack app token (xapp)', () => {
-  const r = redact(
-    'token = "xapp-1-abcdef-ghijkl"'
-  );
-  expect(r).toContain('<REDACTED:api-key>');
+    const r = redact('token = "xapp-1-abcdef-ghijkl-mnopqrstuvwxyz123456"');
+
+    expect(r).toContain('<REDACTED:api-key>');
   });
 
   it('redacts Stripe live secret key', () => {
-  const stripeKey = ['sk_live_', 'abcdefghijklmnopqrstuvwxyz123456'].join('');
+    const stripeKey = ['sk_live_', 'abcdefghijklmnopqrstuvwxyz123456'].join('');
 
-  const r = redact(`key = "${stripeKey}"`);
+    const r = redact(`key = "${stripeKey}"`);
 
-  expect(r).toContain('<REDACTED:api-key>');
+    expect(r).toContain('<REDACTED:api-key>');
   });
+
   it('redacts Stripe live restricted key', () => {
-  const stripeKey = ['rk_live_', 'abcdefghijklmnopqrstuvwxyz123456'].join('');
+    const stripeKey = ['rk_live_', 'abcdefghijklmnopqrstuvwxyz123456'].join('');
 
-  const r = redact(`key = "${stripeKey}"`);
+    const r = redact(`key = "${stripeKey}"`);
 
-  expect(r).toContain('<REDACTED:api-key>');
+    expect(r).toContain('<REDACTED:api-key>');
   });
   
   it('is idempotent for newly added api key formats', () => {
-  const once = redact(
-    'gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234'
-  );
+    const once = redact(
+        'gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234'
+    );
 
-  const twice = redact(once);
+    const twice = redact(once);
 
-  expect(twice).toBe(once);
+    expect(twice).toBe(once);
   });
 });
 
