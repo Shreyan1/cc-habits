@@ -333,7 +333,13 @@ export async function withSpinner<T>(label: string, task: () => Promise<T>): Pro
   }
   const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   let i = 0;
+  const restore = (): void => { process.stdout.write('\r\x1b[K\x1b[?25h'); };
+  // Ctrl-C kills the process without running finally, which would otherwise leave
+  // the terminal cursor hidden. Restore it on SIGINT, then exit with the standard
+  // 128+SIGINT code. Removed in finally on the normal/throw paths.
+  const onSigint = (): void => { restore(); process.exit(130); };
   process.stdout.write('\x1b[?25l'); // hide cursor while spinning
+  process.once('SIGINT', onSigint);
   const timer = setInterval((): void => {
     i = (i + 1) % frames.length;
     process.stdout.write(`\r  ${c(CYAN, frames[i]!)} ${label}`);
@@ -342,7 +348,7 @@ export async function withSpinner<T>(label: string, task: () => Promise<T>): Pro
     return await task();
   } finally {
     clearInterval(timer);
-    process.stdout.write('\r\x1b[K');  // clear the spinner line
-    process.stdout.write('\x1b[?25h'); // restore cursor
+    process.removeListener('SIGINT', onSigint);
+    restore();
   }
 }

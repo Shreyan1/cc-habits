@@ -1,6 +1,6 @@
 {
   "name": "cc-habits",
-  "version": "0.7.19",
+  "version": "0.7.20",
   "description": "The tool-agnostic memory layer for AI coding agents. Learns your coding habits from real edits and carries them across Claude Code, Cursor, Codex, Gemini, Cline, and any Git workflow.",
   "license": "MIT",
   "author": "Shreyan Basu Ray",
@@ -36,7 +36,8 @@
     "cc-habits-hook": "dist/hook-entry.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "NOTICE"
   ],
   "scripts": {
     "build": "node build.mjs",
