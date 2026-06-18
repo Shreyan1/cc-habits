@@ -106,15 +106,15 @@ describe('global kill switch gates CLI capture (cch off)', () => {
     expect(readSignals()).toHaveLength(0); // but capture nothing while off
   });
 
-  it('cmdGitCapture reports the off state instead of capturing', async () => {
+  it('cmdGitCapture is silent and captures nothing when cc-habits is off', async () => {
     setGloballyDisabled(true);
     const writes: string[] = [];
     const spy = vi.spyOn(process.stdout, 'write')
       .mockImplementation(((s: string | Uint8Array): boolean => { writes.push(String(s)); return true; }) as typeof process.stdout.write);
     const code = await cmdGitCapture();
     spy.mockRestore();
-    expect(code).toBe(0);
-    expect(writes.join('')).toContain('cc-habits is off');
+    expect(code).toBe(0);            // fail-open
+    expect(writes.join('')).toBe(''); // no output, consistent with cmdCapture
   });
 });
 

@@ -48,7 +48,7 @@ import { detectInstalledTools } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.7.19';
+export const VERSION = '0.7.20';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -1627,13 +1627,11 @@ export function cmdCapture(opts: { file: string; diff: string; session?: string;
 
 // git-capture ──────────────────────────────────────────────────────────────
 export async function cmdGitCapture(range?: string): Promise<number> {
-  // Honor the global kill switch. The post-commit hook calls `cch git-capture`,
-  // so without this check `cch off` would silently keep capturing every commit,
-  // contradicting the "off pauses capture" promise. Fail quietly and fail-open.
-  if (isGloballyDisabled()) {
-    process.stdout.write(c(DIM, '  cc-habits is off, skipping git capture. Run `cch on` to resume.\n'));
-    return 0;
-  }
+  // Honor the global kill switch. The post-commit hook calls `cch git-capture`
+  // on every commit, so without this check `cch off` would keep capturing.
+  // Stay silent (like cmdCapture) so a disabled tool adds no output per commit;
+  // `cch status` is the place that reports the disabled state.
+  if (isGloballyDisabled()) return 0;
   const { signalsCaptured, captured } = runGitCapture(range);
   if (signalsCaptured > 0) {
     process.stdout.write(`  captured ${signalsCaptured} git commit signal${signalsCaptured === 1 ? '' : 's'} to the local capture log:\n`);
