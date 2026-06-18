@@ -6,7 +6,8 @@ import { storagePaths, initHabitsMd, initLog, readHabitsMd, readSignals, writeHa
 import { runMigration } from '../src/migrate';
 import { captureFromCli } from '../src/capture';
 import { runGitCapture, shouldTriggerGitLearn } from '../src/git-collector';
-import { cmdLearn, cmdShellInit, cmdSessionBanner, cmdTools } from '../src/cli';
+import { cmdLearn, cmdShellInit, cmdSessionBanner, cmdTools, cmdCapture, cmdGitCapture } from '../src/cli';
+import { setGloballyDisabled } from '../src/config';
 import { processSessionStart } from '../src/hook';
 import { registerJsonHooks, registerKimiHooks } from '../src/install';
 import { normalizeInput, ALLOWED_ADAPTERS } from '../src/adapters';
@@ -83,6 +84,37 @@ describe('v0.3.0: captureFromCli', () => {
     });
     expect(success).toBe(false);
     expect(readSignals()).toHaveLength(0);
+  });
+});
+
+describe('global kill switch gates CLI capture (cch off)', () => {
+  const realDiff = '+++ src/add.ts\n+export function add(a: number, b: number): number {\n+  return a + b;\n+}';
+
+  it('cmdCapture writes a signal when enabled', () => {
+    initLog();
+    setGloballyDisabled(false);
+    const code = cmdCapture({ file: 'src/add.ts', diff: realDiff, source: 'cli' });
+    expect(code).toBe(0);
+    expect(readSignals()).toHaveLength(1);
+  });
+
+  it('cmdCapture writes nothing when cc-habits is off', () => {
+    initLog();
+    setGloballyDisabled(true);
+    const code = cmdCapture({ file: 'src/add.ts', diff: realDiff, source: 'cli' });
+    expect(code).toBe(0); // fail-open: never disrupt a wrapping tool
+    expect(readSignals()).toHaveLength(0); // but capture nothing while off
+  });
+
+  it('cmdGitCapture reports the off state instead of capturing', async () => {
+    setGloballyDisabled(true);
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, 'write')
+      .mockImplementation(((s: string | Uint8Array): boolean => { writes.push(String(s)); return true; }) as typeof process.stdout.write);
+    const code = await cmdGitCapture();
+    spy.mockRestore();
+    expect(code).toBe(0);
+    expect(writes.join('')).toContain('cc-habits is off');
   });
 });
 

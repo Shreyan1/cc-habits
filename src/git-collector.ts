@@ -22,8 +22,16 @@ function git(args: string[], cwdOverride?: string, ignoreOutput = false): string
   }) as unknown as string;
 }
 
-export function runGitCapture(range?: string, cwdOverride?: string): { signalsCaptured: number } {
+export interface GitCaptureResult {
+  signalsCaptured: number;
+  // What was captured, newest-file-last, so the CLI can show the user exactly
+  // what landed in the log without making them open `cch log`.
+  captured: Array<{ file: string; commit: string }>;
+}
+
+export function runGitCapture(range?: string, cwdOverride?: string): GitCaptureResult {
   let signalsCaptured = 0;
+  const captured: Array<{ file: string; commit: string }> = [];
 
   // Resolve commit range. If none provided, default to last commit HEAD~1..HEAD.
   let commitRange = range?.trim();
@@ -32,7 +40,7 @@ export function runGitCapture(range?: string, cwdOverride?: string): { signalsCa
     // metacharacters (defence in depth, execFileSync already neutralizes them)
     // and git option-injection via a leading dash.
     if (!SAFE_REF.test(commitRange)) {
-      return { signalsCaptured: 0 };
+      return { signalsCaptured: 0, captured };
     }
   } else {
     try {
@@ -71,13 +79,16 @@ export function runGitCapture(range?: string, cwdOverride?: string): { signalsCa
         try {
           const diff = git(['diff', parent, sha, '--', file], cwdOverride);
           if (diff.trim()) {
-            const captured = captureFromCli({
+            const didCapture = captureFromCli({
               file,
               diff,
               session: `git-${sha.slice(0, 7)}`,
               source: 'git'
             });
-            if (captured) signalsCaptured++;
+            if (didCapture) {
+              signalsCaptured++;
+              captured.push({ file, commit: sha.slice(0, 7) });
+            }
           }
         } catch {
           // Skip files where git diff fails (binary, deleted, renamed edge cases).
@@ -88,7 +99,7 @@ export function runGitCapture(range?: string, cwdOverride?: string): { signalsCa
     // Silent fail. The post-commit hook must never break a commit.
   }
 
-  return { signalsCaptured };
+  return { signalsCaptured, captured };
 }
 
 export function shouldTriggerGitLearn(): boolean {

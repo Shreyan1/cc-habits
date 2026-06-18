@@ -318,3 +318,31 @@ export function promptSecret(question: string): Promise<string> {
     process.stdin.on('data', onData);
   });
 }
+
+/**
+ * Run an async task while showing an animated braille spinner. The spinner only
+ * animates on an interactive TTY: on a pipe or in CI it prints a single static
+ * line instead so captured logs stay clean. The interval is always cleared and
+ * the line redrawn in a finally block, so a thrown error (e.g. a provider
+ * failure) never leaves a dangling timer or a half-drawn spinner behind.
+ */
+export async function withSpinner<T>(label: string, task: () => Promise<T>): Promise<T> {
+  if (!process.stdout.isTTY) {
+    process.stdout.write(`  ${label}...\n`);
+    return task();
+  }
+  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let i = 0;
+  process.stdout.write('\x1b[?25l'); // hide cursor while spinning
+  const timer = setInterval((): void => {
+    i = (i + 1) % frames.length;
+    process.stdout.write(`\r  ${c(CYAN, frames[i]!)} ${label}`);
+  }, 80);
+  try {
+    return await task();
+  } finally {
+    clearInterval(timer);
+    process.stdout.write('\r\x1b[K');  // clear the spinner line
+    process.stdout.write('\x1b[?25h'); // restore cursor
+  }
+}

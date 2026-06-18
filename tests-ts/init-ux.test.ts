@@ -224,11 +224,15 @@ describe('Q4, no-provider scan-skip points at a real command', () => {
 });
 
 describe('Q3, repo scan shows progress before the LLM call', () => {
-  it('prints an "Analyzing ... files" progress line', () => {
+  it('wraps extraction in a spinner whose label names the work', () => {
     const src = read(SCAN_SRC);
-    expect(src).toContain('Analyzing ');
-    // The line is emitted inside the interactive block, before extraction.
-    const analyzingIdx = src.indexOf('Analyzing ');
+    // Progress is shown via an animated spinner (withSpinner) instead of a
+    // static line, so the user sees the scan is alive during the slow LLM call.
+    expect(src).toContain('withSpinner');
+    expect(src).toContain('analyzing ');
+    // The spinner label is emitted as part of the spin() wrapper around
+    // extraction, so it appears before the extractHabitsFromRepo call.
+    const analyzingIdx = src.indexOf('analyzing ');
     const extractIdx = src.indexOf('extractHabitsFromRepo(files');
     expect(analyzingIdx).toBeGreaterThan(0);
     expect(analyzingIdx).toBeLessThan(extractIdx);

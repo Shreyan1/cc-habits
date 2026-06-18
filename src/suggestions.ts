@@ -218,7 +218,10 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
 
     case 'capture':
     case 'git-capture':
-      return ['cch learn             compile habits from captured signals'];
+      return [
+        'cch log               see exactly what was captured',
+        'cch learn             compile habits from captured signals',
+      ];
 
     case 'shell-init':
       return ['add `eval "$(cc-habits shell-init)"` to ~/.zshrc, then restart your shell'];

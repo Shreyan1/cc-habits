@@ -56,9 +56,9 @@ export function explainProviderError(e: unknown): ExplainedError {
 
   if (e instanceof ProviderPayloadError) {
     return {
-      what: 'Session diff too large for the provider.',
+      what: 'Batch exceeded the provider\'s per-request limit (often a free-tier tokens-per-minute cap).',
       side: 'setup',
-      nextStep: 'Extraction skipped: the session diff exceeded the provider\'s size limit.',
+      nextStep: 'Try `cch learn --since 2` for a smaller window, wait a minute and retry, or switch to a local Ollama model with `cch init --provider ollama`.',
     };
   }
 
