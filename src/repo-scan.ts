@@ -18,6 +18,7 @@ import { redact } from './redact';
 import { isGloballyDisabled } from './config';
 import { resolveProviderLabel, hasUsableProvider } from './providers';
 import { writePreferencesFile } from './sync';
+import { withSpinner } from './cli-ui';
 
 // One-time cold scan of a repository: read its source and agent-instruction
 // docs, infer habits/memories via the configured LLM, and write them directly
@@ -291,23 +292,32 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
       }
       process.stdout.write('\n');
     }
-    // Progress line: the LLM call below can take several seconds, so show that
-    // work is underway (and on which provider) rather than leaving a silent gap.
-    process.stdout.write(
-      `  Analyzing ${files.length} file${files.length === 1 ? '' : 's'} with ${resolveProviderLabel()}, this can take a few seconds...\n`
-    );
   }
 
   let habitUpdates: Awaited<ReturnType<typeof extractHabitsFromRepo>> = [];
   let memCandidates: Awaited<ReturnType<typeof extractMemoriesFromDocs>> = [];
 
+  // The LLM calls below can take several seconds, so show that work is underway
+  // (and on which provider) rather than leaving a silent gap. On an interactive
+  // TTY this animates a spinner; in non-interactive runs it stays silent so
+  // piped/scripted output is unchanged.
+  const spin = <T>(label: string, task: () => Promise<T>): Promise<T> =>
+    isInteractive ? withSpinner(label, task) : task();
+  const providerLabel = resolveProviderLabel();
+
   // Habits come from source; memories come from the agent-instruction docs.
   try {
     if (files.length > 0) {
-      habitUpdates = (await extractHabitsFromRepo(files, readHabitsMd(opts.ctx))) || [];
+      habitUpdates = (await spin(
+        `analyzing ${files.length} file${files.length === 1 ? '' : 's'} with ${providerLabel}`,
+        () => extractHabitsFromRepo(files, readHabitsMd(opts.ctx)),
+      )) || [];
     }
     if (docs.length > 0) {
-      memCandidates = (await extractMemoriesFromDocs(docs, readMemoriesMd(opts.ctx))) || [];
+      memCandidates = (await spin(
+        `extracting memories from ${docs.length} doc${docs.length === 1 ? '' : 's'} with ${providerLabel}`,
+        () => extractMemoriesFromDocs(docs, readMemoriesMd(opts.ctx)),
+      )) || [];
     }
   } catch (e) {
     // Provider resolution throws when no provider/key is configured and no local

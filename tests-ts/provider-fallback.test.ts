@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { storagePaths } from '../src/storage';
-import { selectProviderAsync, detectOllama, resetOllamaAnnounceForTests } from '../src/providers';
+import { selectProviderAsync, detectOllama, resetOllamaAnnounceForTests, isCloudOllamaModel } from '../src/providers';
 
 const origConfigFile = storagePaths.configFile;
 const SAVED_ENV = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GROQ_API_KEY', 'CC_HABITS_PROVIDER', 'CC_HABITS_OLLAMA_URL', 'CC_HABITS_DIR'] as const;
@@ -48,6 +48,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('isCloudOllamaModel', () => {
+  it('flags models with a -cloud tag suffix', () => {
+    expect(isCloudOllamaModel('gemma4:31b-cloud')).toBe(true);
+    expect(isCloudOllamaModel('gpt-oss:120b-cloud')).toBe(true);
+    expect(isCloudOllamaModel('qwen3-coder:480b-CLOUD')).toBe(true);
+  });
+  it('does not flag local models or empty input', () => {
+    expect(isCloudOllamaModel('llama3.2')).toBe(false);
+    expect(isCloudOllamaModel('qwen2.5-coder:7b')).toBe(false);
+    expect(isCloudOllamaModel('cloud-llama')).toBe(false); // -cloud must be a suffix
+    expect(isCloudOllamaModel(undefined)).toBe(false);
+    expect(isCloudOllamaModel('')).toBe(false);
+  });
+});
+
 describe('detectOllama', () => {
   it('returns the first model when no preference matches', async () => {
     mockOllama(['mistral:latest', 'qwen:7b']);
@@ -55,15 +70,29 @@ describe('detectOllama', () => {
     expect(res).toEqual({ url: 'http://localhost:11434', model: 'mistral:latest' });
   });
 
-  it('prefers gemma4:31b-cloud when present', async () => {
+  it('prefers a known local model over a cloud model', async () => {
+    // Never silently auto-select an Ollama cloud model: that would route a
+    // "fully local" fallback through Ollama's servers without the user choosing it.
     mockOllama(['mistral:latest', 'gemma4:31b-cloud', 'llama3.2']);
+    const res = await detectOllama();
+    expect(res?.model).toBe('llama3.2');
+  });
+
+  it('falls back to any local model before a cloud model', async () => {
+    mockOllama(['gemma4:31b-cloud', 'mistral:latest']);
+    const res = await detectOllama();
+    expect(res?.model).toBe('mistral:latest');
+  });
+
+  it('uses a cloud model only when nothing local is installed', async () => {
+    mockOllama(['gemma4:31b-cloud']);
     const res = await detectOllama();
     expect(res?.model).toBe('gemma4:31b-cloud');
   });
 
-  it('prefers the configured ollama_model over the default', async () => {
+  it('respects an explicitly configured model over the local default', async () => {
     writeConfig('ollama_model: qwen:7b\n');
-    mockOllama(['gemma4:31b-cloud', 'qwen:7b']);
+    mockOllama(['llama3.2', 'qwen:7b']);
     const res = await detectOllama();
     expect(res?.model).toBe('qwen:7b');
   });
@@ -87,12 +116,21 @@ describe('detectOllama', () => {
 });
 
 describe('selectProviderAsync Ollama fallback', () => {
-  it('falls back to Ollama and announces when no provider is configured', async () => {
+  it('falls back to Ollama and announces a local model honestly', async () => {
+    mockOllama(['llama3.2']);
+    const provider = await selectProviderAsync();
+    expect(provider.name).toBe('ollama');
+    const announced = stderrSpy.mock.calls.map(c => String(c[0])).join('');
+    expect(announced).toContain('using local Ollama (llama3.2)');
+  });
+
+  it('does not call a cloud-only fallback "local" in its announcement', async () => {
     mockOllama(['gemma4:31b-cloud']);
     const provider = await selectProviderAsync();
     expect(provider.name).toBe('ollama');
     const announced = stderrSpy.mock.calls.map(c => String(c[0])).join('');
-    expect(announced).toContain('using local Ollama (gemma4:31b-cloud)');
+    expect(announced).not.toContain('local Ollama (gemma4:31b-cloud)');
+    expect(announced).toContain("leave your machine");
   });
 
   it('announces only once per process', async () => {

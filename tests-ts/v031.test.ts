@@ -14,6 +14,7 @@ import { suggest, looksLikeEnvVar, nextSteps } from '../src/suggestions';
 import { OpenAIProvider } from '../src/providers/openai';
 import { ProviderPayloadError } from '../src/providers';
 import { capBatch } from '../src/cli';
+import { byteBudgetFor, MAX_BATCH_BYTES, MAX_BATCH_BYTES_GROQ } from '../src/batch';
 
 const origStorage = { ...storagePaths };
 const origMemoriesEnv = process.env['CC_HABITS_MEMORIES'];
@@ -214,6 +215,29 @@ describe('capBatch', () => {
     expect(res.batch).toHaveLength(1);
     expect(res.batch[0].diff).toBe(signals[2].diff);
     expect(res.desc).toBe('1 of 3 (capped to fit provider limits)');
+  });
+
+  it('honours a smaller explicit byte budget (Groq free-tier TPM case)', () => {
+    // Five 6 KB diffs = 30 KB total. The default 140 KB budget keeps all five,
+    // but Groq's 20 KB budget keeps only the newest three (18 KB) and drops the
+    // older two, so the request stays under the per-minute token limit.
+    const signals = Array.from({ length: 5 }, (_, i) => ({
+      ts: `2026-05-18T00:00:0${i}Z`, session_id: 'x', type: 'edit', file: `f${i}.py`,
+      diff: String.fromCharCode(97 + i).repeat(6_000),
+    })) as any[];
+    expect(capBatch(signals).batch).toHaveLength(5);                    // default budget
+    expect(capBatch(signals, MAX_BATCH_BYTES_GROQ).batch).toHaveLength(3); // groq budget
+  });
+});
+
+describe('byteBudgetFor', () => {
+  it('gives Groq the small TPM-safe budget and everyone else the default', () => {
+    expect(byteBudgetFor('groq')).toBe(MAX_BATCH_BYTES_GROQ);
+    expect(byteBudgetFor('anthropic')).toBe(MAX_BATCH_BYTES);
+    expect(byteBudgetFor('openai')).toBe(MAX_BATCH_BYTES);
+    expect(byteBudgetFor('ollama')).toBe(MAX_BATCH_BYTES);
+    expect(byteBudgetFor(undefined)).toBe(MAX_BATCH_BYTES);
+    expect(MAX_BATCH_BYTES_GROQ).toBeLessThan(MAX_BATCH_BYTES);
   });
 });
 

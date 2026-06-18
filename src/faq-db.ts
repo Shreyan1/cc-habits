@@ -347,7 +347,7 @@ export const FAQ_DATABASE: FAQEntry[] = [
     category: 'Security & Privacy',
     question: 'Does cc-habits send my code to the cloud?',
     keywords: ['cloud', 'upload', 'send', 'privacy', 'data', 'code', 'remote', 'network', 'internet', 'leak', 'safe', 'security', 'external'],
-    answer: 'Only diff snippets (up to 4 KB each) are sent to your LLM provider for habit extraction. Nothing else leaves your machine. If you use Ollama, nothing leaves your machine at all. PII and secrets are redacted from diffs before any storage or transmission. Full details in RESPONSIBLE_AI.md.'
+    answer: 'Only diff snippets (up to 4 KB each) are sent to your LLM provider for habit extraction. Nothing else leaves your machine. If you use a local Ollama model, nothing leaves your machine at all. Note: Ollama "cloud" models (tagged with a -cloud suffix, e.g. gemma4:31b-cloud) run on Ollama\'s servers, so redacted diffs do leave your machine for those. PII and secrets are redacted from diffs before any storage or transmission. Full details in RESPONSIBLE_AI.md.'
   },
   {
     id: 'is-data-leaked',
