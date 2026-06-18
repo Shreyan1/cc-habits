@@ -3,6 +3,7 @@ import path from 'path';
 import { storagePaths } from './storage';
 import { setConfigValue } from './config';
 import { runSelectMenu } from './menu';
+import { isCloudOllamaModel } from './providers';
 import {
   c, BOLD, CYAN, YELLOW, GREEN, RED, DIM, tildePath,
   promptChoice, promptYesNo, promptYesNoDefaultTrue, promptSecret
@@ -202,6 +203,13 @@ export async function interactiveOllamaSetup(
       process.stdout.write(c(GREEN, `  ${tick} Model '${candidateModel}' verified successfully!\n`));
       saveProviderConfig({ provider: 'ollama', ollama_url: OLLAMA_DEFAULT_URL, ollama_model: candidateModel });
       process.stdout.write(`  ${tick} Ollama config saved (model: ${candidateModel})\n`);
+      // Honesty: a `-cloud` model is not local. Do not let the "fully local"
+      // framing of Ollama imply privacy it does not provide for this choice.
+      if (isCloudOllamaModel(candidateModel)) {
+        process.stdout.write(c(YELLOW, `  ⚠️  '${candidateModel}' is an Ollama cloud model. It runs on Ollama's servers,\n`));
+        process.stdout.write(c(YELLOW, `      so your redacted diffs leave your machine. For a fully local setup that\n`));
+        process.stdout.write(c(YELLOW, `      sends nothing off-device, pick a model without the '-cloud' suffix (e.g. llama3.2).\n`));
+      }
       return candidateModel;
     } else {
       process.stdout.write(c(YELLOW, `  ⚠️ Model '${candidateModel}' appears to be broken or did not respond correctly.\n`));

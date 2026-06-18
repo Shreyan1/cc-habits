@@ -167,7 +167,18 @@ export function selectProvider(): Provider {
 // fallback is announced once per process so the choice is never silent.
 
 const OLLAMA_PROBE_TIMEOUT_MS = 1500;
-const PREFERRED_OLLAMA_MODELS = ['gemma4:31b-cloud', 'llama3.2'];
+// Local-only defaults. cc-habits markets Ollama as the "fully local, nothing
+// leaves your machine" option, so auto-selection must never prefer a cloud model.
+const PREFERRED_OLLAMA_MODELS = ['llama3.2', 'qwen2.5-coder:7b', 'qwen2.5-coder:3b'];
+
+// Ollama "cloud" models carry a `-cloud` tag suffix (e.g. gemma4:31b-cloud).
+// Their inference runs on Ollama's servers, not the local machine: requests are
+// proxied through the local daemon but the data still leaves the device. This
+// matters for cc-habits' "fully local" privacy claim, so callers use this to tell
+// the truth about where a given model runs.
+export function isCloudOllamaModel(model?: string): boolean {
+  return !!model && /-cloud$/i.test(model.trim());
+}
 
 // True only when no provider was explicitly chosen and no cloud key is present,
 // so we never override a user's deliberate provider selection.
@@ -193,9 +204,15 @@ export async function detectOllama(): Promise<{ url: string; model: string } | n
     const data = await res.json() as { models?: Array<{ name?: string }> };
     const names = (data.models ?? []).map(m => m?.name).filter((n): n is string => !!n);
     if (names.length === 0) return null;
-    // Preference order: configured model, then a known-good default, then first available.
-    const preferred = [cfg.ollama_model, ...PREFERRED_OLLAMA_MODELS].find(p => p && names.includes(p));
-    const model = preferred ?? names[0];
+    // Preference order, biased away from cloud models so we never silently route a
+    // "local" fallback through Ollama's cloud: an explicitly configured model wins
+    // (even a cloud one, since that is the user's deliberate choice), then a known
+    // local default, then any local model, and only a cloud model when nothing
+    // local is installed.
+    const configured   = cfg.ollama_model && names.includes(cfg.ollama_model) ? cfg.ollama_model : undefined;
+    const preferredLocal = PREFERRED_OLLAMA_MODELS.find(p => names.includes(p));
+    const firstLocal   = names.find(n => !isCloudOllamaModel(n));
+    const model = configured ?? preferredLocal ?? firstLocal ?? names[0];
     return { url, model };
   } catch {
     return null; // unreachable, timed out, or malformed response
@@ -222,7 +239,10 @@ export async function selectProviderAsync(): Promise<Provider> {
     if (!found) throw e; // keep the original "no provider configured" error
     if (!ollamaFallbackAnnounced) {
       ollamaFallbackAnnounced = true;
-      process.stderr.write(`cc-habits: no provider configured, using local Ollama (${found.model})\n`);
+      const where = isCloudOllamaModel(found.model)
+        ? `Ollama cloud model ${found.model} (runs on Ollama's servers, redacted diffs leave your machine)`
+        : `local Ollama (${found.model})`;
+      process.stderr.write(`cc-habits: no provider configured, using ${where}\n`);
     }
     return new OllamaProvider(found.url, found.model);
   }
