@@ -51,3 +51,14 @@ export class ProviderQuotaError extends Error {
   }
 }
 
+// The configured model is not available on the provider (e.g. an Ollama model
+// that is not pulled, or a tag mismatch like `llama3.2` vs the installed
+// `llama3.2:1b`). Carries the model name so the hint can name it.
+export class ProviderModelNotFoundError extends Error {
+  readonly side = 'setup' as const;
+  constructor(provider: string, readonly model: string) {
+    super(`${provider}: model '${model}' not found.`);
+    this.name = 'ProviderModelNotFoundError';
+  }
+}
+

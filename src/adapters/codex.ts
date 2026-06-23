@@ -25,10 +25,13 @@ export function fromCodex(raw: any): NormalizedHookInput {
 
   // Multi-edit tools (Codex apply_patch / MultiEdit) carry an edits array.
   const rawEdits = Array.isArray(toolInput.edits) ? toolInput.edits : undefined;
-  const edits = rawEdits?.map((e: any) => ({
-    old_string: e.old_string !== undefined ? String(e.old_string) : undefined,
-    new_string: e.new_string !== undefined ? String(e.new_string) : undefined,
-  }));
+  const edits = rawEdits?.map((raw: any) => {
+    const e = (raw && typeof raw === 'object') ? raw : {};
+    return {
+      old_string: e.old_string !== undefined ? String(e.old_string) : undefined,
+      new_string: e.new_string !== undefined ? String(e.new_string) : undefined,
+    };
+  });
 
   return {
     toolName,

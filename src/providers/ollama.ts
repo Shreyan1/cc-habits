@@ -1,4 +1,4 @@
-import { Provider, ProviderTimeoutError } from './types';
+import { Provider, ProviderTimeoutError, ProviderModelNotFoundError } from './types';
 
 // Local Ollama runtime, air-gapped option. No auth, no rate limits.
 export class OllamaProvider implements Provider {
@@ -27,12 +27,20 @@ export class OllamaProvider implements Provider {
       });
       if (!res.ok) {
         let errMsg = `HTTP ${res.status}`;
+        let rawError = '';
         try {
           const body = await res.json() as { error?: string };
           if (body && typeof body.error === 'string') {
+            rawError = body.error;
             errMsg = `${body.error} (HTTP ${res.status})`;
           }
         } catch { /* ignore */ }
+        // A missing model (not pulled, or a tag mismatch) is a setup problem, not
+        // a generic failure: surface it as a typed error so the caller can tell
+        // the user exactly how to fix it instead of crashing with a raw 404.
+        if (res.status === 404 || /not found|try pulling/i.test(rawError)) {
+          throw new ProviderModelNotFoundError(this.name, this.model);
+        }
         throw new Error(`${this.name}: ${errMsg}`);
       }
       const data = await res.json() as { response?: string };

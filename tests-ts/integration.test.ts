@@ -432,6 +432,25 @@ describe('CLI memories --delete', () => {
     expect(readMemoryTombstones()).toContain('when editing settings, do not overwrite arrays');
   });
 
+  it('deletes by id even when the id is pasted with its surrounding brackets', () => {
+    writeMemoriesMd(serialiseMemories({
+      'Repeated mistakes': [{
+        text: 'When editing settings, do not overwrite arrays',
+        trigger: ['settings.json'],
+        correction: 'Merge arrays',
+        confidence: 0.80,
+        seen: 2,
+        sessions_seen: 2,
+      }],
+    }));
+    const hash = getRuleHash('When editing settings, do not overwrite arrays');
+    const ret = cmdMemoriesDelete(`[${hash}]`);
+    expect(ret).toBe(0);
+    const sections = parseMemories(readMemoriesMd());
+    expect(Object.values(sections).flat()).toHaveLength(0);
+    expect(readMemoryTombstones()).toContain('when editing settings, do not overwrite arrays');
+  });
+
   it('still tombstones even if memory text is not found', () => {
     const ret = cmdMemoriesDelete('Nonexistent memory text');
     expect(ret).toBe(0);

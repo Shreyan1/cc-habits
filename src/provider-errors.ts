@@ -5,6 +5,7 @@ import {
   ProviderRateLimitError,
   ProviderTimeoutError,
   ProviderPayloadError,
+  ProviderModelNotFoundError,
 } from './providers/types';
 
 export interface ExplainedError {
@@ -35,6 +36,14 @@ export function explainProviderError(e: unknown): ExplainedError {
       what: 'Quota or credit balance exhausted.',
       side: 'provider',
       nextStep: 'Check your billing details or subscription status with your AI provider.',
+    };
+  }
+
+  if (e instanceof ProviderModelNotFoundError) {
+    return {
+      what: `Model '${e.model}' is not available on this Ollama instance.`,
+      side: 'setup',
+      nextStep: `Run \`ollama pull ${e.model}\` to install it, or \`cch init --provider ollama\` to pick an installed model. Note tags must match exactly (e.g. \`llama3.2:1b\`, not \`llama3.2\`).`,
     };
   }
 

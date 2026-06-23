@@ -1,5 +1,6 @@
 import os from 'os';
 import { type Memory, getRuleHash } from './storage';
+import { shuffledTips, TIP_MARKERS } from './tips';
 
 export const BOLD   = '\x1b[1m';
 export const DIM    = '\x1b[2m';
@@ -136,8 +137,32 @@ export function renderBrandedCard(subtitle: string, statusText: string): void {
   process.stdout.write('\n');
 }
 
+// Normalise a raw languages list into clean, deduped, lower-cased tokens. The
+// source is signal-derived (untrusted), so strip control chars, drop blanks, and
+// cap token length. Exported so views and tests share one definition.
+export function normaliseLanguages(languages?: string[]): string[] {
+  if (!languages || languages.length === 0) return [];
+  return Array.from(new Set(
+    languages
+      .map(l => term(String(l)).trim().toLowerCase())
+      .filter(Boolean)
+      .map(l => l.slice(0, 12)),
+  ));
+}
+
+// Compact dim language tag for a habit line, e.g. "  · ts, py". Empty string when
+// there are no languages. Caps the visible list so a noisy signal cannot blow up
+// the line; surplus shows as "+N".
+export function langTag(languages?: string[]): string {
+  const clean = normaliseLanguages(languages);
+  if (clean.length === 0) return '';
+  const shown = clean.slice(0, 4);
+  const extra = clean.length - shown.length;
+  return c(DIM, `  · ${shown.join(', ')}${extra > 0 ? ` +${extra}` : ''}`);
+}
+
 export function renderHabitLine(
-  h: { rule: string; confidence: number; reinforcing: number; contradicting: number; sessions_seen: number; first_learned?: string },
+  h: { rule: string; confidence: number; reinforcing: number; contradicting: number; sessions_seen: number; first_learned?: string; languages?: string[] },
   isLearning: boolean
 ): void {
   const bar = confidenceBar(h.confidence);
@@ -151,7 +176,8 @@ export function renderHabitLine(
     `  [${bar}] ${c(BOLD, pct)}  ` +
     c(GREEN, `↑${up}`) + '  ' +
     (dn ? c(RED, `↓${dn}`) : c(DIM, `↓${dn}`)) +
-    c(DIM, `  · ${h.sessions_seen ?? 1} session${h.sessions_seen === 1 ? '' : 's'}  · since ${h.first_learned ?? '?'}`) + '\n',
+    c(DIM, `  · ${h.sessions_seen ?? 1} session${h.sessions_seen === 1 ? '' : 's'}  · since ${h.first_learned ?? '?'}`) +
+    langTag(h.languages) + '\n',
   );
 }
 
@@ -319,36 +345,113 @@ export function promptSecret(question: string): Promise<string> {
   });
 }
 
+// Learning-purple alias: the loading glyph is the same colour as the (learning)
+// tag the user sees on candidate habits seconds later, so the loading state and
+// the result speak one visual language.
+export const LEARN = YELLOW;
+
+// Motion encodes meaning: `distill` shows scattered signals converging into one
+// habit (depth); `sweep` shows a bar travelling across a repo (breadth). Both are
+// fixed-width so the label never jitters between frames.
+const DISTILL_FRAMES = ['·     ·', ' ·   · ', '  · ·  ', '   ◆   ', '   ◇   ', '   ◆   '];
+const SWEEP_FRAMES    = ['[▰▱▱▱▱]', '[▱▰▱▱▱]', '[▱▱▰▱▱]', '[▱▱▱▰▱]', '[▱▱▱▱▰]'];
+
+export type StepMotion = 'distill' | 'sweep';
+export interface StepHandle {
+  /** Mark a real, completed step. Prints a ✓ line instantly (no animation). */
+  done(label: string): void;
+  /** Animate a genuinely long step (an LLM round-trip) until `task` settles. */
+  spin<T>(label: string, task: () => Promise<T>, opts?: { motion?: StepMotion; color?: string }): Promise<T>;
+}
+
 /**
- * Run an async task while showing an animated braille spinner. The spinner only
- * animates on an interactive TTY: on a pipe or in CI it prints a single static
- * line instead so captured logs stay clean. The interval is always cleared and
- * the line redrawn in a finally block, so a thrown error (e.g. a provider
- * failure) never leaves a dangling timer or a half-drawn spinner behind.
+ * A small driver for the live "what cc-habits is doing right now" trace. Every
+ * line corresponds to a real boundary in the work (no timers faking progress):
+ * `done()` prints an instant ✓ line, `spin()` animates only while the awaited
+ * task runs and finalises to a ✓ line. During a spin, a dim shuffled tip rotates
+ * below the step to fill the real provider wait with something useful.
+ *
+ * Modes: `animate` (interactive TTY, full glyph + tips), `static` (piped/CI:
+ * one plain line per step, no escape codes, no tips), `silent` (no output, just
+ * runs the tasks). Defaults to animate on a TTY, static otherwise.
  */
-export async function withSpinner<T>(label: string, task: () => Promise<T>): Promise<T> {
-  if (!process.stdout.isTTY) {
-    process.stdout.write(`  ${label}...\n`);
-    return task();
-  }
-  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-  let i = 0;
-  const restore = (): void => { process.stdout.write('\r\x1b[K\x1b[?25h'); };
-  // Ctrl-C kills the process without running finally, which would otherwise leave
-  // the terminal cursor hidden. Restore it on SIGINT, then exit with the standard
-  // 128+SIGINT code. Removed in finally on the normal/throw paths.
-  const onSigint = (): void => { restore(); process.exit(130); };
-  process.stdout.write('\x1b[?25l'); // hide cursor while spinning
+export function steppedProgress(opts: { mode?: 'animate' | 'static' | 'silent' } = {}): StepHandle {
+  const mode = opts.mode ?? (process.stdout.isTTY ? 'animate' : 'static');
+  return {
+    done(label: string): void {
+      if (mode === 'silent') return;
+      if (mode === 'static') { process.stdout.write(`  ${label}\n`); return; }
+      process.stdout.write(`  ${c(GREEN, '✓')} ${c(DIM, label)}\n`);
+    },
+    spin<T>(label: string, task: () => Promise<T>, sopts: { motion?: StepMotion; color?: string } = {}): Promise<T> {
+      if (mode === 'silent') return task();
+      if (mode === 'static') { process.stdout.write(`  ${label}...\n`); return task(); }
+      return animateSpin(label, task, sopts);
+    },
+  };
+}
+
+// The animated two-line region (step line + rotating tip line) used by spin() in
+// `animate` mode. Cursor handling keeps the region exactly two lines: a thrown
+// error clears both and restores the cursor; success leaves a single ✓ line.
+async function animateSpin<T>(
+  label: string,
+  task: () => Promise<T>,
+  sopts: { motion?: StepMotion; color?: string },
+): Promise<T> {
+  const frames = sopts.motion === 'sweep' ? SWEEP_FRAMES : DISTILL_FRAMES;
+  const color  = sopts.color ?? (sopts.motion === 'sweep' ? CYAN : LEARN);
+  const tips   = shuffledTips();
+  let ti = 0, mi = 0, fi = 0;
+  let started = false;
+
+  const tipLine = (): string => {
+    const marker = TIP_MARKERS[mi % TIP_MARKERS.length]!;
+    const raw    = `  ${marker} · ${tips[ti % tips.length]}`;
+    const max    = Math.max(20, (process.stdout.columns ?? 80)) - 1;
+    return c(DIM, raw.length > max ? raw.slice(0, max - 1) + '…' : raw);
+  };
+  const draw = (): void => {
+    const step = `  ${c(color, frames[fi]!)} ${label}`;
+    process.stdout.write(started ? `\r\x1b[1A\x1b[K${step}\n\r\x1b[K${tipLine()}` : `${step}\n${tipLine()}`);
+    started = true;
+  };
+  const showCursor  = (): void => { process.stdout.write('\x1b[?25h'); };
+  const clearRegion = (): void => { process.stdout.write('\r\x1b[K\x1b[1A\r\x1b[K'); };
+  const onSigint    = (): void => { clearRegion(); showCursor(); process.exit(130); };
+
+  process.stdout.write('\x1b[?25l'); // hide cursor while animating
   process.once('SIGINT', onSigint);
-  const timer = setInterval((): void => {
-    i = (i + 1) % frames.length;
-    process.stdout.write(`\r  ${c(CYAN, frames[i]!)} ${label}`);
-  }, 80);
-  try {
-    return await task();
-  } finally {
-    clearInterval(timer);
+  draw();
+  const spinTimer = setInterval((): void => { fi = (fi + 1) % frames.length; draw(); }, 80);
+  const tipTimer  = setInterval((): void => { ti++; mi++; draw(); }, 3500);
+  const cleanup = (): void => {
+    clearInterval(spinTimer);
+    clearInterval(tipTimer);
     process.removeListener('SIGINT', onSigint);
-    restore();
+  };
+
+  try {
+    const result = await task();
+    cleanup();
+    // Clear the tip line, rewrite the step line as a persistent ✓, leave the
+    // cursor on a fresh (blank) line ready for the next step or the summary.
+    process.stdout.write(`\r\x1b[K\x1b[1A\r\x1b[K  ${c(GREEN, '✓')} ${c(DIM, label)}\n`);
+    showCursor();
+    return result;
+  } catch (e) {
+    cleanup();
+    clearRegion();
+    showCursor();
+    throw e;
   }
+}
+
+/**
+ * Back-compat wrapper over steppedProgress().spin for single-step callers. Keeps
+ * the original signature so existing call sites animate (distill motion) on a
+ * TTY and print one static line when piped.
+ */
+export function withSpinner<T>(label: string, task: () => Promise<T>): Promise<T> {
+  return steppedProgress().spin(label, task);
 }

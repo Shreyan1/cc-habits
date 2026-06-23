@@ -14,7 +14,7 @@ import { storagePaths } from '../storage';
 // Re-export the contract and error types so existing importers of './providers'
 // keep working. The definitions live in types.ts to avoid an import cycle.
 import type { Provider } from './types';
-export { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError } from './types';
+export { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError, ProviderModelNotFoundError } from './types';
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const REPO_SCAN_TIMEOUT_MS = 90_000;
@@ -93,6 +93,28 @@ export function resolveProviderLabel(): string {
   if (isParkedProvider(cfg.provider)) return 'none';
   if (cfg.provider === 'ollama') return `ollama (${cfg.ollama_model ?? 'llama3.2'})`;
   return cfg.provider;
+}
+
+/**
+ * Honest one-line note about where the redacted diffs go, mirroring
+ * resolveProviderLabel's precedence. Used in the live learn trace so the privacy
+ * promise is restated at the exact moment data leaves (or does not leave) the
+ * machine. Local Ollama is the only case where nothing leaves; an Ollama
+ * `-cloud` model runs on Ollama's servers, so it is treated as remote.
+ */
+export function extractionPrivacyNote(): string {
+  const label = resolveProviderLabel();
+  if (label === 'none') return '';
+  const forced = process.env['CC_HABITS_PROVIDER'];
+  const cfg = readConfig();
+  const provider = forced ?? cfg.provider;
+  if (provider === 'ollama') {
+    const model = process.env['CC_HABITS_OLLAMA_MODEL'] ?? cfg.ollama_model;
+    return isCloudOllamaModel(model)
+      ? 'sending redacted diffs to Ollama Cloud'
+      : 'nothing leaves this machine';
+  }
+  return `sending redacted diffs to ${provider}`;
 }
 
 // CLI-linking providers are parked for this release (reachable only via an

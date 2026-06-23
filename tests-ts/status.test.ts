@@ -18,6 +18,15 @@ import { cmdStatus } from '../src/cli';
 import { storagePaths } from '../src/storage';
 import { installPaths } from '../src/install';
 
+// Detection reads the real filesystem (~/.gemini, ~/.codex, etc.), which would
+// make these tests depend on the host machine. Mock it so every case sees a
+// single Claude Code tool whose registration we control via seedSettings().
+const { detectMock } = vi.hoisted(() => ({ detectMock: vi.fn() }));
+vi.mock('../src/detect', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/detect')>();
+  return { ...actual, detectInstalledTools: detectMock };
+});
+
 const origStorage = { ...storagePaths };
 const origInstall = { ...installPaths };
 
@@ -72,6 +81,12 @@ function seedSettings(): void {
   fs.writeFileSync(installPaths.settingsFile, JSON.stringify(settings, null, 2));
 }
 
+// Write a CLAUDE.md that imports the (temp) preferences.md, so the injection
+// check sees habits as actually wired into the agent's context.
+function seedImport(): void {
+  fs.writeFileSync(installPaths.claudeMd, `@import ${storagePaths.preferencesFile}\n`);
+}
+
 function capturedOutput(): string {
   return stdoutChunks.join('');
 }
@@ -79,6 +94,12 @@ function capturedOutput(): string {
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-status-'));
   fs.mkdirSync(path.join(tmpDir, 'claude'), { recursive: true });
+
+  // Default: a single detected Claude Code tool pointing at the temp settings,
+  // so registration is governed purely by whether seedSettings() ran.
+  detectMock.mockReturnValue([
+    { id: 'claude-code', name: 'Claude Code', settingsPath: path.join(tmpDir, 'claude', 'settings.json') },
+  ]);
 
   // Redirect storagePaths.
   storagePaths.habitsDir       = tmpDir;
@@ -145,12 +166,38 @@ describe('cmdStatus, healthy state', () => {
     expect(capturedOutput()).toContain('2 active');
   });
 
-  it('ends with "All good." when provider is set and habits are active', () => {
+  it('ends with "All good." when provider is set, habits active, hooks registered, and import wired', () => {
     seedHabits();
     seedSignals();
+    seedSettings();
+    seedImport();
     process.env['ANTHROPIC_API_KEY'] = 'sk-test';
     cmdStatus();
     expect(capturedOutput()).toContain('All good.');
+  });
+
+  it('never claims "All good." when habits exist but the @import is missing', () => {
+    seedHabits();
+    seedSignals();
+    seedSettings();
+    // No seedImport(): habits are learned but not injected into any agent.
+    process.env['ANTHROPIC_API_KEY'] = 'sk-test';
+    cmdStatus();
+    const out = capturedOutput();
+    expect(out).not.toContain('All good.');
+    expect(out).toContain('not injected');
+  });
+
+  it('never claims "All good." when a detected tool is not registered', () => {
+    seedHabits();
+    seedSignals();
+    seedImport();
+    // No seedSettings(): Claude Code is detected but its hooks are not registered.
+    process.env['ANTHROPIC_API_KEY'] = 'sk-test';
+    cmdStatus();
+    const out = capturedOutput();
+    expect(out).not.toContain('All good.');
+    expect(out).toContain('cch init');
   });
 });
 

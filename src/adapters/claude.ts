@@ -10,10 +10,13 @@ export function fromClaudeCode(raw: any): NormalizedHookInput {
   const diff = raw.diff !== undefined ? String(raw.diff) : undefined;
 
   const edits = Array.isArray(toolInput.edits)
-    ? toolInput.edits.map((e: any) => ({
-        old_string: e.old_string !== undefined ? String(e.old_string) : undefined,
-        new_string: e.new_string !== undefined ? String(e.new_string) : undefined,
-      }))
+    ? toolInput.edits.map((raw: any) => {
+        const e = (raw && typeof raw === 'object') ? raw : {};
+        return {
+          old_string: e.old_string !== undefined ? String(e.old_string) : undefined,
+          new_string: e.new_string !== undefined ? String(e.new_string) : undefined,
+        };
+      })
     : undefined;
 
   return {

@@ -18,7 +18,7 @@ import { redact } from './redact';
 import { isGloballyDisabled } from './config';
 import { resolveProviderLabel, hasUsableProvider } from './providers';
 import { writePreferencesFile } from './sync';
-import { withSpinner } from './cli-ui';
+import { steppedProgress } from './cli-ui';
 
 // One-time cold scan of a repository: read its source and agent-instruction
 // docs, infer habits/memories via the configured LLM, and write them directly
@@ -298,25 +298,30 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
   let memCandidates: Awaited<ReturnType<typeof extractMemoriesFromDocs>> = [];
 
   // The LLM calls below can take several seconds, so show that work is underway
-  // (and on which provider) rather than leaving a silent gap. On an interactive
-  // TTY this animates a spinner; in non-interactive runs it stays silent so
-  // piped/scripted output is unchanged.
-  const spin = <T>(label: string, task: () => Promise<T>): Promise<T> =>
-    isInteractive ? withSpinner(label, task) : task();
+  // (and on which provider) rather than leaving a silent gap. The sweep motion
+  // reads as "looking across your repo" (breadth), distinct from learn's distill.
+  // Interactive only: in non-interactive runs it stays silent so piped/scripted
+  // output is unchanged.
+  const progress = steppedProgress(isInteractive ? {} : { mode: 'silent' });
   const providerLabel = resolveProviderLabel();
+  if (files.length > 0 || docs.length > 0) {
+    progress.done(`scanned ${files.length} file${files.length === 1 ? '' : 's'}`);
+  }
 
   // Habits come from source; memories come from the agent-instruction docs.
   try {
     if (files.length > 0) {
-      habitUpdates = (await spin(
-        `analyzing ${files.length} file${files.length === 1 ? '' : 's'} with ${providerLabel}`,
+      habitUpdates = (await progress.spin(
+        `analyzing with ${providerLabel}`,
         () => extractHabitsFromRepo(files, readHabitsMd(opts.ctx)),
+        { motion: 'sweep' },
       )) || [];
     }
     if (docs.length > 0) {
-      memCandidates = (await spin(
-        `extracting memories from ${docs.length} doc${docs.length === 1 ? '' : 's'} with ${providerLabel}`,
+      memCandidates = (await progress.spin(
+        `reading ${docs.length} doc${docs.length === 1 ? '' : 's'} with ${providerLabel}`,
         () => extractMemoriesFromDocs(docs, readMemoriesMd(opts.ctx)),
+        { motion: 'sweep' },
       )) || [];
     }
   } catch (e) {

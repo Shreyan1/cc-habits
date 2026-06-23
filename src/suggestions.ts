@@ -240,7 +240,7 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
         return ['cch memories --enable  enable memory learning to capture corrections'];
       }
       if (state.hasMemories) {
-        return ['cch memories --delete "text" delete a learned memory'];
+        return ['cch memories --delete <id> delete a memory by its id (no brackets)'];
       }
       return ['cch view              see current habits'];
 

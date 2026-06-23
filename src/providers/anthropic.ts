@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { Provider, ProviderRateLimitError, ProviderTimeoutError } from './types';
+import { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderAuthError } from './types';
 
 export class AnthropicProvider implements Provider {
   name = 'anthropic';
@@ -27,6 +27,7 @@ export class AnthropicProvider implements Provider {
     } catch (e) {
       const status = (e as { status?: number }).status;
       if (status === 429) throw new ProviderRateLimitError(this.name);
+      if (status === 401 || status === 403) throw new ProviderAuthError(this.name);
       if ((e as { name?: string }).name === 'AbortError') throw new ProviderTimeoutError(this.name, opts.timeoutMs);
       throw e;
     } finally {

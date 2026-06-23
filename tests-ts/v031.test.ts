@@ -12,7 +12,7 @@ import {
 } from '../src/config';
 import { suggest, looksLikeEnvVar, nextSteps } from '../src/suggestions';
 import { OpenAIProvider } from '../src/providers/openai';
-import { ProviderPayloadError } from '../src/providers';
+import { ProviderPayloadError, ProviderAuthError } from '../src/providers';
 import { capBatch } from '../src/cli';
 import { byteBudgetFor, MAX_BATCH_BYTES, MAX_BATCH_BYTES_GROQ } from '../src/batch';
 
@@ -189,6 +189,21 @@ describe('OpenAIProvider 429 handling', () => {
     await expect(provider.generate('prompt', { maxTokens: 10, timeoutMs: 1000 }))
       .rejects.toBeInstanceOf(ProviderPayloadError);
     expect(calls).toBe(1); // 413 is not retried
+  });
+
+  it('throws ProviderAuthError on 401/403 and does not retry', async () => {
+    for (const status of [401, 403]) {
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        return new Response('', { status });
+      }) as typeof fetch;
+
+      const provider = new OpenAIProvider('badkey', 'model');
+      await expect(provider.generate('prompt', { maxTokens: 10, timeoutMs: 1000 }))
+        .rejects.toBeInstanceOf(ProviderAuthError);
+      expect(calls).toBe(1); // an auth failure is not retried
+    }
   });
 });
 

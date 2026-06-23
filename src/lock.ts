@@ -25,6 +25,12 @@ export async function acquireLock(
 ): Promise<boolean> {
   const start = Date.now();
   const dir = path.dirname(lockFile);
+  // Per-process temp file holding our pid. We hard-link it onto the lock path:
+  // link() is atomic and fails with EEXIST if the target exists, so the lock
+  // file, once present, ALREADY contains the pid. This closes the TOCTOU window
+  // where a plain create-then-write left the lock momentarily empty and a racing
+  // process misread that empty file as a stale lock and broke it.
+  const tmpFile = `${lockFile}.${process.pid}.tmp`;
 
   while (true) {
     try {
@@ -33,10 +39,13 @@ export async function acquireLock(
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      // Open with 'wx' to create and fail if it already exists
-      const fd = fs.openSync(lockFile, 'wx');
-      fs.writeSync(fd, String(process.pid));
-      fs.closeSync(fd);
+      // Stage our pid in a temp file, then atomically link it into place.
+      fs.writeFileSync(tmpFile, String(process.pid));
+      try {
+        fs.linkSync(tmpFile, lockFile);
+      } finally {
+        try { fs.unlinkSync(tmpFile); } catch { /* best-effort */ }
+      }
       return true;
     } catch (e: any) {
       if (e.code === 'EEXIST') {

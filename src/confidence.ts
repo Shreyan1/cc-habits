@@ -77,6 +77,13 @@ const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
 // Zero-width / invisible characters an attacker inserts mid-keyword to defeat the
 // denylist while the text still renders as the keyword to an LLM (e.g. SYS​TEM:).
 const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF\u00AD]|\uDB40[\uDC00-\uDC7F]/g;
+// Unicode bidirectional control characters. These reorder how text DISPLAYS
+// without changing its logical content, the basis of Trojan-Source attacks
+// (CVE-2021-42574): a rule could render to a human reviewer as something benign
+// while carrying different logical bytes into an LLM. Strip them outright.
+// Covers LRM/RLM/ALM, the embedding/override set (U+202A-202E), and the
+// isolate set (U+2066-2069).
+const BIDI_CONTROLS = /[\u200E\u200F\u061C\u202A-\u202E\u2066-\u2069]/g;
 // Unicode whitespace and line/paragraph separators that are not caught by \x00-\x1f
 // but can still inject structure or break the injection wrapper (U+2028, U+2029, …).
 const UNICODE_SEPARATORS = /[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g;
@@ -124,54 +131,96 @@ function foldHomoglyphs(str: string): string {
 // Claude injection context. Order matters: bound length and normalize Unicode BEFORE
 // running the denylist so homoglyph/zero-width bypasses collapse to canonical ASCII
 // and the regexes never run on unbounded input (ReDoS).
+// Apply a scrub pass repeatedly until the text stops changing (a fixed point).
+// A single replacement can EXPOSE a new match: stripping a tag to a space turns
+// "act as<tag>" into "act as " which the persona pattern then matches, and
+// removing a delimiter can join tokens into a fresh keyword. Each pass consumes
+// at least one strippable structure and replaces it with inert text, so the
+// match count decreases monotonically and the sequence converges. The cap is set
+// to the input length (the worst-case number of productive passes) so the result
+// is a true fixed point, while the pre-loop length bound keeps that cheap. A
+// fixed point is what makes re-sanitizing already-stored text a guaranteed no-op.
+function scrubToFixedPoint(s: string, pass: (x: string) => string): string {
+  const cap = Math.min(Math.max(s.length, 8), 1024);
+  for (let i = 0; i < cap; i++) {
+    const next = pass(s);
+    if (next === s) break;
+    s = next;
+  }
+  return s;
+}
+
+// One full normalize+scrub pass for rule text. Because a single replacement can
+// EXPOSE a new match (a tag stripped to a space exposing "act as ", or NFKC folding
+// a fullwidth homoglyph into a live "SYSTEM:"), the ENTIRE transform - not just the
+// denylist - is iterated to a fixed point. Keeping the whole pipeline in the looped
+// pass (rather than running normalization once before a denylist-only loop) is what
+// guarantees the loop's fixed point equals a fresh call's output, i.e. idempotence.
+// codeql[js/incomplete-multi-character-sanitization] - distinct non-overlapping
+// pattern classes; HTML_COMMENT before INJECTION_KEYWORDS; fixed-point iteration
+// catches any match a substitution exposes, so there is no residual second-pass risk.
+function rulePass(x: string): string {
+  x = x.replace(ZERO_WIDTH, '').replace(BIDI_CONTROLS, '');
+  x = x.normalize('NFKC');
+  x = foldHomoglyphs(x);
+  x = x.replace(CONTROL_CHARS, '');
+  x = x.replace(UNICODE_SEPARATORS, ' ');
+  x = x.replace(HTML_COMMENT, '');
+  x = x.replace(INJECTION_KEYWORDS, '[redacted]');
+  x = x.replace(TAG_TOKEN, '[redacted]');
+  x = x.replace(URL_RE, '[url]');
+  x = x.replace(SHELL_SUBST, '[cmd]');
+  x = x.replace(/\s+/g, ' ').trim();
+  return x;
+}
+
 export function sanitizeRule(rule: string): string {
   let s = (rule ?? '').trim();
   // Bound length first, denylist regexes must never see unbounded input.
   if (s.length > MAX_RULE_LENGTH * 2) s = s.slice(0, MAX_RULE_LENGTH * 2);
-  s = s.replace(ZERO_WIDTH, '');
-  // NFKC folds fullwidth/compatibility homoglyphs (ＳＹＳＴＥＭ → SYSTEM) to ASCII.
-  s = s.normalize('NFKC');
-  s = foldHomoglyphs(s);
-  s = s.replace(CONTROL_CHARS, '');
-  s = s.replace(UNICODE_SEPARATORS, ' ');
-  // codeql[js/incomplete-multi-character-sanitization] - each replacement targets a
-  // distinct and non-overlapping pattern class. HTML_COMMENT removes comment syntax
-  // before INJECTION_KEYWORDS runs, which is the correct order: a sequence like
-  // "SYS<!---->TEM:" collapses to "SYSTEM:" after comment removal and is then caught
-  // by INJECTION_KEYWORDS. No replacement can produce a new HTML comment or tag
-  // from its substitution value ("" or "[redacted]"), so there is no second-pass risk.
-  s = s.replace(HTML_COMMENT, ''); // codeql[js/incomplete-multi-character-sanitization] - HTML_COMMENT runs before INJECTION_KEYWORDS; "SYS<!---->TEM:" becomes "SYSTEM:" then "[redacted]". No replacement produces a new dangerous sequence.
-  s = s.replace(INJECTION_KEYWORDS, '[redacted]');
-  s = s.replace(TAG_TOKEN, '[redacted]'); // codeql[js/incomplete-multi-character-sanitization] - TAG_TOKEN removes whole well-formed tags; remaining chars are caught by the structural char strips above
-  s = s.replace(URL_RE, '[url]');
-  s = s.replace(SHELL_SUBST, '[cmd]');
-  s = s.replace(/\s+/g, ' ').trim();
-  if (s.length > MAX_RULE_LENGTH) s = s.slice(0, MAX_RULE_LENGTH).trimEnd();
+  s = scrubToFixedPoint(s, rulePass);
+  if (s.length > MAX_RULE_LENGTH) {
+    // A hard slice can expose a new boundary (cutting "...ignore all previous|XYZ"
+    // mid-token leaves a trailing keyword), so re-scrub the truncated text.
+    s = scrubToFixedPoint(s.slice(0, MAX_RULE_LENGTH).trimEnd(), rulePass);
+  }
   return s;
 }
 
 // Categories become markdown section headers (## Category) in habits.md AND labels
 // in the injection block. Unsanitized, an LLM- or injection-controlled category could
 // embed newlines / markdown / tags to inject structure. Categories are short labels,
-// so we strip aggressively.
+// so we strip aggressively. Same full-transform fixed-point design as rulePass:
+// the structural char strip can join tokens into a fresh keyword (removing "#"
+// merges "act#as" into "actas"), so the whole transform is iterated to idempotence.
+// codeql[js/incomplete-multi-character-sanitization] - same ordering and fixed-point
+// guarantee as rulePass; substitution values cannot form new dangerous sequences.
+function categoryPass(x: string): string {
+  x = x.replace(ZERO_WIDTH, '').replace(BIDI_CONTROLS, '');
+  x = x.normalize('NFKC');
+  x = foldHomoglyphs(x);
+  x = x.replace(CONTROL_CHARS, '');
+  x = x.replace(UNICODE_SEPARATORS, ' ');
+  x = x.replace(HTML_COMMENT, '');
+  x = x.replace(INJECTION_KEYWORDS, ' ');
+  x = x.replace(TAG_TOKEN, '');
+  // Drop markdown-structural and delimiter chars that could inject headers or
+  // break the "Category:" label format in the injection block.
+  x = x.replace(/[#`*_<>[\]:]/g, '');
+  x = x.replace(/\s+/g, ' ').trim();
+  return x;
+}
+
 export function sanitizeCategory(category: string): string {
   let s = (category ?? '').trim();
   if (s.length > MAX_CATEGORY_LENGTH * 2) s = s.slice(0, MAX_CATEGORY_LENGTH * 2);
-  s = s.replace(ZERO_WIDTH, '').normalize('NFKC');
-  s = foldHomoglyphs(s);
-  s = s.replace(CONTROL_CHARS, '');
-  s = s.replace(UNICODE_SEPARATORS, ' ');
-  // codeql[js/incomplete-multi-character-sanitization] - same reasoning as sanitizeRule:
-  // HTML_COMMENT runs before TAG_TOKEN; the substitution values ('' and removed chars)
-  // cannot form new HTML/comment sequences.
-  s = s.replace(HTML_COMMENT, ''); // codeql[js/incomplete-multi-character-sanitization] - same ordering guarantee as sanitizeRule
-  s = s.replace(TAG_TOKEN, ''); // codeql[js/incomplete-multi-character-sanitization] - tags stripped; remaining structural chars removed by the regex below
-  // Drop markdown-structural and delimiter chars that could inject headers or
-  // break the "Category:" label format in the injection block.
-  s = s.replace(/[#`*_<>[\]:]/g, '');
-  s = s.replace(/\s+/g, ' ').trim();
+  s = scrubToFixedPoint(s, categoryPass);
   if (!s) return 'Uncategorized';
-  if (s.length > MAX_CATEGORY_LENGTH) s = s.slice(0, MAX_CATEGORY_LENGTH).trimEnd();
+  if (s.length > MAX_CATEGORY_LENGTH) {
+    // Re-scrub after the hard slice: cutting mid-text can expose a trailing keyword.
+    s = scrubToFixedPoint(s.slice(0, MAX_CATEGORY_LENGTH).trimEnd(), categoryPass);
+    if (!s) return 'Uncategorized';
+  }
   return s;
 }
 

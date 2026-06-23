@@ -83,6 +83,7 @@ Usage:
   Habits Lifecycle:
     cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
     cc-habits view [habits|memories|prefs]  Show habits, memories, or active preferences
+    cc-habits view habits --lang <lang>  Show only habits observed in a language (e.g. ts, py)
     cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
     cc-habits git-capture [--range r] Capture changes from git commits (HEAD~1..HEAD by default)
     cc-habits learn [--session id]    Learn habits from repository scan or signals
@@ -114,7 +115,7 @@ Usage:
 
 Env (set in your shell, e.g. \`export CC_HABITS_PROVIDER=ollama\`; not cc-habits subcommands):
   CC_HABITS_DIR                     Override storage location (default ~/.cc-habits)
-  CC_HABITS_PROVIDER                Override provider (claude-cli|gemini-cli|codex-cli|anthropic|openai|groq|ollama)
+  CC_HABITS_PROVIDER                Override provider (anthropic|openai|groq|ollama; CLI-linking claude-cli|gemini-cli|codex-cli is WIP)
   CC_HABITS_MEMORIES=1              Enable memory extraction for this shell (or: cch memories --enable)
 
 Docs: https://github.com/Shreyan1/cc-habits
@@ -147,6 +148,72 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // The full command reference as an interactive select menu. Reached directly
+  // via `cch help`, or from the folded main menu's "help (all commands)" entry.
+  // "Back to main menu" returns to the folded menu either way.
+  async function runFullCommandMenu(): Promise<void> {
+    const disabled = isGloballyDisabled();
+    const memsOn = memoriesEnabled();
+    const helpItems = [
+      // Setup & Configuration
+      { label: 'init                    Install hooks and set up a provider', args: ['init'] },
+      { label: 'init --provider ollama  Skip key prompt, configure local Ollama', args: ['init', '--provider', 'ollama'] },
+      { label: 'tools                   List supported coding tools', args: ['tools'] },
+      { label: 'learn                   Learn habits from repository scan or signals', args: ['learn'] },
+      { label: 'on                      Enable cc-habits', args: ['on'], disabled: !disabled },
+      { label: 'off                     Disable cc-habits', args: ['off'], disabled: disabled },
+      { label: 'shell-init              Print shell wrapper', args: ['shell-init'] },
+      { label: 'migrate                 Migrate storage location', args: ['migrate'] },
+      { label: 'uninstall               Uninstall cc-habits completely', args: ['uninstall'] },
+
+      // Habits Lifecycle
+      { label: 'bootstrap               Learn habits from past sessions', args: ['bootstrap'] },
+      { label: 'view [habits|memories|prefs]  Show habits, memories, or preferences', args: ['view'] },
+      { label: 'git-capture             Capture changes from git commits', args: ['git-capture'] },
+      { label: 'learn                   Learn habits from repository scan or signals', args: ['learn'] },
+      { label: 'learn --repo            Scan this repo with the LLM and learn directly', args: ['learn', '--repo'] },
+
+      // Sharing & Portability
+      { label: 'sync                    Share habits with other tools', args: ['sync'] },
+      { label: 'export                  Export habits profile', args: ['export'] },
+      { label: 'import                  Import habits profile', args: ['import'] },
+
+      // Analysis & Debugging
+      { label: 'log                     Show the capture log', args: ['log'] },
+      { label: 'diff                    Show changes between last two writes', args: ['diff'] },
+      { label: 'explain                 Show signals contributing to a habit', args: ['explain'] },
+      { label: 'lint                    Check a file against habits', args: ['lint'] },
+
+      // Memory & Tombstones
+      { label: 'memories                Show coding memories', args: ['memories'] },
+      { label: 'memories --enable       Turn on memory learning', args: ['memories', '--enable'], disabled: memsOn },
+      { label: 'memories --disable      Turn off memory learning', args: ['memories', '--disable'], disabled: !memsOn },
+      { label: 'memories --tombstones   List tombstoned memories', args: ['memories', '--tombstones'] },
+      { label: 'tombstone               Block a habit rule', args: ['tombstone'] },
+
+      // Getting Help
+      { label: 'faq                     Search FAQ or raise a GitHub issue', args: ['faq'] },
+    ];
+
+    const menuItems: { label: string; value: string; disabled?: boolean }[] = helpItems.map(hi => ({
+      label: hi.label,
+      value: JSON.stringify(hi.args),
+      disabled: (hi as any).disabled
+    }));
+    menuItems.push({ label: 'Back to main menu', value: 'back' });
+
+    const selectedHelp = await runSelectMenu(
+      `  ${c(BOLD + CYAN, 'Select a detailed usage command to run (use ↑/↓ keys):')}`,
+      menuItems
+    );
+    if (!selectedHelp || selectedHelp.value === 'back') {
+      return runMainInteractiveMenu();
+    }
+    const chosenArgs = JSON.parse(selectedHelp.value);
+    const res = spawnSync(process.execPath, [String(process.argv[1]), ...chosenArgs], { stdio: 'inherit' });
+    process.exit(res.status ?? 0);
+  }
+
   async function runMainInteractiveMenu(): Promise<void> {
     const disabled = isGloballyDisabled();
     const items = MENU_ITEMS.map(item => {
@@ -162,74 +229,26 @@ async function main(): Promise<void> {
     if (!item) process.exit(0);
 
     if (item.args[0] === '--help') {
-      const memsOn = memoriesEnabled();
-      const helpItems = [
-        // Setup & Configuration
-        { label: 'init                    Install hooks and set up a provider', args: ['init'] },
-        { label: 'init --provider ollama  Skip key prompt, configure local Ollama', args: ['init', '--provider', 'ollama'] },
-        { label: 'tools                   List supported coding tools', args: ['tools'] },
-        { label: 'learn                   Learn habits from repository scan or signals', args: ['learn'] },
-        { label: 'on                      Enable cc-habits', args: ['on'], disabled: !disabled },
-        { label: 'off                     Disable cc-habits', args: ['off'], disabled: disabled },
-        { label: 'shell-init              Print shell wrapper', args: ['shell-init'] },
-        { label: 'migrate                 Migrate storage location', args: ['migrate'] },
-        { label: 'uninstall               Uninstall cc-habits completely', args: ['uninstall'] },
-        
-        // Habits Lifecycle
-        { label: 'bootstrap               Learn habits from past sessions', args: ['bootstrap'] },
-        { label: 'view [habits|memories|prefs]  Show habits, memories, or preferences', args: ['view'] },
-        { label: 'git-capture             Capture changes from git commits', args: ['git-capture'] },
-        { label: 'learn                   Learn habits from repository scan or signals', args: ['learn'] },
-        { label: 'learn --repo            Scan this repo with the LLM and learn directly', args: ['learn', '--repo'] },
-        
-        // Sharing & Portability
-        { label: 'sync                    Share habits with other tools', args: ['sync'] },
-        { label: 'export                  Export habits profile', args: ['export'] },
-        { label: 'import                  Import habits profile', args: ['import'] },
-        
-        // Analysis & Debugging
-        { label: 'log                     Show the capture log', args: ['log'] },
-        { label: 'diff                    Show changes between last two writes', args: ['diff'] },
-        { label: 'explain                 Show signals contributing to a habit', args: ['explain'] },
-        { label: 'lint                    Check a file against habits', args: ['lint'] },
-        
-        // Memory & Tombstones
-        { label: 'memories                Show coding memories', args: ['memories'] },
-        { label: 'memories --enable       Turn on memory learning', args: ['memories', '--enable'], disabled: memsOn },
-        { label: 'memories --disable      Turn off memory learning', args: ['memories', '--disable'], disabled: !memsOn },
-        { label: 'memories --tombstones   List tombstoned memories', args: ['memories', '--tombstones'] },
-        { label: 'tombstone               Block a habit rule', args: ['tombstone'] },
-        
-        // Getting Help
-        { label: 'faq                     Search FAQ or raise a GitHub issue', args: ['faq'] },
-      ];
- 
-      const menuItems: { label: string; value: string; disabled?: boolean }[] = helpItems.map(hi => ({
-        label: hi.label,
-        value: JSON.stringify(hi.args),
-        disabled: (hi as any).disabled
-      }));
-      menuItems.push({ label: 'Back to main menu', value: 'back' });
-
-      const selectedHelp = await runSelectMenu(
-        `  ${c(BOLD + CYAN, 'Select a detailed usage command to run (use ↑/↓ keys):')}`,
-        menuItems
-      );
-      if (!selectedHelp || selectedHelp.value === 'back') {
-        return runMainInteractiveMenu();
-      }
-      const chosenArgs = JSON.parse(selectedHelp.value);
-      const res = spawnSync(process.execPath, [String(process.argv[1]), ...chosenArgs], { stdio: 'inherit' });
-      process.exit(res.status ?? 0);
+      return runFullCommandMenu();
     }
 
     const res = spawnSync(process.execPath, [String(process.argv[1]), ...item.args], { stdio: 'inherit' });
     process.exit(res.status ?? 0);
   }
 
-  if (!command || command === 'help') {
+  // Bare `cch` opens the folded main menu; `cch help` jumps straight to the full
+  // command reference. Both fall back to the static HELP text when not a TTY.
+  if (!command) {
     if (process.stdin.isTTY && process.stderr.isTTY) {
       await runMainInteractiveMenu();
+    }
+    process.stdout.write(HELP);
+    process.exit(0);
+  }
+
+  if (command === 'help') {
+    if (process.stdin.isTTY && process.stderr.isTTY) {
+      await runFullCommandMenu();
     }
     process.stdout.write(HELP);
     process.exit(0);
@@ -249,14 +268,16 @@ async function main(): Promise<void> {
   } else if (command === 'bootstrap') {
     code = await cmdBootstrap();
   } else if (command === 'view') {
+    const langIdx = args.indexOf('--lang');
+    const lang = langIdx >= 0 ? args[langIdx + 1] : undefined;
     if (args.includes('memories')) {
       code = await cmdMemories();
     } else if (args.includes('habits')) {
-      code = renderHabitsView();
+      code = renderHabitsView(lang);
     } else if (args.includes('prefs') || args.includes('preferences')) {
       code = cmdPrefs();
     } else {
-      code = await cmdView();
+      code = await cmdView(lang);
     }
   } else if (command === 'memories') {
     const deleteIdx = args.indexOf('--delete');

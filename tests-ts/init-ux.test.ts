@@ -226,9 +226,11 @@ describe('Q4, no-provider scan-skip points at a real command', () => {
 describe('Q3, repo scan shows progress before the LLM call', () => {
   it('wraps extraction in a spinner whose label names the work', () => {
     const src = read(SCAN_SRC);
-    // Progress is shown via an animated spinner (withSpinner) instead of a
-    // static line, so the user sees the scan is alive during the slow LLM call.
-    expect(src).toContain('withSpinner');
+    // Progress is shown via an animated stepped spinner (steppedProgress().spin)
+    // instead of a static line, so the user sees the scan is alive during the
+    // slow LLM call.
+    expect(src).toContain('steppedProgress');
+    expect(src).toContain('.spin(');
     expect(src).toContain('analyzing ');
     // The spinner label is emitted as part of the spin() wrapper around
     // extraction, so it appears before the extractHabitsFromRepo call.

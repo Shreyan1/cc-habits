@@ -43,6 +43,31 @@ export function setConfigValue(key: string, value: string, ctx?: StorageContext)
   writeConfigFile(next, ctx);
 }
 
+// Persist the set of sync targets that processStop auto-refreshes after each
+// learning session. cc-habits always writes preferences.md, which Claude Code
+// reads via an @import in CLAUDE.md, so Claude's learn->inject loop is automatic.
+// Tools that read a SYNCED file instead - Codex/Kimi via AGENTS.md, Gemini via
+// GEMINI.md, Cline via .clinerules - only receive fresh habits when their target
+// is listed here. init records the registered tools' targets so the loop closes
+// automatically for them too, not just for Claude. Union with any existing value
+// and never clobber a target the user added by hand.
+export function addSyncTargets(targets: string[], ctx?: StorageContext): void {
+  const clean = targets.map(t => t.trim()).filter(Boolean);
+  if (clean.length === 0) return;
+  // Read the existing list with the SAME comma-tolerant regex readSyncTargets
+  // uses. We deliberately do NOT use getConfigValue here: its single-token regex
+  // stops at the first space, so it would read "agents, gemini" back as just
+  // "agents," and silently drop the rest on the next merge.
+  let existing: string[] = [];
+  try {
+    const text = fs.readFileSync(getPaths(ctx).configFile, 'utf-8');
+    const m = text.match(/^sync_targets\s*:\s*\[?([^\]\n#]+)\]?/m);
+    if (m) existing = m[1].split(',').map(t => t.trim().replace(/['"]/g, '')).filter(Boolean);
+  } catch { /* no config yet */ }
+  const merged = Array.from(new Set([...existing, ...clean])).sort();
+  setConfigValue('sync_targets', merged.join(', '), ctx);
+}
+
 // Memory extraction is ON by default. Precedence: an explicit CC_HABITS_MEMORIES
 // env value (on or off) always wins for the current shell, otherwise the
 // persisted `memories_enabled` flag in config.yml, which is treated as enabled

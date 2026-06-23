@@ -29,7 +29,7 @@ import {
 } from './storage';
 import { applyUpdates, applyDecay, type AppliedChange } from './confidence';
 import { runSelectMenu } from './menu';
-import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks, areHooksRegistered, hookProofPaths, readRegisteredHooks } from './install';
+import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks, areHooksRegistered, hookProofPaths, readRegisteredHooks, installPaths } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
 import { exportProfile, importHabits, fetchProfile } from './portable';
@@ -41,20 +41,22 @@ import { runMigration } from './migrate';
 import { captureFromCli } from './capture';
 import { runGitCapture, shouldTriggerGitLearn } from './git-collector';
 import { extractRules, extractMemoryCandidates } from './extractor';
-import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError, resolveProviderLabel, hasUsableProvider, isParkedProvider, isCloudOllamaModel } from './providers';
-import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent, setGloballyDisabled, getConfigValue, isGloballyDisabled } from './config';
+import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError, ProviderModelNotFoundError, resolveProviderLabel, hasUsableProvider, isParkedProvider, isCloudOllamaModel, extractionPrivacyNote } from './providers';
+import { redact } from './redact';
+import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent, setGloballyDisabled, getConfigValue, isGloballyDisabled, addSyncTargets } from './config';
 import { formatStopSummary, autoApplyWarning } from './hook';
 import { detectInstalledTools } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.7.20';
+export const VERSION = '0.7.21';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
 const KNOWN_PROVIDER_ERRORS = [
   ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError,
   ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError,
+  ProviderModelNotFoundError,
 ] as const;
 function providerHint(e: unknown): string | undefined {
   if (!KNOWN_PROVIDER_ERRORS.some(T => e instanceof T)) return undefined;
@@ -114,7 +116,7 @@ import {
   c, BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET, NO_COLOR, term, tildePath,
   confidenceBar, renderBrandedCard, renderHabitLine,
   printMemoriesEmptyState, renderMemoryLine,
-  promptChoice, promptYesNo, promptYesNoDefaultTrue, promptSecret, withSpinner
+  promptChoice, promptYesNo, promptYesNoDefaultTrue, promptSecret, withSpinner, steppedProgress, normaliseLanguages
 } from './cli-ui';
 
 import {
@@ -198,6 +200,10 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   // the user toward git capture (which sees every edit regardless of how made).
   // Declared at function scope because the git-capture prompt below reads it.
   let codexRegistered = false;
+  // Sync targets to persist so processStop auto-refreshes each registered tool's
+  // injection file after a learning session. Claude reads preferences.md directly
+  // (via @import) and needs no entry here; the others read a synced file and do.
+  const syncTargetsToEnable = new Set<string>();
 
   const detected = detectInstalledTools();
   if (detected.length > 0) {
@@ -238,12 +244,14 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${stopAdded ? tick : dash} AfterAgent hook ${stopAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${promptAdded ? tick : dash} BeforeAgent hook ${promptAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
+          syncTargetsToEnable.add('gemini');
           printHookProof('gemini', tool.settingsPath);
         }
       } else if (tool.id === 'codex') {
         const register = await promptYesNoDefaultTrue('  Register hooks in Codex CLI? [Y/n] ');
         if (register) {
           codexRegistered = true;
+          syncTargetsToEnable.add('agents');
           process.stdout.write('\n');
           const { postAdded, promptAdded } = registerCodexHooks(tool.settingsPath, hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook (captures edits) ${postAdded ? 'registered' : 'already registered'}\n`);
@@ -271,6 +279,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
+          syncTargetsToEnable.add('agents');
           printHookProof('kimi', tool.settingsPath);
         }
       } else if (tool.id === 'cline') {
@@ -280,11 +289,22 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           const { postAdded, stopAdded } = registerClineHooks(tool.settingsPath, hookBin);
           process.stdout.write(`    ${postAdded ? tick : dash} PostToolUse hook ${postAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+          syncTargetsToEnable.add('cline');
           printHookProof('cline', tool.settingsPath);
         }
       } else if (tool.id === 'cursor') {
         process.stdout.write(`  ${dash} Cursor has no hooks; enable Git capture below to learn from its edits.\n`);
       }
+    }
+    // Persist the injection targets for the tools just registered so processStop
+    // auto-refreshes them after each learning session. Without this, only Claude
+    // (which reads preferences.md via @import) would stay current; Codex/Kimi/
+    // Gemini/Cline read a synced file and would otherwise need a manual `cch sync`.
+    if (syncTargetsToEnable.size > 0) {
+      addSyncTargets([...syncTargetsToEnable]);
+      const fileFor: Record<string, string> = { agents: 'AGENTS.md', gemini: 'GEMINI.md', cline: '.clinerules' };
+      const files = [...syncTargetsToEnable].map(t => fileFor[t] ?? t).join(', ');
+      process.stdout.write(`  ${tick} Auto-sync enabled: learned habits will refresh ${files} after each session.\n`);
     }
     process.stdout.write('\n');
   } else {
@@ -427,10 +447,13 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
 }
 
 // view ─────────────────────────────────────────────────────────────────────
-export function renderHabitsView(): number {
+export function renderHabitsView(langFilter?: string): number {
   const habitsMd = readHabitsMd();
   const allSignals = readSignals();
   const cats = parseHabits(habitsMd);
+  // Normalise the requested language the same way habit languages are normalised,
+  // so `--lang TS` matches a habit tagged `ts`. Blank/whitespace means no filter.
+  const langF = normaliseLanguages(langFilter ? [langFilter] : [])[0];
 
   const totalHabits = Object.values(cats).reduce((s, h) => s + h.length, 0);
   const activeHabits = Object.values(cats).flat().filter(h => (h.sessions_seen ?? 1) >= 2).length;
@@ -511,12 +534,27 @@ export function renderHabitsView(): number {
     if (learningHabits > 0) {
       process.stdout.write(c(DIM, '  (learning habits activate after 1 more session)\n'));
     }
+
+    // Surface the languages cc-habits has observed (data already captured per
+    // habit). Doubles as discovery for the `--lang` filter.
+    const observedLangs = normaliseLanguages(Object.values(cats).flat().flatMap(h => h.languages ?? [])).sort();
+    if (observedLangs.length > 0) {
+      const hint = langF ? '' : '  ·  filter with `cch view --lang <lang>`';
+      process.stdout.write(c(DIM, `  languages: ${observedLangs.join(', ')}${hint}\n`));
+    }
+    if (langF) {
+      process.stdout.write(c(CYAN, `  showing habits tagged `) + c(BOLD, langF) + '\n');
+    }
     process.stdout.write('\n');
+
+    const matchesLang = (h: Habit): boolean =>
+      !langF || normaliseLanguages(h.languages).includes(langF);
+    let shown = 0;
 
     for (const category of Object.keys(cats).sort()) {
       const habits = cats[category];
-      const active = habits.filter(h => (h.sessions_seen ?? 1) >= 2);
-      const learning = habits.filter(h => (h.sessions_seen ?? 1) < 2);
+      const active = habits.filter(h => (h.sessions_seen ?? 1) >= 2 && matchesLang(h));
+      const learning = habits.filter(h => (h.sessions_seen ?? 1) < 2 && matchesLang(h));
       if (active.length === 0 && learning.length === 0) continue;
 
       process.stdout.write(
@@ -524,7 +562,13 @@ export function renderHabitsView(): number {
       );
       for (const h of active) renderHabitLine(h, false);
       for (const h of learning) renderHabitLine(h, true);
+      shown += active.length + learning.length;
       process.stdout.write('\n');
+    }
+
+    if (langF && shown === 0) {
+      process.stdout.write(c(DIM, `  No habits tagged `) + c(BOLD, langF) + c(DIM, '.') +
+        (observedLangs.length > 0 ? c(DIM, ` Observed: ${observedLangs.join(', ')}.`) : '') + '\n\n');
     }
   }
 
@@ -552,7 +596,7 @@ export function renderHabitsView(): number {
   return 0;
 }
 
-export async function cmdView(): Promise<number> {
+export async function cmdView(langFilter?: string): Promise<number> {
   if (process.stdin.isTTY && process.stdout.isTTY) {
     const choice = await runSelectMenu(
       `  ${c(BOLD + CYAN, 'Select what you would like to view (use ↑/↓ keys):')}`,
@@ -566,7 +610,7 @@ export async function cmdView(): Promise<number> {
     if (choice.value === 'memories') return cmdMemories();
     if (choice.value === 'prefs') return cmdPrefs();
   }
-  return renderHabitsView();
+  return renderHabitsView(langFilter);
 }
 
 /**
@@ -611,6 +655,11 @@ export function cmdMemoriesDelete(text: string): number {
   const sections = parseMemories(readMemoriesMd());
 
   let targetText = text.trim();
+  // The listing renders ids as `[cchXXXXXXXX]`. Accept a pasted id with its
+  // surrounding brackets (shells that reach us with them intact) by stripping a
+  // bracket pair only when the inner text is an id, never normal memory text.
+  const bracketedId = targetText.match(/^\[(cch[a-f0-9]{8})\]$/i);
+  if (bracketedId) targetText = bracketedId[1];
   if (/^cch[a-f0-9]{8}$/i.test(targetText)) {
     let foundHash = false;
     for (const sectionMemories of Object.values(sections)) {
@@ -728,7 +777,7 @@ export async function cmdMemories(): Promise<number> {
     `  ${c(BOLD, String(active.length))} active ` +
     `· ${c(DIM, `${candidates.length} candidate${candidates.length === 1 ? '' : 's'}`)}\n`,
   );
-  process.stdout.write(c(DIM, `  To delete: cc-habits memories --delete "memory text"\n\n`));
+  process.stdout.write(c(DIM, `  To delete: cch memories --delete <id>  (the id in brackets, without the brackets)\n\n`));
 
   for (const section of Object.keys(sections).sort()) {
     const memories = sections[section];
@@ -1063,10 +1112,14 @@ export function cmdStatus(proof = false): number {
   const configExists   = fs.existsSync(configPath);
   const memsOn         = memoriesEnabled();
 
-  // Hook rows: one row per detected tool, glyph + name + liveness.
+  // Hook rows: one row per detected tool, glyph + name + liveness. Track whether
+  // any detected tool has hooks registered, and whether any is missing them, so
+  // the footer never claims "All good" while a visible ✗ row says otherwise.
   const NAMEW    = 14;
   const hookRows: string[] = [];
   const detected = detectInstalledTools();
+  let anyRegistered  = false;
+  let anyUnregistered = false;
 
   if (detected.length === 0) {
     hookRows.push(line(`${git}  ${c(DIM, 'No coding tools detected')}`));
@@ -1084,6 +1137,7 @@ export function cmdStatus(proof = false): number {
         const files      = hookProofPaths(tool.id, tool.settingsPath);
         const entries    = files.flatMap(f => readRegisteredHooks(f).map(h => ({ ...h, file: f })));
         const registered = tool.id === 'claude-code' ? areHooksRegistered() : entries.length > 0;
+        if (registered) anyRegistered = true; else anyUnregistered = true;
         const fired      = firedBySource[tool.id];
         const glyph      = registered ? ok : fail;
         let desc: string;
@@ -1091,9 +1145,12 @@ export function cmdStatus(proof = false): number {
           desc = c(YELLOW, 'not registered, run `cch init`');
         } else if (fired) {
           desc = c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(fired.ts)} · ${path.basename(fired.file)} · ${fired.count} sig${fired.count === 1 ? '' : 's'}`);
+        } else if (tool.id === 'codex') {
+          // Codex shell edits are not seen by the hook, so "edit to confirm" would
+          // mislead. State the limitation directly and keep it short enough to fit.
+          desc = c(DIM, 'registered') + c(YELLOW, ' · shell edits not captured');
         } else {
           desc = c(DIM, 'registered') + c(YELLOW, ` (edit in ${tool.name} to confirm)`);
-          if (tool.id === 'codex') desc += c(DIM, '  shell edits invisible');
         }
         hookRows.push(line(`${glyph}  ${pad(c(BOLD, tool.name), NAMEW)}  ${desc}`));
         if (proof && registered && entries.length > 0) {
@@ -1132,14 +1189,19 @@ export function cmdStatus(proof = false): number {
     providerVal += c(YELLOW, '  · cloud');
   }
 
-  const claudeMdPath = path.join(os.homedir(), '.claude', 'CLAUDE.md');
+  // Read the same CLAUDE.md that `install` writes the @import into. In production
+  // this is ~/.claude/CLAUDE.md; honoring installPaths keeps status consistent
+  // with init and lets tests redirect it.
+  const claudeMdPath = installPaths.claudeMd;
   const importLine   = `@import ${storagePaths.preferencesFile}`;
   let importVal: string;
+  let importMissing = false;
   try {
     const content = fs.existsSync(claudeMdPath) ? fs.readFileSync(claudeMdPath, 'utf-8') : '';
-    importVal = content.includes(importLine)
-      ? ok + c(DIM, '  preferences.md in CLAUDE.md')
-      : fail + c(YELLOW, '  not imported, run `cch init`');
+    importMissing = !content.includes(importLine);
+    importVal = importMissing
+      ? fail + c(YELLOW, '  not imported, run `cch init`')
+      : ok + c(DIM, '  preferences.md in CLAUDE.md');
   } catch {
     importVal = c(DIM, 'could not read CLAUDE.md');
   }
@@ -1207,6 +1269,23 @@ export function cmdStatus(proof = false): number {
       );
     } else if (active === 0) {
       process.stdout.write(c(DIM, '  Keep coding, habits graduate after 2+ sessions.\n'));
+    } else if (importMissing) {
+      // Habits exist but are not wired into CLAUDE.md, so no agent reads them.
+      // Never claim "All good" while injection is not actually happening.
+      process.stdout.write(
+        c(YELLOW, '→ Habits are not injected: ')
+        + c(DIM, 'no cc-habits @import in CLAUDE.md. Run `cch init` to wire it up.\n'),
+      );
+    } else if (!anyRegistered && anyUnregistered) {
+      process.stdout.write(
+        c(YELLOW, '→ No tool hooks registered: ')
+        + c(DIM, 'nothing is being captured. Run `cch init` to register your tools.\n'),
+      );
+    } else if (anyUnregistered) {
+      process.stdout.write(
+        c(YELLOW, '→ Some detected tools are not registered. ')
+        + c(DIM, 'Run `cch init` to capture from all of them.\n'),
+      );
     } else {
       process.stdout.write(c(GREEN, '  All good.') + c(DIM, ' Start a coding session to keep learning.\n'));
     }
@@ -1285,6 +1364,8 @@ export function cmdTombstone(rule: string): number {
     return cmdTombstones();
   }
   let targetRule = rule.trim();
+  const bracketedRuleId = targetRule.match(/^\[(cch[a-f0-9]{8})\]$/i);
+  if (bracketedRuleId) targetRule = bracketedRuleId[1];
   const cats = parseHabits(readHabitsMd());
   if (/^cch[a-f0-9]{8}$/i.test(targetRule)) {
     let found = false;
@@ -1777,20 +1858,34 @@ export async function cmdLearn(opts: { session?: string; since?: number; interac
   }
   
   const { batch: capped, desc: batchDesc } = capBatch(filtered, byteBudgetFor(getConfigValue('provider')));
-  const learnLabel = `learning from ${batchDesc} signal${filtered.length === 1 ? '' : 's'}`;
+  // Re-apply redaction to the exact batch about to be sent, so "redacted locally"
+  // is literally true at the instant of send. Capture already redacts; this is a
+  // defensive belt-and-braces that also upholds the privacy invariant if any
+  // future capture path ever missed a field. redact() is idempotent.
+  const sendBatch = capped.map(s => (s.diff ? { ...s, diff: redact(s.diff) } : s));
+
+  // Live trace: each line fires at a real boundary in the work, never on a timer.
+  const progress = steppedProgress();
+  progress.done(`read ${batchDesc} edit${filtered.length === 1 ? '' : 's'} · redacted locally`);
 
   const habitsMd = readHabitsMd();
   const cats = parseHabits(habitsMd);
 
   const deleted = detectManualDeletes(cats);
   for (const d of deleted) addTombstone(d);
+  if (deleted.length > 0) progress.done(`forgetting ${deleted.length} you deleted`);
 
   const decayed = applyDecay(cats);
-  
+
   const sessionId = opts.session || `learn-${new Date().toISOString().slice(0, 10)}`;
+  const privacyNote = extractionPrivacyNote();
   let updates: Awaited<ReturnType<typeof extractRules>> = [];
   try {
-    updates = await withSpinner(learnLabel, () => extractRules(capped, habitsMd));
+    updates = await progress.spin(
+      privacyNote ? `distilling · ${privacyNote}` : 'distilling',
+      () => extractRules(sendBatch, habitsMd),
+      { motion: 'distill' },
+    );
   } catch (e) {
     // The interactive Ollama recovery prompt is only appropriate when the user
     // ran `cch learn` themselves. When learn is auto-triggered (e.g. from the
@@ -1819,6 +1914,7 @@ export async function cmdLearn(opts: { session?: string; since?: number; interac
 
   const changes: AppliedChange[] = [];
   const [newCount, updatedCount] = applyUpdates(cats, updates, { sessionId, changes, fallbackLanguage });
+  progress.done(`noticed ${newCount} new · ${updatedCount} reinforced`);
 
   const creates = updates.filter(u => (u.decision ?? '').toLowerCase() === 'create');
   const warning = autoApplyWarning(creates.length);
@@ -1836,7 +1932,11 @@ export async function cmdLearn(opts: { session?: string; since?: number; interac
   if (memoriesEnabled()) {
     try {
       const memoriesMd = readMemoriesMd();
-      const candidates = await withSpinner('extracting coding memories', () => extractMemoryCandidates(capped, memoriesMd));
+      const candidates = await progress.spin(
+        privacyNote ? `noticing corrections you made · ${privacyNote}` : 'noticing corrections you made',
+        () => extractMemoryCandidates(sendBatch, memoriesMd),
+        { motion: 'distill' },
+      );
       memoryCandidatesCount = applyMemoryUpdates(candidates, undefined, addedMemories, updatedMemories);
     } catch (e) {
       const hint = providerHint(e);
@@ -1849,6 +1949,7 @@ export async function cmdLearn(opts: { session?: string; since?: number; interac
   if (targets.length > 0) {
     try {
       syncTargets(targets);
+      progress.done(`synced to ${targets.join(' · ')}`);
     } catch (e) {
       logError(`learn: sync failed: ${String(e)}`);
     }

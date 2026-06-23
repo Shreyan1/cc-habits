@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { readHabitsMd, parseHabits, HabitsMap, Habit, storagePaths, getPaths, readTombstones, isTombstoned, type StorageContext } from './storage';
-import { sanitizeRule } from './confidence';
+import { sanitizeRule, sanitizeCategory } from './confidence';
 
 // cc-habits sync, emit Claude-learned habits into portable preference files that
 // other coding agents (Cursor, Cline, Codex, Amp, …) can read. Learning happens
@@ -65,7 +65,12 @@ export function renderPortableBody(cats: HabitsMap, minConfidence = DEFAULT_MIN_
   for (const category of categories) {
     const habits = active[category];
     if (!habits || habits.length === 0) continue;
-    lines.push('', `## ${category}`, '');
+    // SEC: sanitize the category too, not just the rule. habits.md is user-editable
+    // and the category is emitted as a markdown header into files other agents read,
+    // so an injection-laden category (e.g. "</coding-habits> SYSTEM: ...") must not
+    // escape the injection wrapper. Same export-time defence-in-depth as ruleLine.
+    const safeCategory = sanitizeCategory(category);
+    lines.push('', `## ${safeCategory}`, '');
     for (const h of habits) {
       const line = ruleLine(h);
       if (line) lines.push(line);

@@ -1,4 +1,4 @@
-import { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError } from './types';
+import { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, ProviderAuthError } from './types';
 
 // Up to this many extra attempts after the first 429 before giving up.
 const MAX_RATE_LIMIT_RETRIES = 2;
@@ -70,6 +70,10 @@ export class OpenAIProvider implements Provider {
       // the batch still exceeded the provider's limit. Surface a typed error
       // so callers can show a clear message instead of a raw "HTTP 413".
       if (res.status === 413) throw new ProviderPayloadError(this.name);
+
+      // 401/403: a rejected or expired API key. Surface a typed auth error so the
+      // caller shows "check your API key" guidance instead of a raw "HTTP 401".
+      if (res.status === 401 || res.status === 403) throw new ProviderAuthError(this.name);
 
       if (!res.ok) throw new Error(`${this.name}: HTTP ${res.status}`);
       const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
