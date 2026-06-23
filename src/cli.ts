@@ -28,6 +28,7 @@ import {
   type Memory, type Signal, type Habit, type StorageContext,
 } from './storage';
 import { applyUpdates, applyDecay, type AppliedChange } from './confidence';
+import { runSelectMenu } from './menu';
 import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks, areHooksRegistered, hookProofPaths, readRegisteredHooks, installPaths } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
@@ -1880,18 +1881,18 @@ export async function cmdLearnRepo(opts: { force?: boolean; ctx?: StorageContext
 // historical session-only behaviour so capture paths never block on input.
 export async function cmdLearnScoped(opts: { session?: string; since?: number } = {}): Promise<number> {
   if (!process.stdin.isTTY) return cmdLearn(opts);
-  process.stdout.write('\n  Where should cc-habits learn into?\n');
-  process.stdout.write(c(DIM, '    1) This repo    .cch/ store, scoped to this repository\n'));
-  process.stdout.write(c(DIM, '    2) This session global store, applies everywhere\n'));
-  process.stdout.write(c(DIM, '    3) Both\n'));
-  const choice = await promptChoice('  Choose [1-3]: ', 1, 3);
-  if (choice === 1) return cmdLearnRepo({ force: true });
-  if (choice === 3) {
+  const choice = await runSelectMenu('  Where should cc-habits learn into?', [
+    { label: 'This repo     .cch/ store, scoped to this repository', value: 'repo' },
+    { label: 'This session  global store, applies everywhere', value: 'session' },
+    { label: 'Both          repo scan and session distil', value: 'both' },
+  ]);
+  if (!choice) return 0; // cancelled (Esc / q / Ctrl+C): exit cleanly, learn nothing.
+  if (choice.value === 'repo') return cmdLearnRepo({ force: true });
+  if (choice.value === 'both') {
     const sessionCode = await cmdLearn(opts);
     const repoCode = await cmdLearnRepo({ force: true });
     return sessionCode || repoCode;
   }
-  // null (cancelled / non-TTY) or 2 both fall through to the session learn.
   return cmdLearn(opts);
 }
 
