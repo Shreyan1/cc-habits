@@ -390,6 +390,10 @@ It merges a marked block into existing files, so your hand-written content is pr
 
 > **Note:** Synced files contain inferences derived from your code. Review them before sharing, especially in team or open-source repos. Best-effort redaction applies to signals, but rule text may reflect patterns from proprietary code.
 
+### Auto-sync on session end
+
+If you register hooks during `cch init` for tools that read synced rules files instead of an `@import` (such as Codex, Kimi, Gemini, or Cline), the initialization registers them as active `sync_targets` in your `config.yml`. The learning engine will then automatically sync your updated habits to these files (`AGENTS.md`, `GEMINI.md`, `.clinerules`, etc.) in your repository at the end of each session, ensuring they never go stale.
+
 ### Mistake memory
 
 Out of the box, cc-habits also learns what your agent gets **wrong**. Memory learning is on by default; turn it off with `cch memories --disable` (or `CC_HABITS_MEMORIES=0`).
