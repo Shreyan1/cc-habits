@@ -28,7 +28,6 @@ import {
   type Memory, type Signal, type Habit,
 } from './storage';
 import { applyUpdates, applyDecay, type AppliedChange } from './confidence';
-import { runSelectMenu } from './menu';
 import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks, areHooksRegistered, hookProofPaths, readRegisteredHooks, installPaths } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
@@ -49,7 +48,7 @@ import { detectInstalledTools } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.7.21';
+export const VERSION = '0.7.22';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -231,9 +230,19 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
-          const importAdded = addImportToClaudeMd();
-          process.stdout.write(`    ${importAdded ? tick : dash} preferences.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
           printHookProof('claude-code', tool.settingsPath);
+        }
+        // Injection is independent of capture. Claude reads learned habits via the
+        // @import in CLAUDE.md, so wire it whenever Claude Code is present, even if
+        // the user declined the capture hooks above. Without this, a user who said
+        // "n" gets habits that never reach any agent, and `cch status` honestly but
+        // confusingly reports "not imported" right after a successful init.
+        try {
+          const importAdded = addImportToClaudeMd();
+          const suffix = register ? '' : c(DIM, ' (so Claude reads your learned habits)');
+          process.stdout.write(`    ${importAdded ? tick : dash} preferences.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md${suffix}\n`);
+        } catch (e) {
+          process.stdout.write(c(YELLOW, `    ! could not wire preferences.md import: ${String(e).slice(0, 60)}\n`));
         }
       } else if (tool.id === 'gemini') {
         const register = await promptYesNoDefaultTrue('  Register hooks in Gemini CLI? [Y/n] ');
@@ -596,21 +605,37 @@ export function renderHabitsView(langFilter?: string): number {
   return 0;
 }
 
-export async function cmdView(langFilter?: string): Promise<number> {
-  if (process.stdin.isTTY && process.stdout.isTTY) {
-    const choice = await runSelectMenu(
-      `  ${c(BOLD + CYAN, 'Select what you would like to view (use ↑/↓ keys):')}`,
-      [
-        { label: 'habits       Show current habits and recent signals', value: 'habits' },
-        { label: 'memories     Show coding memories', value: 'memories' },
-        { label: 'preferences  Show what your agents see (preferences.md)', value: 'prefs' },
-      ]
-    );
-    if (!choice) return 0;
-    if (choice.value === 'memories') return cmdMemories();
-    if (choice.value === 'prefs') return cmdPrefs();
+// Compact "what has it learned" block appended to the unified `cch view`: the
+// graduated memories, one line each, then a one-line pointer to the full list.
+// Quietly does nothing when memory learning is off or nothing has been learned.
+function renderMemoriesSummary(): void {
+  if (!memoriesEnabled()) return;
+  const all = Object.values(parseMemories(readMemoriesMd())).flat();
+  if (all.length === 0) return;
+  const active = all.filter(m => (m.sessions_seen ?? 1) >= 2);
+  const candidates = all.length - active.length;
+
+  process.stdout.write(c(BOLD, '  ── Memories ') + c(DIM, '─'.repeat(36)) + '\n');
+  if (active.length === 0) {
+    process.stdout.write(c(DIM, `  ${candidates} candidate${candidates === 1 ? '' : 's'} still learning. See all: cch view memories\n\n`));
+    return;
   }
-  return renderHabitsView(langFilter);
+  for (const m of active) renderMemoryLine(m, false);
+  if (candidates > 0) {
+    process.stdout.write(c(DIM, `  +${candidates} candidate${candidates === 1 ? '' : 's'} learning · full list: cch view memories\n`));
+  }
+  process.stdout.write('\n');
+}
+
+// `cch view` with no subcommand: the one-glance unified view. Compact habits
+// (grouped) plus graduated memories, with no menu and no flags to remember. The
+// focused subviews (`cch view memories|prefs|habits`) and `--lang` still exist,
+// and are routed in index.ts before this runs.
+export function cmdView(langFilter?: string): number {
+  const code = renderHabitsView(langFilter);
+  // Memories are not language-scoped, so only fold them into the unfiltered view.
+  if (!langFilter) renderMemoriesSummary();
+  return code;
 }
 
 /**
@@ -1756,6 +1781,9 @@ export function renderRepoScan(scan: RepoScanResult): void {
       process.stdout.write(c(DIM, '  Repo scan skipped: no AI provider configured. Add one: `cch init --provider anthropic`.\n'));
     } else {
       process.stdout.write(c(DIM, `  Repo scan skipped: ${scan.reason ?? 'nothing to analyze'}.\n`));
+      if (scan.suggestion) {
+        process.stdout.write('  ' + c(YELLOW, '→') + ' ' + c(DIM, scan.suggestion) + '\n');
+      }
     }
     return;
   }

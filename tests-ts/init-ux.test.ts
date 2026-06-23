@@ -80,7 +80,7 @@ describe('Q3, nothing is announced before the provider is verified', () => {
   it('scanRepo verifies a usable provider BEFORE printing its warning', () => {
     const src = read(SCAN_SRC);
     const gateIdx = src.indexOf('if (!hasUsableProvider())');
-    const warnIdx = src.indexOf('cc-habits repository scan warning');
+    const warnIdx = src.indexOf('cc-habits repository scan');
     expect(gateIdx).toBeGreaterThan(0);
     expect(gateIdx).toBeLessThan(warnIdx);
   });

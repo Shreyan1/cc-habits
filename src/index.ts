@@ -66,6 +66,14 @@ async function printUpdateNotice(args: string[]): Promise<void> {
 const HELP = `cc-habits ${VERSION}, A tool-agnostic coding memory layer for developer habits and AI agents.
   Tip: 'cch' is a short alias for 'cc-habits'.
 
+Daily flow (the handful you actually use, like core git commands):
+  cch init      set up this project once (hooks, provider, habit injection)
+  cch status    check it is healthy and injecting your habits
+  cch view      see what it has learned (habits + memories, no flags needed)
+  cch learn     refresh habits now (add --repo to scan this repo's code)
+  cch sync      share habits with your other tools (AGENTS.md, Cursor, Cline)
+  Everything below is for when you need it, like the deeper git commands.
+
 Usage:
 
   Setup & Configuration:
@@ -159,7 +167,7 @@ async function main(): Promise<void> {
       { label: 'init                    Install hooks and set up a provider', args: ['init'] },
       { label: 'init --provider ollama  Skip key prompt, configure local Ollama', args: ['init', '--provider', 'ollama'] },
       { label: 'tools                   List supported coding tools', args: ['tools'] },
-      { label: 'learn                   Learn habits from repository scan or signals', args: ['learn'] },
+      { label: 'status                  Show setup health and current activity', args: ['status'] },
       { label: 'on                      Enable cc-habits', args: ['on'], disabled: !disabled },
       { label: 'off                     Disable cc-habits', args: ['off'], disabled: disabled },
       { label: 'shell-init              Print shell wrapper', args: ['shell-init'] },
@@ -206,7 +214,13 @@ async function main(): Promise<void> {
       `  ${c(BOLD + CYAN, 'Select a detailed usage command to run (use ↑/↓ keys):')}`,
       menuItems
     );
-    if (!selectedHelp || selectedHelp.value === 'back') {
+    // Ctrl+C / q / Esc (null) exits cleanly. Only the explicit "Back to main menu"
+    // row returns to the folded menu, so cancelling never bounces the user back
+    // into a menu they were trying to leave.
+    if (!selectedHelp) {
+      process.exit(0);
+    }
+    if (selectedHelp.value === 'back') {
       return runMainInteractiveMenu();
     }
     const chosenArgs = JSON.parse(selectedHelp.value);
