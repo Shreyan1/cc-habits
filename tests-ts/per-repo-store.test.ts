@@ -19,6 +19,7 @@ import os from 'os';
 import path from 'path';
 import { repoStorageContext, findRepoRoot, REPO_STORE_DIR, storagePaths } from '../src/storage';
 import { buildMergedInjectionContext, selectMergedInjectionMemories, processUserPromptSubmit } from '../src/hook';
+import { repoStoreCtx } from '../src/cli';
 
 const HEADER = '<!-- cc-habits format v0.2 -->\n# Coding habits\n';
 function habit(category: string, rule: string, conf: number, sessions = 3): string {
@@ -62,6 +63,27 @@ describe('findRepoRoot', () => {
     try {
       expect(findRepoRoot(root)).toBeNull();
     } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('repoStoreCtx, scaffolds the full store', () => {
+  it('creates habits.md, memories.md, preferences.md, and log.jsonl even before anything is learned', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-scaffold-'));
+    fs.mkdirSync(path.join(root, '.git'));
+    const origCwd = process.cwd();
+    try {
+      process.chdir(root);
+      const ctx = repoStoreCtx();
+      expect(fs.existsSync(ctx.habitsFile)).toBe(true);
+      expect(fs.existsSync(ctx.memoriesFile)).toBe(true);
+      expect(fs.existsSync(ctx.preferencesFile)).toBe(true);
+      expect(fs.existsSync(ctx.logFile)).toBe(true);
+      // config.yml is NOT created: the repo store reuses the global provider config.
+      expect(fs.existsSync(path.join(ctx.habitsDir, 'config.yml'))).toBe(false);
+    } finally {
+      process.chdir(origCwd);
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

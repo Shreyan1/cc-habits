@@ -24,7 +24,7 @@ import {
   readTombstones, addTombstone, initMemoriesMd, readMemoriesMd, writeMemoriesMd,
   parseMemories, serialiseMemories, addMemoryTombstone, readMemoryTombstones,
   readHistory, appendHistory, logError, detectManualDeletes, applyMemoryUpdates,
-  getRuleHash, ensureDirs, repoStorageContext, findRepoRoot,
+  getRuleHash, repoStorageContext, findRepoRoot,
   type Memory, type Signal, type Habit, type StorageContext,
 } from './storage';
 import { applyUpdates, applyDecay, type AppliedChange } from './confidence';
@@ -1793,7 +1793,17 @@ export function renderRepoScan(scan: RepoScanResult): void {
   const learned = scan.habitsLearned + scan.memoriesLearned;
   const memoriesUpdated = scan.memoriesUpdated ?? 0;
   if (learned === 0 && scan.habitsUpdated === 0 && memoriesUpdated === 0) {
-    process.stdout.write(c(DIM, `  Scanned ${scan.filesAnalyzed} file${scan.filesAnalyzed === 1 ? '' : 's'}; no new habits found yet.\n`));
+    const fileCount = `${scan.filesAnalyzed} file${scan.filesAnalyzed === 1 ? '' : 's'}`;
+    process.stdout.write(c(DIM, `  Scanned ${fileCount}; the model returned no habits this pass.\n`));
+    // Explain WHY so an empty result never reads as a silent failure. Extraction
+    // quality is bounded by the model: small local models often return nothing,
+    // and the fix is a stronger one (or an API key), not re-running the same model.
+    const provider = getConfigValue('provider');
+    const ollamaModel = getConfigValue('ollama_model');
+    const why = provider === 'ollama'
+      ? `${ollamaModel || 'this model'} is small for code extraction. Try a stronger model (e.g. \`ollama pull qwen2.5-coder:7b\`) or an API key: \`cch init --provider anthropic\`.`
+      : `Re-run after some real edits, or try a stronger model. Repo scans lean on the model to spot patterns.`;
+    process.stdout.write('  ' + c(YELLOW, '→') + ' ' + c(DIM, why) + '\n');
     return;
   }
 
@@ -1837,11 +1847,22 @@ export function renderRepoScan(scan: RepoScanResult): void {
 }
 
 // Resolve the per-repo .cch/ store for the current working directory and make
-// sure its directory exists. Falls back to the cwd when no .git is found so a
-// scan launched outside a repo still has a concrete place to write.
+// sure it is fully scaffolded. Falls back to the cwd when no .git is found so a
+// scan launched outside a repo still has a concrete place to write. The store
+// gets the same files the global store does (habits.md, preferences.md,
+// memories.md, log.jsonl) so the folder is never an empty mystery and every
+// reader/writer has a real file to land on, even before the first habit is
+// learned. config.yml is intentionally not created here: the store reuses the
+// global provider config.
 export function repoStoreCtx(): StorageContext {
   const ctx = repoStorageContext(findRepoRoot() ?? process.cwd());
-  ensureDirs(ctx);
+  initHabitsMd(ctx);
+  initMemoriesMd(ctx);
+  initLog(ctx);
+  // Seed an empty preferences.md so the @import target exists immediately and
+  // injection has a file to read. Safe to call repeatedly: it rewrites from the
+  // (empty) habits store and prints the "nothing graduated yet" placeholder.
+  try { writePreferencesFile(ctx); } catch { /* best-effort scaffold */ }
   return ctx;
 }
 
