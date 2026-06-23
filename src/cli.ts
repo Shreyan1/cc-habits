@@ -24,8 +24,8 @@ import {
   readTombstones, addTombstone, initMemoriesMd, readMemoriesMd, writeMemoriesMd,
   parseMemories, serialiseMemories, addMemoryTombstone, readMemoryTombstones,
   readHistory, appendHistory, logError, detectManualDeletes, applyMemoryUpdates,
-  getRuleHash,
-  type Memory, type Signal, type Habit,
+  getRuleHash, ensureDirs, repoStorageContext, findRepoRoot,
+  type Memory, type Signal, type Habit, type StorageContext,
 } from './storage';
 import { applyUpdates, applyDecay, type AppliedChange } from './confidence';
 import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks, areHooksRegistered, hookProofPaths, readRegisteredHooks, installPaths } from './install';
@@ -48,7 +48,7 @@ import { detectInstalledTools } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.7.22';
+export const VERSION = '0.7.23';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -433,9 +433,10 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   // above, so printing a scan that is guaranteed to skip would just be noise.
   if (providerReady) {
     process.stdout.write('\n');
-    process.stdout.write(c(DIM, '  Scanning this repository for habits...\n'));
+    process.stdout.write(c(DIM, '  Scanning this repository for habits (into its .cch/ store)...\n'));
     try {
       const scan = await scanRepo({
+        ctx: repoStoreCtx(),
         confirm: () => promptYesNoDefaultTrue('   Proceed with scan? [Y/n] '),
       });
       renderRepoScan(scan);
@@ -1834,13 +1835,26 @@ export function renderRepoScan(scan: RepoScanResult): void {
   }
 }
 
+// Resolve the per-repo .cch/ store for the current working directory and make
+// sure its directory exists. Falls back to the cwd when no .git is found so a
+// scan launched outside a repo still has a concrete place to write.
+export function repoStoreCtx(): StorageContext {
+  const ctx = repoStorageContext(findRepoRoot() ?? process.cwd());
+  ensureDirs(ctx);
+  return ctx;
+}
+
 // `cch learn --repo` (alias `cch learn this`): re-run the repo scan on demand,
-// forcing past the once-per-repo guard.
-export async function cmdLearnRepo(opts: { force?: boolean } = {}): Promise<number> {
-  process.stdout.write(c(DIM, '  Scanning this repository...\n'));
+// forcing past the once-per-repo guard. By default the scan writes into this
+// repo's own .cch/ store, not the global one, so a repo's specifics stay
+// scoped to that repo. Pass a ctx to override (e.g. the "both" flow).
+export async function cmdLearnRepo(opts: { force?: boolean; ctx?: StorageContext } = {}): Promise<number> {
+  const ctx = opts.ctx ?? repoStoreCtx();
+  process.stdout.write(c(DIM, '  Scanning this repository into its .cch/ store...\n'));
   try {
     const scan = await scanRepo({
       force: opts.force ?? true,
+      ctx,
       confirm: () => promptYesNoDefaultTrue('   Proceed with scan? [Y/n] '),
     });
     renderRepoScan(scan);
@@ -1854,6 +1868,31 @@ export async function cmdLearnRepo(opts: { force?: boolean } = {}): Promise<numb
     process.stderr.write(`cc-habits learn --repo: ${String(e)}\n`);
     return 1;
   }
+}
+
+// Plain `cch learn` (no scope flags) in an interactive terminal: ask where the
+// learned habits should land, so the user controls repo-local vs global scope
+// instead of everything silently piling into the global store.
+//   1) This repo      → scan source into <repo>/.cch/   (repo-scoped)
+//   2) This session    → distil recent edits into ~/.cc-habits   (global)
+//   3) Both            → session distil, then a repo scan
+// Non-interactive callers (auto-learn, pipes) skip the prompt and keep the
+// historical session-only behaviour so capture paths never block on input.
+export async function cmdLearnScoped(opts: { session?: string; since?: number } = {}): Promise<number> {
+  if (!process.stdin.isTTY) return cmdLearn(opts);
+  process.stdout.write('\n  Where should cc-habits learn into?\n');
+  process.stdout.write(c(DIM, '    1) This repo    .cch/ store, scoped to this repository\n'));
+  process.stdout.write(c(DIM, '    2) This session global store, applies everywhere\n'));
+  process.stdout.write(c(DIM, '    3) Both\n'));
+  const choice = await promptChoice('  Choose [1-3]: ', 1, 3);
+  if (choice === 1) return cmdLearnRepo({ force: true });
+  if (choice === 3) {
+    const sessionCode = await cmdLearn(opts);
+    const repoCode = await cmdLearnRepo({ force: true });
+    return sessionCode || repoCode;
+  }
+  // null (cancelled / non-TTY) or 2 both fall through to the session learn.
+  return cmdLearn(opts);
 }
 
 // learn ────────────────────────────────────────────────────────────────────

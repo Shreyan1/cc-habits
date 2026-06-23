@@ -18,7 +18,7 @@ import {
   cmdInit, cmdView, renderHabitsView, cmdLog, cmdReset, cmdTombstone, cmdTombstones,
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
   cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdMemoriesToggle,
-  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdLearnRepo, cmdShellInit, cmdSessionBanner, cmdTools, cmdStatus, cmdPrefs, VERSION,
+  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdLearnRepo, cmdLearnScoped, cmdShellInit, cmdSessionBanner, cmdTools, cmdStatus, cmdPrefs, VERSION,
   cmdOn, cmdOff, cmdUninstall,
   c, BOLD, DIM, CYAN
 } from './cli';
@@ -378,10 +378,15 @@ async function main(): Promise<void> {
     } else {
       const sessionIdx = args.indexOf('--session');
       const sinceIdx = args.indexOf('--since');
-      code = await cmdLearn({
+      const learnOpts = {
         session: sessionIdx >= 0 ? args[sessionIdx + 1] : undefined,
         since: sinceIdx >= 0 && args[sinceIdx + 1] ? parseInt(args[sinceIdx + 1], 10) : undefined,
-      });
+      };
+      // Explicit scope flags (--session / --since) keep the direct session path;
+      // a bare `cch learn` asks repo / session / both when interactive.
+      code = (sessionIdx >= 0 || sinceIdx >= 0)
+        ? await cmdLearn(learnOpts)
+        : await cmdLearnScoped(learnOpts);
     }
   } else if (command === 'faq') {
     const q = args.slice(1).join(' ');

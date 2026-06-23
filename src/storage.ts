@@ -102,6 +102,58 @@ export function getPaths(ctx?: StorageContext): StorageContext {
   return ctx || storagePaths;
 }
 
+// The per-repo store directory name. A `.cch/` folder at a repo root holds that
+// repo's own habits, preferences, and memories, separate from the global
+// ~/.cc-habits store. This stops one repo's specifics (e.g. a finance app's
+// brand colors) from bleeding into unrelated repos via the global @import.
+export const REPO_STORE_DIR = '.cch';
+
+// Build a StorageContext rooted at <repoRoot>/.cch/. Every read/write that is
+// passed this context operates on the repo-local store instead of the global
+// one. Mirrors the shape of `storagePaths` exactly so it is a drop-in ctx.
+export function repoStorageContext(repoRoot: string): StorageContext {
+  const dir = path.join(repoRoot, REPO_STORE_DIR);
+  return {
+    habitsDir: dir,
+    habitsFile: path.join(dir, 'habits.md'),
+    preferencesFile: path.join(dir, 'preferences.md'),
+    memoriesFile: path.join(dir, 'memories.md'),
+    logFile: path.join(dir, 'log.jsonl'),
+    errorLog: path.join(dir, 'error.log'),
+    tombstonesFile: path.join(dir, '.tombstones.json'),
+    memoryTombstonesFile: path.join(dir, '.memory-tombstones.json'),
+    memoryIndexFile: path.join(dir, '.memory-index.json'),
+    snapshotFile: path.join(dir, '.snapshot.json'),
+    historyFile: path.join(dir, '.history.jsonl'),
+    provenanceFile: path.join(dir, '.provenance.json'),
+    updateCheckFile: path.join(dir, '.update-check.json'),
+    // The repo store reuses the global provider config: extraction credentials
+    // are a machine-level concern, not a per-repo one.
+    configFile: storagePaths.configFile,
+  };
+}
+
+// Walk up from `start` looking for a repo root marker (.git). Returns the
+// directory that contains it, or null if none is found before the filesystem
+// root. Used to resolve where a `.cch/` store should live. Fail-safe: any error
+// yields null so callers fall back to the global store.
+export function findRepoRoot(start?: string): string | null {
+  try {
+    let dir = start || process.cwd();
+    while (true) {
+      if (fs.existsSync(path.join(dir, '.git'))) {
+        return dir;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // fall through to null
+  }
+  return null;
+}
+
 const FILE_MODE = 0o600;
 
 const HABITS_HEADER =
