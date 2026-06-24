@@ -252,7 +252,7 @@ export async function lintFile(filePath: string, fileContent: string, habitsMd: 
   // Sanitize the file path before embedding it in the prompt: strip control chars and
   // cap length so a crafted path cannot inject role tokens or consume the context window.
   const safeFilePath = filePath
-    .replace(/[\x00-\x1f\x7f]/g, '')   // strip control chars
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, '')   // strip control chars (C0, DEL, and the 8-bit C1 CSI/OSC range)
     .replace(/<\/?(system|user|assistant)>/gi, '') // strip XML role tags
     .slice(0, 200);                     // bound path length in prompt
 

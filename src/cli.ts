@@ -49,7 +49,7 @@ import { detectInstalledTools } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.7.23';
+export const VERSION = '0.8.0';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -61,7 +61,10 @@ const KNOWN_PROVIDER_ERRORS = [
 function providerHint(e: unknown): string | undefined {
   if (!KNOWN_PROVIDER_ERRORS.some(T => e instanceof T)) return undefined;
   const explained = explainProviderError(e);
-  return `${explained.what} · ${explained.side} · ${explained.nextStep}`;
+  // Scrub terminal control characters: the message can interpolate an
+  // attacker-influenced field (e.g. a model name echoed back by the provider),
+  // and this string is written straight to the terminal.
+  return term(`${explained.what} · ${explained.side} · ${explained.nextStep}`);
 }
 
 function formatSessionBreakdown(sessions: SessionFile[]): string {
@@ -234,8 +237,8 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   // manual, where each prompt helper already falls back to its own default.
   let recommended = false;
   if (process.stdin.isTTY) {
-    const mode = await runSelectMenu('  How would you like to set up cc-habits?', [
-      { label: 'Recommended Initialisation   accept every default in one step', value: 'rec' },
+    const mode = await runSelectMenu(c(BOLD, '  How would you like to set up cc-habits?'), [
+      { label: 'Recommended Initialisation   set up with the safe defaults', value: 'rec' },
       { label: 'Manual Configuration         choose each step yourself', value: 'man' },
     ]);
     if (!mode) {
@@ -1313,7 +1316,7 @@ export function cmdStatus(proof = false): number {
         if (tool.id === 'cursor') {
           const cursorFired = firedBySource['vscode'];
           const desc = cursorFired
-            ? c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(cursorFired.ts)} · ${path.basename(cursorFired.file)} · ${cursorFired.count} sig${cursorFired.count === 1 ? '' : 's'}`)
+            ? c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(cursorFired.ts)} · ${term(path.basename(cursorFired.file))} · ${cursorFired.count} sig${cursorFired.count === 1 ? '' : 's'}`)
             : c(DIM, 'git capture on commit');
           hookRows.push(line(`${git}  ${pad(c(BOLD, 'Cursor'), NAMEW)}  ${desc}`));
           continue;
@@ -1328,7 +1331,7 @@ export function cmdStatus(proof = false): number {
         if (!registered) {
           desc = c(YELLOW, 'not registered, run `cch init`');
         } else if (fired) {
-          desc = c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(fired.ts)} · ${path.basename(fired.file)} · ${fired.count} sig${fired.count === 1 ? '' : 's'}`);
+          desc = c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(fired.ts)} · ${term(path.basename(fired.file))} · ${fired.count} sig${fired.count === 1 ? '' : 's'}`);
         } else if (tool.id === 'codex') {
           // Codex shell edits are not seen by the hook, so "edit to confirm" would
           // mislead. State the limitation directly and keep it short enough to fit.
@@ -1401,25 +1404,12 @@ export function cmdStatus(proof = false): number {
   const memoryVal  = memsOn ? c(GREEN, 'on') : c(DIM, 'off');
   const versionVal = c(DIM, VERSION);
 
-  // Extraction liveness: last successful learn vs the most recent extraction failure
-  // in error.log. Surfaces a silently-failing provider, since capture keeps running
-  // so the habits/signals counts alone would still read as healthy.
-  const health = readExtractionHealth();
-  let extractionVal: string;
-  if (health.failing) {
-    extractionVal = fail + c(YELLOW, `  last attempt failed ${formatTimeAgo(health.lastFailureTs!)}`)
-      + (health.lastFailureMsg ? c(DIM, ` (${health.lastFailureMsg})`) : '');
-  } else if (health.lastSuccessTs) {
-    extractionVal = ok + c(DIM, `  last learned ${formatTimeAgo(health.lastSuccessTs)}`);
-  } else {
-    extractionVal = git + c(DIM, '  no extraction yet');
-  }
-
   // Per-repo .cch/ store liveness: how many habits this repo carries and when it
   // was last learned into (via `cch learn` -> this repo, or `cch init`'s scan).
   // Only shown when the cwd actually has a .cch/ store, so non-repo runs and repos
   // that never opted in stay uncluttered. Best-effort: a read failure just omits
-  // the row rather than breaking status.
+  // the row rather than breaking status. Computed before the global `learn` row so
+  // that row can name its scope ("global") only when a repo store also exists.
   let repoVal: string | undefined;
   try {
     const root = findRepoRoot();
@@ -1436,6 +1426,23 @@ export function cmdStatus(proof = false): number {
     }
   } catch { /* repo row is best-effort */ }
 
+  // Global-store learn liveness: last successful learn vs the most recent extraction
+  // failure in error.log. Surfaces a silently-failing provider, since capture keeps
+  // running so the habits/signals counts alone would still read as healthy. When a
+  // repo store also exists we prefix "global · " so the `learn` and `repo` rows read
+  // as the two scopes they are; with no repo store the marker is omitted to stay clean.
+  const health = readExtractionHealth();
+  const scope = repoVal ? 'global · ' : '';
+  let extractionVal: string;
+  if (health.failing) {
+    extractionVal = fail + c(YELLOW, `  ${repoVal ? 'global · ' : ''}last attempt failed ${formatTimeAgo(health.lastFailureTs!)}`)
+      + (health.lastFailureMsg ? c(DIM, ` (${health.lastFailureMsg})`) : '');
+  } else if (health.lastSuccessTs) {
+    extractionVal = ok + c(DIM, `  ${scope}last learned ${formatTimeAgo(health.lastSuccessTs)}`);
+  } else {
+    extractionVal = git + c(DIM, `  ${scope}nothing learned yet`);
+  }
+
   // Render the bordered table.
   let out = rule('┌', '┐');
   for (const r of hookRows) out += r;
@@ -1444,7 +1451,7 @@ export function cmdStatus(proof = false): number {
   out += kv('import', importVal);
   out += kv('habits', habitsVal);
   out += kv('signals', signalsVal);
-  out += kv('extract', extractionVal);
+  out += kv('learn', extractionVal);
   if (repoVal) out += kv('repo', repoVal);
   out += kv('memory', memoryVal);
   out += kv('version', versionVal);
@@ -1706,7 +1713,7 @@ export async function cmdLint(filePath: string, asJson: boolean): Promise<number
     findings = await lintPath(filePath);
   } catch (e) {
     if (getConfigValue('provider') === 'ollama' && process.stdin.isTTY && !asJson) {
-      process.stdout.write(c(YELLOW, `\n  Ollama error: ${String(e)}\n`));
+      process.stdout.write(c(YELLOW, `\n  Ollama error: ${term(String(e))}\n`));
       const model = getConfigValue('ollama_model') || OLLAMA_DEFAULT_MODEL;
       const okModel = await interactiveOllamaSetup('✓', '~', model);
       if (okModel) {
@@ -1784,7 +1791,7 @@ export async function cmdBootstrap(): Promise<number> {
     return 0;
   } catch (e) {
     if (getConfigValue('provider') === 'ollama' && process.stdin.isTTY) {
-      process.stdout.write(c(YELLOW, `\n  Ollama error: ${String(e)}\n`));
+      process.stdout.write(c(YELLOW, `\n  Ollama error: ${term(String(e))}\n`));
       const model = getConfigValue('ollama_model') || OLLAMA_DEFAULT_MODEL;
       const okModel = await interactiveOllamaSetup('✓', '~', model);
       if (okModel) {
@@ -2161,7 +2168,7 @@ export async function cmdLearn(opts: { session?: string; since?: number; interac
     // a capture must not block a commit waiting for input. Such callers pass
     // interactive: false, and we fall through to the quiet one-line hint.
     if (opts.interactive !== false && getConfigValue('provider') === 'ollama' && process.stdin.isTTY) {
-      process.stdout.write(c(YELLOW, `\n  Ollama error: ${String(e)}\n`));
+      process.stdout.write(c(YELLOW, `\n  Ollama error: ${term(String(e))}\n`));
       const model = getConfigValue('ollama_model') || OLLAMA_DEFAULT_MODEL;
       const okModel = await interactiveOllamaSetup('✓', '~', model);
       if (okModel) {

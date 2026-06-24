@@ -1,0 +1,64 @@
+name: publish
+
+# Publishes cc-habits to npm when a GitHub Release is published. Using the
+# release event (rather than a raw tag push) keeps publishing a deliberate,
+# reviewable step: draft the release, then publish it to ship the package.
+#
+# Requirements:
+#   - Repository secret NPM_TOKEN: an npm automation token with publish rights
+#     to the cc-habits package (npmjs.com -> Access Tokens -> Generate -> Automation).
+#   - The release tag must be v<version> and match package.json (e.g. tag v0.8.0
+#     for "version": "0.8.0"). The guard below fails the run on a mismatch so a
+#     mistagged release never publishes the wrong version.
+
+on:
+  release:
+    types: [published]
+  # Manual fallback: run from the Actions tab against a chosen tag if a release
+  # publish needs to be re-attempted without cutting a new release.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance (supply-chain attestation)
+
+jobs:
+  publish:
+    name: build, verify, publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Verify tag matches package.json version
+        if: github.event_name == 'release'
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          TAG="${{ github.event.release.tag_name }}"
+          if [ "$PKG_VERSION" != "$TAG" ]; then
+            echo "Release tag $TAG does not match package.json version $PKG_VERSION." >&2
+            exit 1
+          fi
+          echo "Version check passed: $TAG"
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

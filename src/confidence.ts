@@ -73,7 +73,11 @@ const URL_RE = /\bhttps?:\/\/\S+/gi;
 // it prevents a poisoned habit from carrying a payload that later confuses an LLM
 // or human reviewer into thinking the command should be run.
 const SHELL_SUBST = /`[^`]*`|\$\([^)]*\)/g;
-const CONTROL_CHARS = /[\x00-\x1f\x7f]/g;
+// C0 controls, DEL, and the C1 range (\x80-\x9f). C1 carries the 8-bit forms of
+// CSI (\x9b) and OSC (\x9d): on terminals that honor 8-bit controls a rule could
+// otherwise smuggle a live ANSI escape into `cch view`/`cch status` output or into
+// any agent file that renders habits.md. Stripping the full set neutralizes that.
+const CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g;
 // Zero-width / invisible characters an attacker inserts mid-keyword to defeat the
 // denylist while the text still renders as the keyword to an LLM (e.g. SYS​TEM:).
 const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF\u00AD]|\uDB40[\uDC00-\uDC7F]/g;
