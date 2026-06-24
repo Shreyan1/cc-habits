@@ -27,6 +27,15 @@ const origStorage = { ...storagePaths };
 const origInstall = { ...installPaths };
 let tmpDir: string;
 
+// Read the first real signal from the log, skipping the self-describing `//`
+// comment header that a fresh log.jsonl is seeded with.
+function readFirstSignal(): { file: string } {
+  const line = fs.readFileSync(storagePaths.logFile, 'utf-8')
+    .split('\n')
+    .find(l => l.trim() && !l.startsWith('//'));
+  return JSON.parse(line ?? '{}') as { file: string };
+}
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-rt-'));
   storagePaths.habitsDir = tmpDir;
@@ -116,7 +125,7 @@ describe('RT-3: file_path traversal is sanitised', () => {
     });
     const md = readHabitsMd();
     void md;
-    const sigs = JSON.parse(fs.readFileSync(storagePaths.logFile, 'utf-8').trim()) as { file: string };
+    const sigs = readFirstSignal();
     expect(sigs.file).not.toContain('..');
     expect(sigs.file).toContain('_/_/_/etc/passwd');
   });
@@ -131,7 +140,7 @@ describe('RT-3: file_path traversal is sanitised', () => {
         new_string: 'const x: number = 1',
       },
     });
-    const sigs = JSON.parse(fs.readFileSync(storagePaths.logFile, 'utf-8').trim()) as { file: string };
+    const sigs = readFirstSignal();
     expect(sigs.file).not.toMatch(/[\x00-\x1f]/);
   });
 });

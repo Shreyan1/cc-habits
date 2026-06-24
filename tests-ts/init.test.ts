@@ -42,14 +42,16 @@ describe('Fix 1, preferences.md import message', () => {
 });
 
 describe('Fix 3, bootstrap prompt default is Y', () => {
-  it('bootstrap prompt uses promptYesNoDefaultTrue (not promptYesNo)', () => {
+  it('bootstrap prompt defaults to Yes via askYes (which is promptYesNoDefaultTrue in manual mode)', () => {
     const src = readCli();
     // Find the bootstrap prompt line.
     const bootstrapLine = src
       .split('\n')
       .find(l => l.includes('Bootstrap habits from past sessions?'));
     expect(bootstrapLine).toBeDefined();
-    expect(bootstrapLine).toContain('promptYesNoDefaultTrue');
+    // askYes wraps promptYesNoDefaultTrue: recommended mode auto-accepts, manual
+    // mode falls back to the default-Yes prompt. Either way the default is Yes.
+    expect(bootstrapLine).toContain('askYes');
     expect(bootstrapLine).not.toContain('promptYesNo('); // bare promptYesNo, not the DefaultTrue variant
   });
 

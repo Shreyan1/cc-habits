@@ -146,6 +146,59 @@ export function hasUsableProvider(): boolean {
   }
 }
 
+export interface ProviderReadiness {
+  ok: boolean;
+  reason?: string;       // short, plain-language cause when not ok
+  suggestion?: string;   // one actionable next step
+}
+
+// Network-aware pre-flight for the configured provider. hasUsableProvider() only
+// checks that a credential exists (synchronous, never touches the network), so a
+// running-but-broken Ollama (daemon down, model not pulled) still passes it and
+// then dies on the actual generate call, AFTER we have already announced work and
+// prompted the user. This probes the one provider we can verify locally (Ollama)
+// so the scan/learn flow can skip with an actionable message up front instead of
+// printing "analyzing..." and then "fetch failed". Cloud key providers are left to
+// hasUsableProvider (credential) plus the typed error on the real call.
+export async function checkProviderReady(): Promise<ProviderReadiness> {
+  const cfg = readConfig();
+  const provider = process.env['CC_HABITS_PROVIDER'] ?? cfg.provider;
+  if (provider !== 'ollama') return { ok: true };
+
+  const url   = process.env['CC_HABITS_OLLAMA_URL'] ?? cfg.ollama_url ?? 'http://localhost:11434';
+  const model = process.env['CC_HABITS_OLLAMA_MODEL'] ?? cfg.ollama_model ?? 'llama3.2';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OLLAMA_PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${url}/api/tags`, { signal: controller.signal });
+    if (!res.ok) {
+      return { ok: false, reason: `Ollama returned HTTP ${res.status}`, suggestion: 'Restart Ollama, then retry.' };
+    }
+    const data  = await res.json() as { models?: Array<{ name?: string }> };
+    const names = (data.models ?? []).map(m => m?.name).filter((n): n is string => !!n);
+    // A cloud model is not in the local tag list and runs remotely, so a reachable
+    // daemon is all we can verify here; a real cloud outage surfaces on the generate
+    // call and is mapped to a friendly message by the caller.
+    if (isCloudOllamaModel(model)) return { ok: true };
+    if (names.length > 0 && !names.includes(model)) {
+      return {
+        ok: false,
+        reason: `Ollama model "${model}" is not installed`,
+        suggestion: `Run \`ollama pull ${model}\`, or \`cch init --provider ollama\` to pick an installed model.`,
+      };
+    }
+    return { ok: true };
+  } catch {
+    return {
+      ok: false,
+      reason: 'Ollama is not reachable',
+      suggestion: 'Start it with `ollama serve` (or open the Ollama app), then retry. No API key needed.',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function selectProvider(): Provider {
   const cfg = readConfig();
 

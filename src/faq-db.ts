@@ -73,6 +73,27 @@ export const FAQ_DATABASE: FAQEntry[] = [
     keywords: ['faq', 'search', 'query', 'question', 'ask', 'issue', 'github', 'help', 'find', 'lookup', 'support', 'asking'],
     answer: 'Run `cch faq` to search. If you do not specify a query on the command line, it will prompt you interactively with `What\'s your query?`. You can also enter a query directly: `cch faq <query>`. If your question is not answered, it will offer to open a pre-filled GitHub issue.'
   },
+  {
+    id: 'init-vs-learn-order',
+    category: 'Getting Started',
+    question: 'Should I run `cch init` or `cch learn` first? What is the difference?',
+    keywords: ['init', 'learn', 'first', 'order', 'before', 'after', 'difference', 'vs', 'sequence', 'which', 'gain', 'lose'],
+    answer: 'Run `cch init` first. `init` is the one-time setup: it wires hooks, configures a provider, and adds the @import so learned habits actually reach your agents. It also offers to scan this repo at the end, so a fresh `init` usually learns your first habits for you.\n`cch learn` is the ongoing action: it turns captured edits into habits, and falls back to a repo scan when there are not enough signals yet. Run it any time after `init` to refresh.\nShort version: `init` once per machine/project, `learn` whenever you want an update. Running `learn` before `init` still works (it scans the repo), but until you run `init` those habits are not injected into your tools, so you gain nothing by doing it first.'
+  },
+  {
+    id: 'daily-commands',
+    category: 'Getting Started',
+    question: 'What commands do I actually use day to day?',
+    keywords: ['daily', 'commands', 'workflow', 'everyday', 'cheat', 'sheet', 'routine', 'common', 'when', 'flow', 'use'],
+    answer: 'Most days you run nothing: cc-habits learns in the background. The everyday handful, like core git commands:\n- `cch init`    once, to set up a project or machine.\n- `cch status`  anytime, to check it is healthy and injecting.\n- `cch view`    to see what it has learned (habits, memories, preferences).\n- `cch learn`   to refresh on demand (`cch learn --repo` to re-scan this repo).\n- `cch sync`    to push habits into your other tools (AGENTS.md, Cursor, Cline).\nEverything else (`diff`, `explain`, `log`, `export`, `tombstone`) is there when you need it, like the deeper git commands you reach for occasionally.'
+  },
+  {
+    id: 'habits-not-injected-after-init',
+    category: 'Getting Started',
+    question: 'I ran `cch init` but `cch status` says "not imported" and habits are not injected',
+    keywords: ['injected', 'import', 'imported', 'inject', 'preferences', 'after', 'init', 'status', 'missing', 'claude.md'],
+    answer: 'Injection happens through an `@import ~/.cc-habits/preferences.md` line in `~/.claude/CLAUDE.md`. In older builds that line was only written when you answered Yes to "Register hooks in Claude Code?", so declining hooks left habits learned but never injected. This is fixed: `cch init` now wires the import whenever Claude Code is present, independent of the capture-hooks choice.\nIf status still shows "not imported": re-run `cch init` (safe to repeat), then confirm with `grep cc-habits ~/.claude/CLAUDE.md`. Remember capture (hooks) and injection (@import) are separate: you can have one without the other.'
+  },
 
   // ── Providers ──────────────────────────────────────────────────────────────
 
@@ -86,9 +107,9 @@ export const FAQ_DATABASE: FAQEntry[] = [
   {
     id: 'ollama-offline',
     category: 'Providers',
-    question: 'Ollama connection timeout or model not found error',
-    keywords: ['ollama', 'timeout', 'offline', '11434', 'connection', 'gemma', 'llama', 'refused', 'error', 'not found', 'failed', 'connect', 'start'],
-    answer: '1. Ensure Ollama is running: `ollama serve`\n2. Verify the model is downloaded: `ollama pull llama3.2`\n3. Check your config points to the right URL, default is `http://localhost:11434`\n4. Run `cch init --provider ollama` to reconfigure if the URL changed.'
+    question: 'Ollama "fetch failed", connection timeout, or model not found error',
+    keywords: ['ollama', 'timeout', 'offline', '11434', 'connection', 'gemma', 'llama', 'refused', 'error', 'not found', 'failed', 'fetch', 'connect', 'start', 'cloud'],
+    answer: '"fetch failed", connection refused, or a timeout almost always means the Ollama daemon is not running or the model is missing:\n1. Start Ollama: `ollama serve` (or open the Ollama app).\n2. Verify the model is downloaded: `ollama pull llama3.2`. Tags must match exactly (e.g. `llama3.2:1b`, not `llama3.2`).\n3. Default URL is `http://localhost:11434`; run `cch init --provider ollama` to reconfigure if it changed.\n4. Using a `-cloud` model (e.g. `gemma3:27b-cloud`)? That runs on Ollama\'s servers, not locally, so "fetch failed" there usually means no internet. Pick a model without the `-cloud` suffix for a fully local, offline setup. cc-habits now pre-checks Ollama before a scan and tells you which of these it is.'
   },
   {
     id: 'api-key-not-found',

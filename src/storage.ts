@@ -102,6 +102,58 @@ export function getPaths(ctx?: StorageContext): StorageContext {
   return ctx || storagePaths;
 }
 
+// The per-repo store directory name. A `.cch/` folder at a repo root holds that
+// repo's own habits, preferences, and memories, separate from the global
+// ~/.cc-habits store. This stops one repo's specifics (e.g. a finance app's
+// brand colors) from bleeding into unrelated repos via the global @import.
+export const REPO_STORE_DIR = '.cch';
+
+// Build a StorageContext rooted at <repoRoot>/.cch/. Every read/write that is
+// passed this context operates on the repo-local store instead of the global
+// one. Mirrors the shape of `storagePaths` exactly so it is a drop-in ctx.
+export function repoStorageContext(repoRoot: string): StorageContext {
+  const dir = path.join(repoRoot, REPO_STORE_DIR);
+  return {
+    habitsDir: dir,
+    habitsFile: path.join(dir, 'habits.md'),
+    preferencesFile: path.join(dir, 'preferences.md'),
+    memoriesFile: path.join(dir, 'memories.md'),
+    logFile: path.join(dir, 'log.jsonl'),
+    errorLog: path.join(dir, 'error.log'),
+    tombstonesFile: path.join(dir, '.tombstones.json'),
+    memoryTombstonesFile: path.join(dir, '.memory-tombstones.json'),
+    memoryIndexFile: path.join(dir, '.memory-index.json'),
+    snapshotFile: path.join(dir, '.snapshot.json'),
+    historyFile: path.join(dir, '.history.jsonl'),
+    provenanceFile: path.join(dir, '.provenance.json'),
+    updateCheckFile: path.join(dir, '.update-check.json'),
+    // The repo store reuses the global provider config: extraction credentials
+    // are a machine-level concern, not a per-repo one.
+    configFile: storagePaths.configFile,
+  };
+}
+
+// Walk up from `start` looking for a repo root marker (.git). Returns the
+// directory that contains it, or null if none is found before the filesystem
+// root. Used to resolve where a `.cch/` store should live. Fail-safe: any error
+// yields null so callers fall back to the global store.
+export function findRepoRoot(start?: string): string | null {
+  try {
+    let dir = start || process.cwd();
+    while (true) {
+      if (fs.existsSync(path.join(dir, '.git'))) {
+        return dir;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // fall through to null
+  }
+  return null;
+}
+
 const FILE_MODE = 0o600;
 
 const HABITS_HEADER =
@@ -140,6 +192,36 @@ const CANDIDATE_MEMORIES_SECTION_HEADER =
   '\n## Candidates (not yet active)\n\n' +
   '> These memories have not been observed enough times or approved by the user. ' +
   'Agents should not apply memories in this section.\n';
+
+// Comment header seeded into a fresh log.jsonl so the file explains itself. Each
+// line is prefixed with `//`, which every cc-habits reader skips (lines that fail
+// JSON.parse are ignored), so it never interferes with signal parsing. It states
+// the file's purpose and, crucially, why it can sit empty, since a brand-new repo
+// store or a tool whose hook has not fired yet looks identical to a broken setup.
+// No secrets here: this is static text, and the signals appended below are always
+// redacted before they are written.
+export const LOG_HEADER =
+  '// cc-habits capture log (log.jsonl): append-only, redacted audit trail.\n' +
+  '// Each line below is one edit signal (file path plus a trimmed, PII-redacted diff),\n' +
+  '// captured when a registered AI tool runs its cc-habits hook. This is the exact record\n' +
+  '// of what was stored and what would be sent to your extraction provider. Nothing else\n' +
+  '// leaves your machine, and secrets are redacted before any line is written here.\n' +
+  '// Empty? That is normal in two cases: (1) no edits have been captured yet because no\n' +
+  '// registered hook has fired; make an edit in a linked tool and run cch status to confirm\n' +
+  '// the hook is wired. (2) this is a per-repo .cch/ store, where repo scans (cch learn --repo)\n' +
+  '// write to habits.md/memories.md, not here; only hook-captured edit signals land in this\n' +
+  '// log, and the hook always writes to the global ~/.cc-habits/log.jsonl first.\n';
+
+// Control characters that must never survive into a stored data file or a value
+// later printed to the terminal: C0 controls and DEL (\x00-\x1f, \x7f) PLUS the
+// C1 range (\x80-\x9f). C1 includes the 8-bit forms of CSI (\x9b) and OSC (\x9d),
+// which terminals that honor 8-bit controls interpret as live ANSI escapes, so a
+// crafted file path, session id, or memory could spoof terminal output or write
+// the clipboard (the CVE-2025-55193 / tracing-subscriber class of bug). Stripping
+// the whole C0+DEL+C1 set at every untrusted write surface closes that off at the
+// source; the cli-ui `term()` helper is the matching defence at the output boundary.
+// eslint-disable-next-line no-control-regex
+const STORAGE_CONTROL_CHARS = /[\x00-\x1f\x7f-\x9f]/g;
 
 export function ensureDirs(ctx?: StorageContext): void {
   fs.mkdirSync(getPaths(ctx).habitsDir, { recursive: true });
@@ -217,11 +299,17 @@ function trimIfNeeded(filePath: string, maxLines: number): void {
       return; // absent or unstattable: nothing to trim
     }
     if (size <= LOG_ROTATE_BYTES) return;
-    const lines = fs.readFileSync(filePath, 'utf-8')
+    const all = fs.readFileSync(filePath, 'utf-8')
       .split('\n')
       .filter(l => l.trim());
-    if (lines.length <= maxLines) return;
-    safeWrite(filePath, lines.slice(-maxLines).join('\n') + '\n');
+    // Preserve any leading `//` comment header (the self-describing log preamble)
+    // so rotation trims only signal lines, never the explanation of the file.
+    const header: string[] = [];
+    let i = 0;
+    while (i < all.length && all[i]!.startsWith('//')) { header.push(all[i]!); i++; }
+    const records = all.slice(i);
+    if (records.length <= maxLines) return;
+    safeWrite(filePath, [...header, ...records.slice(-maxLines)].join('\n') + '\n');
   } catch {
     // trim is best-effort; never crash the caller
   }
@@ -246,18 +334,36 @@ export function initMemoriesMd(ctx?: StorageContext): void {
 export function initLog(ctx?: StorageContext): void {
   ensureDirs(ctx);
   const paths = getPaths(ctx);
-  if (!fs.existsSync(paths.logFile)) {
-    safeWrite(paths.logFile, '');
+  // Write the header to new files AND to files that already exist but are empty,
+  // so stores created before the LOG_HEADER was introduced get the self-describing
+  // preamble the next time something calls initLog.
+  const missing = !fs.existsSync(paths.logFile);
+  if (missing) {
+    safeWrite(paths.logFile, LOG_HEADER);
+  } else {
+    try {
+      if (fs.statSync(paths.logFile).size === 0) safeWrite(paths.logFile, LOG_HEADER);
+    } catch { /* leave the file as-is if we cannot stat it */ }
   }
 }
 
 export function appendSignal(signal: Signal, ctx?: StorageContext): void {
   ensureDirs(ctx);
   const paths = getPaths(ctx);
+  // Seed the self-describing header if this append is the first thing to touch
+  // the log. Passive capture is designed to run before `cch init` ever does, so
+  // the hook can create the global log.jsonl on its own; without this the global
+  // log, the one that actually fills with signals, would be the only store
+  // missing the header. Mirrors initLog's missing/empty seeding.
+  try {
+    if (!fs.existsSync(paths.logFile) || fs.statSync(paths.logFile).size === 0) {
+      safeWrite(paths.logFile, LOG_HEADER);
+    }
+  } catch { /* seeding is best-effort; never block a capture */ }
   // Strip control characters from session_id before writing to JSONL.
   // JSON.stringify escapes them anyway, but defence-in-depth: a crafted session_id
   // with null bytes or other controls could confuse downstream parsers or logging.
-  const safe: Signal = { ...signal, session_id: signal.session_id.replace(/[\x00-\x1f\x7f]/g, '') };
+  const safe: Signal = { ...signal, session_id: signal.session_id.replace(STORAGE_CONTROL_CHARS, '') };
   safeAppend(paths.logFile, JSON.stringify(safe) + '\n');
   trimIfNeeded(paths.logFile, LOG_ROTATE_LINES);
 }
@@ -904,11 +1010,18 @@ export function applyMemoryUpdates(
       existing.last_seen = today;
       updatedMemories?.push(existing.text);
     } else {
-      const cleanedText = candidate.text.replace(/\.$/, '');
+      // Strip terminal control characters (incl. the 8-bit C1 CSI/OSC range) from
+      // every stored memory field. Unlike habits, memory candidates are not run
+      // through the full injection sanitizer at write time, so without this an
+      // attacker-authored correction could plant ANSI escapes that fire when the
+      // file is rendered by `cch memories`. The injection-time sanitizeRule in
+      // hook.ts is the second layer; this keeps the stored file and terminal clean.
+      const scrub = (s: string): string => s.replace(STORAGE_CONTROL_CHARS, '');
+      const cleanedText = scrub(candidate.text).replace(/\.$/, '');
       sections[section].push({
         text: cleanedText,
-        trigger: candidate.trigger,
-        correction: candidate.correction,
+        trigger: candidate.trigger.map(scrub),
+        correction: scrub(candidate.correction),
         confidence: 0.50,
         seen: 1,
         sessions_seen: 1,
@@ -968,8 +1081,10 @@ export function sanitizeFilePath(p: string): string {
   // Strip any traversal segments; collapse to a safe representation.
   // We keep the path for human-readability but drop dangerous fragments.
   if (!p) return '';
-  // Reject literal control characters that could break log line parsing.
-  const cleaned = p.replace(/[\x00-\x1f]/g, '');
+  // Reject literal control characters that could break log line parsing or, once
+  // displayed in `cch status`, inject terminal escape sequences. Covers C0, DEL,
+  // and C1 (the 8-bit CSI/OSC range), not just C0.
+  const cleaned = p.replace(STORAGE_CONTROL_CHARS, '');
   // Block path traversal: replace `..` segments with `_` so the displayed
   // path is unambiguous and cannot be re-interpreted by other tools.
   return cleaned.split('/').map(seg => seg === '..' ? '_' : seg).join('/');

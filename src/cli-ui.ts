@@ -2,13 +2,14 @@ import os from 'os';
 import { type Memory, getRuleHash } from './storage';
 import { shuffledTips, TIP_MARKERS } from './tips';
 
-export const BOLD   = '\x1b[1m';
-export const DIM    = '\x1b[2m';
-export const GREEN  = '\x1b[38;2;150;210;30m';  // Softer Acid Lime (#96D21E)
+export const BOLD = '\x1b[1m';
+export const DIM = '\x1b[2m';
+export const GREEN = '\x1b[38;2;150;210;30m';  // Softer Acid Lime (#96D21E)
 export const YELLOW = '\x1b[38;2;140;90;215m';  // Softer Purple/Learning (#8C5AD7)
-export const RED    = '\x1b[38;2;215;60;105m';  // Softer Neon Pink/Negatives (#D73C69)
-export const CYAN   = '\x1b[38;2;20;160;220m';   // Softer Accent Cyan (#14A0DC)
-export const RESET  = '\x1b[0m';
+export const RED = '\x1b[38;2;215;60;105m';  // Softer Neon Pink/Negatives (#D73C69)
+export const CYAN = '\x1b[38;2;20;160;220m';   // Softer Accent Cyan (#14A0DC)
+export const ACID_LIME = '\x1b[38;2;176;255;26m'; // Vivid Acid Lime (#B0FF1A), loading bar only
+export const RESET = '\x1b[0m';
 
 export const NO_COLOR = !process.stdout.isTTY || !!process.env['NO_COLOR'];
 
@@ -96,7 +97,7 @@ export function renderBrandedCard(subtitle: string, statusText: string): void {
   const INNER = 44;
   const MARGIN = 2;
   const borderChar = c(DIM + CYAN, '│');
-  const topBorder    = c(DIM + CYAN, `┌${'─'.repeat(INNER)}┐`);
+  const topBorder = c(DIM + CYAN, `┌${'─'.repeat(INNER)}┐`);
   const bottomBorder = c(DIM + CYAN, `└${'─'.repeat(INNER)}┘`);
 
   // Wrap one line of inner content in box borders, right-padding to INNER.
@@ -117,12 +118,12 @@ export function renderBrandedCard(subtitle: string, statusText: string): void {
   const iconLeft = Math.floor((INNER - ICON_WIDTH) / 2);
 
   // Clamp dynamic fields so long model names never overflow the box.
-  const sub  = subtitle.slice(0, INNER - 'cc-habits · '.length);
+  const sub = subtitle.slice(0, INNER - 'cc-habits · '.length);
   const stat = statusText.slice(0, INNER);
 
-  const title   = c(BOLD + CYAN, 'cc-habits') + c(DIM, ' · ') + c(BOLD, sub);
-  const tagline = c(DIM, 'One tool-agnostic developer memory layer');
-  const status  = c(DIM, stat);
+  const title = c(BOLD + CYAN, 'cc-habits') + c(DIM, ' · ') + c(BOLD, sub);
+  const tagline = c(DIM, 'One layer to rule them all');
+  const status = c(DIM, stat);
 
   const blank = row('');
   process.stdout.write('\n');
@@ -161,23 +162,24 @@ export function langTag(languages?: string[]): string {
   return c(DIM, `  · ${shown.join(', ')}${extra > 0 ? ` +${extra}` : ''}`);
 }
 
+// One compact line per habit: confidence %, a short bar, the rule, then dim meta
+// (sessions, languages, a downvote count only when it is non-zero) and the id. The
+// previous three-line form scattered each habit; this packs the same signal into a
+// single scannable row. Colour follows confidence, matching the bar thresholds.
 export function renderHabitLine(
   h: { rule: string; confidence: number; reinforcing: number; contradicting: number; sessions_seen: number; first_learned?: string; languages?: string[] },
   isLearning: boolean
 ): void {
-  const bar = confidenceBar(h.confidence);
-  const pct = `${Math.round(h.confidence * 100)}%`;
-  const up = h.reinforcing ?? 0;
-  const dn = h.contradicting ?? 0;
+  const conf = h.confidence;
+  const pct = `${Math.round(conf * 100)}%`.padStart(4);
+  const pctColor = conf >= 0.70 ? GREEN : conf >= 0.50 ? YELLOW : RED;
+  const bar = confidenceBar(conf, 10);
+  const dn = (h.contradicting ?? 0) > 0 ? c(RED, ` ↓${h.contradicting}`) : '';
   const tag = isLearning ? c(YELLOW, ' (learning)') : '';
   const hash = getRuleHash(h.rule);
-  process.stdout.write(`\n  ${c(DIM, `[${hash}]`)} ${term(h.rule)}${tag}\n`);
+  const meta = c(DIM, ` · ${h.sessions_seen ?? 1} ses`) + langTag(h.languages);
   process.stdout.write(
-    `  [${bar}] ${c(BOLD, pct)}  ` +
-    c(GREEN, `↑${up}`) + '  ' +
-    (dn ? c(RED, `↓${dn}`) : c(DIM, `↓${dn}`)) +
-    c(DIM, `  · ${h.sessions_seen ?? 1} session${h.sessions_seen === 1 ? '' : 's'}  · since ${h.first_learned ?? '?'}`) +
-    langTag(h.languages) + '\n',
+    `  ${c(BOLD + pctColor, pct)} ${bar} ${term(h.rule)}${tag}${dn}${meta} ${c(DIM, `[${hash}]`)}\n`,
   );
 }
 
@@ -193,21 +195,19 @@ export function printMemoriesEmptyState(enabled: boolean): void {
   process.stdout.write('\n');
 }
 
+// One compact line per memory: confidence %, the memory text, and (when present)
+// the correction as a cyan "→ do this instead", then the id for `--delete`. The
+// trigger terms and seen/last metadata are internal matching detail, so they are
+// dropped from the line to keep it scannable; the full record stays in memories.md.
 export function renderMemoryLine(memory: Memory, isCandidate: boolean): void {
-  const bar = confidenceBar(memory.confidence);
-  const pct = `${Math.round(memory.confidence * 100)}%`;
+  const conf = memory.confidence;
+  const pct = `${Math.round(conf * 100)}%`.padStart(4);
+  const pctColor = conf >= 0.70 ? GREEN : conf >= 0.50 ? YELLOW : RED;
   const tag = isCandidate ? c(YELLOW, ' (candidate)') : '';
   const hash = getRuleHash(memory.text);
-  process.stdout.write(`\n  ${c(DIM, `[${hash}]`)} ${term(memory.text)}${tag}\n`);
-  if (memory.trigger.length > 0) {
-    process.stdout.write(c(DIM, `  trigger: ${term(memory.trigger.join(', '))}\n`));
-  }
-  if (memory.correction) {
-    process.stdout.write(c(DIM, `  correction: ${term(memory.correction)}\n`));
-  }
+  const corr = memory.correction ? '  ' + c(CYAN, `→ ${term(memory.correction)}`) : '';
   process.stdout.write(
-    `  [${bar}] ${c(BOLD, pct)}  ` +
-    c(DIM, `seen ${memory.seen} · ${memory.sessions_seen} session${memory.sessions_seen === 1 ? '' : 's'} · last ${memory.last_seen ?? '?'}`) + '\n',
+    `  ${c(BOLD + pctColor, pct)} ${term(memory.text)}${tag}${corr} ${c(DIM, `[${hash}]`)}\n`,
   );
 }
 
@@ -354,14 +354,14 @@ export const LEARN = YELLOW;
 // habit (depth); `sweep` shows a bar travelling across a repo (breadth). Both are
 // fixed-width so the label never jitters between frames.
 const DISTILL_FRAMES = ['·     ·', ' ·   · ', '  · ·  ', '   ◆   ', '   ◇   ', '   ◆   '];
-const SWEEP_FRAMES    = ['[▰▱▱▱▱]', '[▱▰▱▱▱]', '[▱▱▰▱▱]', '[▱▱▱▰▱]', '[▱▱▱▱▰]'];
+const SWEEP_FRAMES = ['[▰▱▱▱▱]', '[▱▰▱▱▱]', '[▱▱▰▱▱]', '[▱▱▱▰▱]', '[▱▱▱▱▰]'];
 
 export type StepMotion = 'distill' | 'sweep';
 export interface StepHandle {
   /** Mark a real, completed step. Prints a ✓ line instantly (no animation). */
   done(label: string): void;
   /** Animate a genuinely long step (an LLM round-trip) until `task` settles. */
-  spin<T>(label: string, task: () => Promise<T>, opts?: { motion?: StepMotion; color?: string }): Promise<T>;
+  spin<T>(label: string, task: () => Promise<T>, opts?: { motion?: StepMotion; color?: string; items?: string[] }): Promise<T>;
 }
 
 /**
@@ -383,7 +383,7 @@ export function steppedProgress(opts: { mode?: 'animate' | 'static' | 'silent' }
       if (mode === 'static') { process.stdout.write(`  ${label}\n`); return; }
       process.stdout.write(`  ${c(GREEN, '✓')} ${c(DIM, label)}\n`);
     },
-    spin<T>(label: string, task: () => Promise<T>, sopts: { motion?: StepMotion; color?: string } = {}): Promise<T> {
+    spin<T>(label: string, task: () => Promise<T>, sopts: { motion?: StepMotion; color?: string; items?: string[] } = {}): Promise<T> {
       if (mode === 'silent') return task();
       if (mode === 'static') { process.stdout.write(`  ${label}...\n`); return task(); }
       return animateSpin(label, task, sopts);
@@ -397,37 +397,48 @@ export function steppedProgress(opts: { mode?: 'animate' | 'static' | 'silent' }
 async function animateSpin<T>(
   label: string,
   task: () => Promise<T>,
-  sopts: { motion?: StepMotion; color?: string },
+  sopts: { motion?: StepMotion; color?: string; items?: string[] },
 ): Promise<T> {
   const frames = sopts.motion === 'sweep' ? SWEEP_FRAMES : DISTILL_FRAMES;
-  const color  = sopts.color ?? (sopts.motion === 'sweep' ? CYAN : LEARN);
-  const tips   = shuffledTips();
+  const color = sopts.color ?? (sopts.motion === 'sweep' ? ACID_LIME : LEARN);
+  // When `items` are supplied (e.g. the files in a repo scan), the secondary line
+  // reveals them one at a time, each disappearing as the next appears, so the user
+  // sees exactly what is in the batch the provider is working on. Otherwise it
+  // rotates educational tips. Both fill the same genuine provider wait.
+  const items = sopts.items && sopts.items.length > 0 ? sopts.items : null;
+  const tips = shuffledTips();
   let ti = 0, mi = 0, fi = 0;
   let started = false;
 
-  const tipLine = (): string => {
-    const marker = TIP_MARKERS[mi % TIP_MARKERS.length]!;
-    const raw    = `  ${marker} · ${tips[ti % tips.length]}`;
-    const max    = Math.max(20, (process.stdout.columns ?? 80)) - 1;
+  const secondaryLine = (): string => {
+    const max = Math.max(20, (process.stdout.columns ?? 80)) - 1;
+    const raw = items
+      ? `  · ${items[ti % items.length]}`
+      : `  ${TIP_MARKERS[mi % TIP_MARKERS.length]!} · ${tips[ti % tips.length]}`;
     return c(DIM, raw.length > max ? raw.slice(0, max - 1) + '…' : raw);
   };
   const draw = (): void => {
     const step = `  ${c(color, frames[fi]!)} ${label}`;
-    process.stdout.write(started ? `\r\x1b[1A\x1b[K${step}\n\r\x1b[K${tipLine()}` : `${step}\n${tipLine()}`);
+    process.stdout.write(started ? `\r\x1b[1A\x1b[K${step}\n\r\x1b[K${secondaryLine()}` : `${step}\n${secondaryLine()}`);
     started = true;
   };
-  const showCursor  = (): void => { process.stdout.write('\x1b[?25h'); };
+  const showCursor = (): void => { process.stdout.write('\x1b[?25h'); };
   const clearRegion = (): void => { process.stdout.write('\r\x1b[K\x1b[1A\r\x1b[K'); };
-  const onSigint    = (): void => { clearRegion(); showCursor(); process.exit(130); };
+  const onSigint = (): void => { clearRegion(); showCursor(); process.exit(130); };
 
   process.stdout.write('\x1b[?25l'); // hide cursor while animating
   process.once('SIGINT', onSigint);
   draw();
   const spinTimer = setInterval((): void => { fi = (fi + 1) % frames.length; draw(); }, 80);
-  const tipTimer  = setInterval((): void => { ti++; mi++; draw(); }, 3500);
+  // Files cycle fast enough that the whole batch streams past during a typical
+  // provider wait (so a 34-file scan actually shows all 34 names, not just the
+  // first few), with a readable floor and ceiling. Tips dwell longer so each one
+  // stays readable.
+  const itemInterval = items ? Math.max(140, Math.min(900, Math.round(3000 / items.length))) : 5000;
+  const secondaryTimer = setInterval((): void => { ti++; mi++; draw(); }, itemInterval);
   const cleanup = (): void => {
     clearInterval(spinTimer);
-    clearInterval(tipTimer);
+    clearInterval(secondaryTimer);
     process.removeListener('SIGINT', onSigint);
   };
 

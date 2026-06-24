@@ -23,6 +23,7 @@ import {
   appendHistory, appendProvenance, readMemoriesMd, applyMemoryUpdates, parseMemories,
   isMemoryTombstoned, getPaths, type StorageContext,
   type Memory,
+  findRepoRoot, repoStorageContext,
 } from './storage';
 import { acquireLock, releaseLock } from './lock';
 import { normalizeInput, ALLOWED_ADAPTERS, type NormalizedHookInput } from './adapters';
@@ -557,6 +558,36 @@ export function buildInjectionContext(
   activeLanguages?: string[],
 ): string | null {
   const habits = selectInjectionHabits(md, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages);
+  return renderHabitsInjection(habits);
+}
+
+// Merge a global and a repo-local habits store for injection, with the
+// repo-local store taking priority on conflicts. Both stores are selected and
+// graduation/tombstone/confidence filtered independently; repo habits are
+// listed first and a global habit whose rule duplicates a repo habit (after
+// normalization) is dropped. The combined list is re-capped at INJECT_TOP_N so
+// the injected block never grows past the single-store budget.
+export function buildMergedInjectionContext(
+  globalMd: string,
+  repoMd: string,
+  activeLanguages?: string[],
+): string | null {
+  const repoHabits = selectInjectionHabits(repoMd, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages);
+  const globalHabits = selectInjectionHabits(globalMd, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages);
+  const seen = new Set(repoHabits.map(h => h.rule.trim().toLowerCase().replace(/\.$/, '')));
+  const merged = [
+    ...repoHabits,
+    ...globalHabits.filter(h => !seen.has(h.rule.trim().toLowerCase().replace(/\.$/, ''))),
+  ];
+  // Re-sort by confidence so the strongest signals survive the cap, then cap.
+  merged.sort((a, b) => b.confidence - a.confidence);
+  return renderHabitsInjection(merged.slice(0, INJECT_TOP_N));
+}
+
+// Renders a pre-selected list of injection habits into the <coding-habits>
+// block. Shared by the single-store and merged-store injection paths so the
+// sanitization and grouping rules stay identical.
+function renderHabitsInjection(habits: InjectionHabit[]): string | null {
   if (habits.length === 0) return null;
 
   // Group by category, preserving the confidence ordering within each.
@@ -755,6 +786,23 @@ export function selectInjectionMemories(memoriesMd: string, promptText: string):
   return candidates.slice(0, MEMORY_INJECT_TOP_N).map(c => c.memory);
 }
 
+// Merge global and repo-local memory stores for injection, repo-local first.
+// Each store is relevance-scored independently; repo memories win on a duplicate
+// text, and the combined list is capped at MEMORY_INJECT_TOP_N.
+export function selectMergedInjectionMemories(
+  globalMd: string,
+  repoMd: string,
+  promptText: string,
+): Memory[] {
+  const repoMems = selectInjectionMemories(repoMd, promptText);
+  const globalMems = selectInjectionMemories(globalMd, promptText);
+  const seen = new Set(repoMems.map(m => m.text.trim().toLowerCase()));
+  return [
+    ...repoMems,
+    ...globalMems.filter(m => !seen.has(m.text.trim().toLowerCase())),
+  ].slice(0, MEMORY_INJECT_TOP_N);
+}
+
 export function buildMemoryInjectionContext(memories: Memory[]): string | null {
   if (memories.length === 0) return null;
   const lines = [
@@ -769,22 +817,53 @@ export function buildMemoryInjectionContext(memories: Memory[]): string | null {
   return lines.join('\n');
 }
 
+// Resolve the repo-local store context for injection. Returns null when there
+// is no .cch/ store to layer (no enclosing repo, no store created yet, or the
+// store would coincide with the active global store). Never throws.
+function resolveRepoCtx(ctx?: StorageContext): StorageContext | null {
+  try {
+    const root = findRepoRoot();
+    if (!root) return null;
+    const repoCtx = repoStorageContext(root);
+    if (repoCtx.habitsDir === getPaths(ctx).habitsDir) return null;
+    const hasStore = fs.existsSync(repoCtx.habitsFile) || fs.existsSync(repoCtx.memoriesFile);
+    return hasStore ? repoCtx : null;
+  } catch {
+    return null;
+  }
+}
+
+// Run a reader and swallow any failure into an empty string. Keeps the merged
+// injection path fail-open: a missing or unreadable repo store contributes
+// nothing rather than aborting injection.
+function safeRead(fn: () => string): string {
+  try { return fn(); } catch { return ''; }
+}
+
 export function processUserPromptSubmit(data: Record<string, unknown>, ctx?: StorageContext): string | null {
   if (!injectionEnabled()) return null;
   const promptText = typeof data['prompt'] === 'string' ? data['prompt'] : '';
   const sessionId = String(data['session_id'] ?? data['sessionId'] ?? data['session'] ?? '');
 
   const activeLanguages = getSessionLanguages(sessionId, ctx);
-  const habitsContext = buildInjectionContext(
-    readHabitsMd(ctx),
-    activeLanguages.length ? activeLanguages : undefined
-  );
+  const langs = activeLanguages.length ? activeLanguages : undefined;
+
+  // Resolve a repo-local .cch/ store for the current working directory, if any.
+  // Merged injection layers it over the global store with repo priority. Fully
+  // fail-open: any error here falls back to global-only injection.
+  const repoCtx = resolveRepoCtx(ctx);
+  const globalMd = readHabitsMd(ctx);
+  const habitsContext = repoCtx
+    ? buildMergedInjectionContext(globalMd, safeRead(() => readHabitsMd(repoCtx)), langs)
+    : buildInjectionContext(globalMd, langs);
 
   let memoriesContext: string | null = null;
   if (memoriesEnabled(ctx)) {
     try {
-      const memoriesMd = readMemoriesMd(ctx);
-      const relevant = selectInjectionMemories(memoriesMd, promptText);
+      const globalMem = readMemoriesMd(ctx);
+      const relevant = repoCtx
+        ? selectMergedInjectionMemories(globalMem, safeRead(() => readMemoriesMd(repoCtx)), promptText)
+        : selectInjectionMemories(globalMem, promptText);
       memoriesContext = buildMemoryInjectionContext(relevant);
     } catch {
       // injection failures must never block a prompt

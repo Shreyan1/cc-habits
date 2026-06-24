@@ -24,8 +24,8 @@ import {
   readTombstones, addTombstone, initMemoriesMd, readMemoriesMd, writeMemoriesMd,
   parseMemories, serialiseMemories, addMemoryTombstone, readMemoryTombstones,
   readHistory, appendHistory, logError, detectManualDeletes, applyMemoryUpdates,
-  getRuleHash,
-  type Memory, type Signal, type Habit,
+  getRuleHash, repoStorageContext, findRepoRoot,
+  type Memory, type Signal, type Habit, type StorageContext,
 } from './storage';
 import { applyUpdates, applyDecay, type AppliedChange } from './confidence';
 import { runSelectMenu } from './menu';
@@ -49,7 +49,7 @@ import { detectInstalledTools } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.7.21';
+export const VERSION = '0.8.0';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -61,7 +61,10 @@ const KNOWN_PROVIDER_ERRORS = [
 function providerHint(e: unknown): string | undefined {
   if (!KNOWN_PROVIDER_ERRORS.some(T => e instanceof T)) return undefined;
   const explained = explainProviderError(e);
-  return `${explained.what} · ${explained.side} · ${explained.nextStep}`;
+  // Scrub terminal control characters: the message can interpolate an
+  // attacker-influenced field (e.g. a model name echoed back by the provider),
+  // and this string is written straight to the terminal.
+  return term(`${explained.what} · ${explained.side} · ${explained.nextStep}`);
 }
 
 function formatSessionBreakdown(sessions: SessionFile[]): string {
@@ -162,6 +165,26 @@ function printHookProof(toolId: string, settingsPath: string): void {
   }
 }
 
+// #3: the compact "here is what Recommended will do" table shown before the
+// recommended path runs, so the one-keystroke choice is still fully transparent
+// about every change it is about to make. Mirrors the actual defaults applied
+// below (register every detected tool, bootstrap, local git capture, repo scan,
+// memory learning) and is explicit that the system-wide git hook stays off.
+function renderRecommendedPlan(detected: { name: string }[]): void {
+  const tick = c(GREEN, '✓');
+  const dash = c(DIM, '~');
+  const toolNames = detected.length > 0 ? detected.map(t => t.name).join(', ') : 'none detected';
+  process.stdout.write('\n' + c(BOLD, '  Recommended setup will:') + '\n');
+  process.stdout.write(`    ${tick} register hooks in: ${c(BOLD, toolNames)}\n`);
+  process.stdout.write(`    ${tick} keep your current AI provider if one is configured\n`);
+  process.stdout.write(`    ${tick} bootstrap habits from past sessions (if any)\n`);
+  process.stdout.write(`    ${tick} install the local git capture hook in this repo\n`);
+  process.stdout.write(`    ${tick} scan this repo into its .cch/ store\n`);
+  process.stdout.write(`    ${tick} enable memory learning\n`);
+  process.stdout.write(`    ${dash} leave the system-wide git hook off (enable later with manual setup)\n`);
+  process.stdout.write('\n');
+}
+
 export async function cmdInit(providerFlag?: string): Promise<number> {
   // Fail fast on a bad --provider value BEFORE any side effects (consent, hook
   // registration, repo scan). Otherwise an invalid provider like `codex` would
@@ -206,6 +229,40 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   const syncTargetsToEnable = new Set<string>();
 
   const detected = detectInstalledTools();
+
+  // #3: two setup paths. "Recommended" accepts every safe default in a single
+  // keystroke (register all detected tools, bootstrap, local git capture, repo
+  // scan, memory learning) after showing exactly what it will do; "Manual" keeps
+  // the step-by-step prompts. Non-interactive runs skip the menu and behave as
+  // manual, where each prompt helper already falls back to its own default.
+  let recommended = false;
+  if (process.stdin.isTTY) {
+    const mode = await runSelectMenu(c(BOLD, '  How would you like to set up cc-habits?'), [
+      { label: 'Recommended Initialisation   set up with the safe defaults', value: 'rec' },
+      { label: 'Manual Configuration         choose each step yourself', value: 'man' },
+    ]);
+    if (!mode) {
+      process.stdout.write('  Setup cancelled. Nothing was changed.\n');
+      return 0;
+    }
+    recommended = mode.value === 'rec';
+    if (recommended) renderRecommendedPlan(detected);
+  }
+
+  // In recommended mode every yes/no prompt auto-accepts its default and echoes
+  // the choice instead of blocking; in manual mode they prompt as before. The
+  // default-true prompts become Yes, the default-false ones (the system-wide git
+  // template hook) stay No, since auto-enabling a hook for all repos is too broad
+  // to assume.
+  const askYes = (q: string): Promise<boolean> =>
+    recommended
+      ? (process.stdout.write(q + c(GREEN, 'Yes') + c(DIM, ' (recommended)') + '\n'), Promise.resolve(true))
+      : promptYesNoDefaultTrue(q);
+  const askNo = (q: string): Promise<boolean> =>
+    recommended
+      ? (process.stdout.write(q + c(DIM, 'No (default)') + '\n'), Promise.resolve(false))
+      : promptYesNo(q);
+
   if (detected.length > 0) {
     process.stdout.write(`\n  Detected installed tools:\n`);
     for (const tool of detected) {
@@ -223,7 +280,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
       first = false;
 
       if (tool.id === 'claude-code') {
-        const register = await promptYesNoDefaultTrue('  Register hooks in Claude Code? [Y/n] ');
+        const register = await askYes('  Register hooks in Claude Code? [Y/n] ');
         if (register) {
           process.stdout.write('\n');
           const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerHooks(hookBin);
@@ -231,12 +288,22 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(`    ${stopAdded ? tick : dash} Stop hook ${stopAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${promptAdded ? tick : dash} UserPromptSubmit hook ${promptAdded ? 'registered' : 'already registered'}\n`);
           process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
-          const importAdded = addImportToClaudeMd();
-          process.stdout.write(`    ${importAdded ? tick : dash} preferences.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md\n`);
           printHookProof('claude-code', tool.settingsPath);
         }
+        // Injection is independent of capture. Claude reads learned habits via the
+        // @import in CLAUDE.md, so wire it whenever Claude Code is present, even if
+        // the user declined the capture hooks above. Without this, a user who said
+        // "n" gets habits that never reach any agent, and `cch status` honestly but
+        // confusingly reports "not imported" right after a successful init.
+        try {
+          const importAdded = addImportToClaudeMd();
+          const suffix = register ? '' : c(DIM, ' (so Claude reads your learned habits)');
+          process.stdout.write(`    ${importAdded ? tick : dash} preferences.md import ${importAdded ? 'added to' : 'already in'} ~/.claude/CLAUDE.md${suffix}\n`);
+        } catch (e) {
+          process.stdout.write(c(YELLOW, `    ! could not wire preferences.md import: ${String(e).slice(0, 60)}\n`));
+        }
       } else if (tool.id === 'gemini') {
-        const register = await promptYesNoDefaultTrue('  Register hooks in Gemini CLI? [Y/n] ');
+        const register = await askYes('  Register hooks in Gemini CLI? [Y/n] ');
         if (register) {
           process.stdout.write('\n');
           const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerJsonHooks(tool.settingsPath, 'gemini', hookBin);
@@ -248,7 +315,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           printHookProof('gemini', tool.settingsPath);
         }
       } else if (tool.id === 'codex') {
-        const register = await promptYesNoDefaultTrue('  Register hooks in Codex CLI? [Y/n] ');
+        const register = await askYes('  Register hooks in Codex CLI? [Y/n] ');
         if (register) {
           codexRegistered = true;
           syncTargetsToEnable.add('agents');
@@ -271,7 +338,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(c(DIM,    '      Enabling git capture below ensures those edits are still recorded.\n'));
         }
       } else if (tool.id === 'kimi') {
-        const register = await promptYesNoDefaultTrue('  Register hooks in Kimi Code CLI? [Y/n] ');
+        const register = await askYes('  Register hooks in Kimi Code CLI? [Y/n] ');
         if (register) {
           process.stdout.write('\n');
           const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerKimiHooks(tool.settingsPath, hookBin);
@@ -283,7 +350,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           printHookProof('kimi', tool.settingsPath);
         }
       } else if (tool.id === 'cline') {
-        const register = await promptYesNoDefaultTrue('  Register hooks in Cline/RooCode? [Y/n] ');
+        const register = await askYes('  Register hooks in Cline/RooCode? [Y/n] ');
         if (register) {
           process.stdout.write('\n');
           const { postAdded, stopAdded } = registerClineHooks(tool.settingsPath, hookBin);
@@ -320,11 +387,16 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   if (providerFlag) {
     await configureProvider(providerFlag, tick, dash);
   } else if (hasUsableProvider()) {
-    // A supported provider with its credential is already set up. Don't assume it
-    // silently: let the user keep it, switch provider/key, or use Ollama. A parked
-    // CLI provider is NOT usable, so it falls through to setup below instead of
-    // being offered as a "keep" option.
-    await reconfigureProviderMenu(resolveProviderLabel(), tick, dash);
+    // A supported provider with its credential is already set up. In recommended
+    // mode keep it without asking; in manual mode don't assume it silently, let
+    // the user keep it, switch provider/key, or use Ollama. A parked CLI provider
+    // is NOT usable, so it falls through to setup below instead of being offered
+    // as a "keep" option.
+    if (recommended) {
+      process.stdout.write(`  ${tick} Keeping current provider: ${c(BOLD, resolveProviderLabel())}\n`);
+    } else {
+      await reconfigureProviderMenu(resolveProviderLabel(), tick, dash);
+    }
   } else {
     await showProviderMenu(tick, dash);
   }
@@ -346,7 +418,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
       process.stdout.write(
         `  Found ${c(BOLD, String(sessions.length))} session${sessions.length === 1 ? '' : 's'}${formatSessionBreakdown(sessions)} for this project.\n`,
       );
-      const yes = await promptYesNoDefaultTrue('  Bootstrap habits from past sessions? (learns habits from your existing work instantly) [Y/n] ');
+      const yes = await askYes('  Bootstrap habits from past sessions? (learns habits from your existing work instantly) [Y/n] ');
       if (yes) {
         process.stdout.write('\n');
         process.stdout.write(c(DIM, '  Extracting patterns...\n'));
@@ -377,8 +449,8 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     if (codexRegistered) {
       process.stdout.write(c(DIM, '  Recommended for Codex: git capture records edits the hook misses (shell/sed/perl).\n'));
     }
-    const installLocal = codexRegistered
-      ? await promptYesNoDefaultTrue('  Install git capture hook locally in this project? [Y/n] ')
+    const installLocal = codexRegistered || recommended
+      ? await askYes('  Install git capture hook locally in this project? [Y/n] ')
       : await promptYesNo('  Install git capture hook locally in this project? [y/N] ');
     if (installLocal) {
       const added = installLocalGitHook();
@@ -399,7 +471,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   if (globalHookAlready) {
     process.stdout.write(`  ${dash} Global Git template post-commit hook already installed\n`);
   } else {
-    const installGlobal = await promptYesNo('  Install git capture hook globally for all new repositories? [y/N] ');
+    const installGlobal = await askNo('  Install git capture hook globally for all new repositories? [y/N] ');
     if (installGlobal) {
       const added = installGlobalGitTemplateHook();
       const gitMark = added === 'installed' ? tick : added === 'already' ? dash : '!';
@@ -424,10 +496,11 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   // above, so printing a scan that is guaranteed to skip would just be noise.
   if (providerReady) {
     process.stdout.write('\n');
-    process.stdout.write(c(DIM, '  Scanning this repository for habits...\n'));
+    process.stdout.write(c(DIM, '  Scanning this repository for habits (into its .cch/ store)...\n'));
     try {
       const scan = await scanRepo({
-        confirm: () => promptYesNoDefaultTrue('   Proceed with scan? [Y/n] '),
+        ctx: repoStoreCtx(),
+        confirm: () => askYes('   Proceed with scan? [Y/n] '),
       });
       renderRepoScan(scan);
     } catch {
@@ -447,9 +520,64 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
 }
 
 // view ─────────────────────────────────────────────────────────────────────
-export function renderHabitsView(langFilter?: string): number {
-  const habitsMd = readHabitsMd();
-  const allSignals = readSignals();
+
+// Which store a view command should read from. `global` is the machine-wide
+// ~/.cc-habits store; `repo` is the per-repo .cch/ store rooted at the cwd's
+// repository. Injection merges the two, but the views keep them distinct so the
+// user can always see exactly where a habit lives (transparency over magic).
+export type ViewScope = 'global' | 'repo';
+
+export interface ResolvedViewScope {
+  scope: ViewScope;
+  ctx?: StorageContext;     // undefined for the global store
+  repoAvailable: boolean;   // the cwd's repo carries a .cch/ store
+  note?: string;            // set when a requested scope had to fall back
+}
+
+// Resolve the store a view should read. Defaults to global. `--repo` selects the
+// repo-local store when one exists; if it does not, we fall back to global and
+// hand back a note so the caller can tell the user why.
+export function resolveViewScope(requested?: ViewScope): ResolvedViewScope {
+  const root = findRepoRoot();
+  let repoCtx: StorageContext | undefined;
+  let repoAvailable = false;
+  if (root) {
+    const ctx = repoStorageContext(root);
+    if (fs.existsSync(ctx.habitsFile) || fs.existsSync(ctx.memoriesFile)) {
+      repoCtx = ctx;
+      repoAvailable = true;
+    }
+  }
+  if (requested === 'repo') {
+    return repoCtx
+      ? { scope: 'repo', ctx: repoCtx, repoAvailable: true }
+      : { scope: 'global', ctx: undefined, repoAvailable: false,
+          note: 'No .cch/ store in this repo yet. Showing the global store. Run `cch learn` and pick "this repo" to create one.' };
+  }
+  return { scope: 'global', ctx: undefined, repoAvailable };
+}
+
+// One-line banner naming the store being shown and pointing at the other one,
+// printed only when there is a real choice to make (so the global-only case
+// stays quiet).
+function renderScopeBanner(s: ResolvedViewScope): void {
+  if (s.note) {
+    process.stdout.write(c(YELLOW, '  → ') + c(DIM, s.note) + '\n\n');
+  }
+  if (s.scope === 'repo') {
+    process.stdout.write(
+      c(DIM, '  scope: ') + c(BOLD, 'this repo') + c(DIM, ' (.cch/)  ·  global: ') + c(CYAN, 'cch view --global') + '\n\n',
+    );
+  } else if (s.repoAvailable) {
+    process.stdout.write(
+      c(DIM, '  scope: ') + c(BOLD, 'global') + c(DIM, ' (~/.cc-habits)  ·  this repo also has a local store: ') + c(CYAN, 'cch view --repo') + '\n\n',
+    );
+  }
+}
+
+export function renderHabitsView(langFilter?: string, ctx?: StorageContext): number {
+  const habitsMd = readHabitsMd(ctx);
+  const allSignals = readSignals(undefined, ctx);
   const cats = parseHabits(habitsMd);
   // Normalise the requested language the same way habit languages are normalised,
   // so `--lang TS` matches a habit tagged `ts`. Blank/whitespace means no filter.
@@ -514,7 +642,7 @@ export function renderHabitsView(langFilter?: string): number {
     process.stdout.write(c(DIM, '  No habits learned yet.\n'));
     process.stdout.write(c(DIM, '  Use Claude Code for a session, then check back.\n'));
   } else {
-    const memoriesMd = readMemoriesMd();
+    const memoriesMd = readMemoriesMd(ctx);
     const memories = parseMemories(memoriesMd);
     const totalMemories = Object.values(memories).flat().length;
 
@@ -596,30 +724,87 @@ export function renderHabitsView(langFilter?: string): number {
   return 0;
 }
 
-export async function cmdView(langFilter?: string): Promise<number> {
-  if (process.stdin.isTTY && process.stdout.isTTY) {
-    const choice = await runSelectMenu(
-      `  ${c(BOLD + CYAN, 'Select what you would like to view (use ↑/↓ keys):')}`,
-      [
-        { label: 'habits       Show current habits and recent signals', value: 'habits' },
-        { label: 'memories     Show coding memories', value: 'memories' },
-        { label: 'preferences  Show what your agents see (preferences.md)', value: 'prefs' },
-      ]
-    );
-    if (!choice) return 0;
-    if (choice.value === 'memories') return cmdMemories();
-    if (choice.value === 'prefs') return cmdPrefs();
+// Compact "what has it learned" block appended to the unified `cch view`: the
+// graduated memories, one line each, then a one-line pointer to the full list.
+// Quietly does nothing when memory learning is off or nothing has been learned.
+function renderMemoriesSummary(ctx?: StorageContext): void {
+  if (!memoriesEnabled()) return;
+  const all = Object.values(parseMemories(readMemoriesMd(ctx))).flat();
+  if (all.length === 0) return;
+  const active = all.filter(m => (m.sessions_seen ?? 1) >= 2);
+  const candidates = all.length - active.length;
+
+  process.stdout.write(c(BOLD, '  ── Memories ') + c(DIM, '─'.repeat(36)) + '\n');
+  if (active.length === 0) {
+    process.stdout.write(c(DIM, `  ${candidates} candidate${candidates === 1 ? '' : 's'} still learning. See all: cch view memories\n\n`));
+    return;
   }
-  return renderHabitsView(langFilter);
+  for (const m of active) renderMemoryLine(m, false);
+  if (candidates > 0) {
+    process.stdout.write(c(DIM, `  +${candidates} candidate${candidates === 1 ? '' : 's'} learning · full list: cch view memories\n`));
+  }
+  process.stdout.write('\n');
+}
+
+// `cch view` with no subcommand: the one-glance unified view. Compact habits
+// (grouped) plus graduated memories, with no menu and no flags to remember. The
+// focused subviews (`cch view memories|prefs|habits`) and `--lang` still exist,
+// and are routed in index.ts before this runs.
+// `cch view habits [--repo|--global]`: the grouped habits view alone (no
+// memories fold-in), scope-aware like the unified view.
+export function cmdHabitsView(langFilter?: string, requestedScope?: ViewScope): number {
+  const scope = resolveViewScope(requestedScope);
+  renderScopeBanner(scope);
+  return renderHabitsView(langFilter, scope.ctx);
+}
+
+export function cmdView(langFilter?: string, requestedScope?: ViewScope): number {
+  const scope = resolveViewScope(requestedScope);
+  renderScopeBanner(scope);
+  const code = renderHabitsView(langFilter, scope.ctx);
+  // Memories are not language-scoped, so only fold them into the unfiltered view.
+  if (!langFilter) renderMemoriesSummary(scope.ctx);
+  return code;
+}
+
+// Bare `cch view` on an interactive terminal: instead of dumping one fixed view,
+// ask what to look at (habits + memories, habits only, memories, preferences, and
+// the repo's .cch/ store when one exists), mirroring the `cch learn` scope prompt.
+// Non-interactive callers (pipes, scripts) and any explicit subcommand or flag
+// bypass this and keep the direct unified view so nothing blocks on input.
+export async function cmdViewInteractive(): Promise<number> {
+  if (!process.stdin.isTTY) return cmdView();
+  const items: { label: string; value: string }[] = [
+    { label: 'Habits + memories   the full picture (global store)', value: 'all' },
+    { label: 'Habits only         grouped, with confidence and languages', value: 'habits' },
+    { label: 'Memories            project cautions and corrections', value: 'memories' },
+    { label: 'Preferences         the file your agents actually read', value: 'prefs' },
+  ];
+  // Offer the repo-local store as a target only when the cwd carries one.
+  if (resolveViewScope('repo').scope === 'repo') {
+    items.push({ label: 'This repo (.cch/)   habits scoped to this repository', value: 'repo' });
+  }
+  const choice = await runSelectMenu('  What would you like to view?', items);
+  if (!choice) return 0; // cancelled (Esc / q / Ctrl+C): show nothing.
+  if (choice.value === 'habits') return cmdHabitsView();
+  if (choice.value === 'memories') return cmdMemories();
+  if (choice.value === 'prefs') return cmdPrefs();
+  if (choice.value === 'repo') return cmdView(undefined, 'repo');
+  return cmdView();
 }
 
 /**
  * `cch view prefs`, print the preferences.md that agents actually read via
  * the @import in CLAUDE.md. Transparency: shows exactly what cc-habits injects.
  */
-export function cmdPrefs(): number {
-  const prefsPath = storagePaths.preferencesFile;
-  renderBrandedCard('active preferences', `injected via @import into ~/.claude/CLAUDE.md`);
+export function cmdPrefs(requestedScope?: ViewScope): number {
+  const scope = resolveViewScope(requestedScope);
+  const prefsPath = scope.ctx ? scope.ctx.preferencesFile : storagePaths.preferencesFile;
+  const subtitle = scope.scope === 'repo'
+    ? 'this repo\'s .cch/ store'
+    : 'injected via @import into ~/.claude/CLAUDE.md';
+  renderBrandedCard('active preferences', subtitle);
+  renderScopeBanner(scope);
   process.stdout.write(c(DIM, `  source: ${tildePath(prefsPath)}\n\n`));
 
   if (!fs.existsSync(prefsPath)) {
@@ -749,9 +934,10 @@ export function cmdMemoriesToggle(enabled: boolean): number {
 
 
 
-export async function cmdMemories(): Promise<number> {
-  initMemoriesMd();
-  const memoriesMd = readMemoriesMd();
+export async function cmdMemories(requestedScope?: ViewScope): Promise<number> {
+  const scope = resolveViewScope(requestedScope);
+  initMemoriesMd(scope.ctx);
+  const memoriesMd = readMemoriesMd(scope.ctx);
   const sections = parseMemories(memoriesMd);
   const allMemories = Object.values(sections).flat();
   const active = allMemories.filter(m => (m.sessions_seen ?? 1) >= 2);
@@ -759,8 +945,9 @@ export async function cmdMemories(): Promise<number> {
 
   process.stdout.write('\n');
   process.stdout.write(c(BOLD + CYAN, '  cc-habits') + c(BOLD, ' · coding memories\n'));
-  process.stdout.write(c(DIM, `  ${storagePaths.memoriesFile}\n`));
+  process.stdout.write(c(DIM, `  ${scope.ctx ? scope.ctx.memoriesFile : storagePaths.memoriesFile}\n`));
   process.stdout.write('\n');
+  renderScopeBanner(scope);
 
   if (allMemories.length === 0) {
     const enabled = memoriesEnabled();
@@ -1129,7 +1316,7 @@ export function cmdStatus(proof = false): number {
         if (tool.id === 'cursor') {
           const cursorFired = firedBySource['vscode'];
           const desc = cursorFired
-            ? c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(cursorFired.ts)} · ${path.basename(cursorFired.file)} · ${cursorFired.count} sig${cursorFired.count === 1 ? '' : 's'}`)
+            ? c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(cursorFired.ts)} · ${term(path.basename(cursorFired.file))} · ${cursorFired.count} sig${cursorFired.count === 1 ? '' : 's'}`)
             : c(DIM, 'git capture on commit');
           hookRows.push(line(`${git}  ${pad(c(BOLD, 'Cursor'), NAMEW)}  ${desc}`));
           continue;
@@ -1144,7 +1331,7 @@ export function cmdStatus(proof = false): number {
         if (!registered) {
           desc = c(YELLOW, 'not registered, run `cch init`');
         } else if (fired) {
-          desc = c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(fired.ts)} · ${path.basename(fired.file)} · ${fired.count} sig${fired.count === 1 ? '' : 's'}`);
+          desc = c(GREEN, 'live') + c(DIM, ` · ${formatTimeAgo(fired.ts)} · ${term(path.basename(fired.file))} · ${fired.count} sig${fired.count === 1 ? '' : 's'}`);
         } else if (tool.id === 'codex') {
           // Codex shell edits are not seen by the hook, so "edit to confirm" would
           // mislead. State the limitation directly and keep it short enough to fit.
@@ -1217,18 +1404,43 @@ export function cmdStatus(proof = false): number {
   const memoryVal  = memsOn ? c(GREEN, 'on') : c(DIM, 'off');
   const versionVal = c(DIM, VERSION);
 
-  // Extraction liveness: last successful learn vs the most recent extraction failure
-  // in error.log. Surfaces a silently-failing provider, since capture keeps running
-  // so the habits/signals counts alone would still read as healthy.
+  // Per-repo .cch/ store liveness: how many habits this repo carries and when it
+  // was last learned into (via `cch learn` -> this repo, or `cch init`'s scan).
+  // Only shown when the cwd actually has a .cch/ store, so non-repo runs and repos
+  // that never opted in stay uncluttered. Best-effort: a read failure just omits
+  // the row rather than breaking status. Computed before the global `learn` row so
+  // that row can name its scope ("global") only when a repo store also exists.
+  let repoVal: string | undefined;
+  try {
+    const root = findRepoRoot();
+    if (root) {
+      const rctx = repoStorageContext(root);
+      if (fs.existsSync(rctx.habitsFile)) {
+        const rCats = parseHabits(readHabitsMd(rctx));
+        const rCount = Object.values(rCats).reduce((s, h) => s + h.length, 0);
+        const rHist = readHistory(rctx);
+        const lastTs = rHist.length > 0 ? rHist[rHist.length - 1].ts : undefined;
+        repoVal = c(BOLD, String(rCount)) + ` habit${rCount === 1 ? '' : 's'}`
+          + (lastTs ? c(DIM, ` · learned ${formatTimeAgo(lastTs)}`) : c(DIM, ' · run `cch learn` to populate'));
+      }
+    }
+  } catch { /* repo row is best-effort */ }
+
+  // Global-store learn liveness: last successful learn vs the most recent extraction
+  // failure in error.log. Surfaces a silently-failing provider, since capture keeps
+  // running so the habits/signals counts alone would still read as healthy. When a
+  // repo store also exists we prefix "global · " so the `learn` and `repo` rows read
+  // as the two scopes they are; with no repo store the marker is omitted to stay clean.
   const health = readExtractionHealth();
+  const scope = repoVal ? 'global · ' : '';
   let extractionVal: string;
   if (health.failing) {
-    extractionVal = fail + c(YELLOW, `  last attempt failed ${formatTimeAgo(health.lastFailureTs!)}`)
+    extractionVal = fail + c(YELLOW, `  ${repoVal ? 'global · ' : ''}last attempt failed ${formatTimeAgo(health.lastFailureTs!)}`)
       + (health.lastFailureMsg ? c(DIM, ` (${health.lastFailureMsg})`) : '');
   } else if (health.lastSuccessTs) {
-    extractionVal = ok + c(DIM, `  last learned ${formatTimeAgo(health.lastSuccessTs)}`);
+    extractionVal = ok + c(DIM, `  ${scope}last learned ${formatTimeAgo(health.lastSuccessTs)}`);
   } else {
-    extractionVal = git + c(DIM, '  no extraction yet');
+    extractionVal = git + c(DIM, `  ${scope}nothing learned yet`);
   }
 
   // Render the bordered table.
@@ -1239,7 +1451,8 @@ export function cmdStatus(proof = false): number {
   out += kv('import', importVal);
   out += kv('habits', habitsVal);
   out += kv('signals', signalsVal);
-  out += kv('extract', extractionVal);
+  out += kv('learn', extractionVal);
+  if (repoVal) out += kv('repo', repoVal);
   out += kv('memory', memoryVal);
   out += kv('version', versionVal);
   out += rule('└', '┘');
@@ -1500,7 +1713,7 @@ export async function cmdLint(filePath: string, asJson: boolean): Promise<number
     findings = await lintPath(filePath);
   } catch (e) {
     if (getConfigValue('provider') === 'ollama' && process.stdin.isTTY && !asJson) {
-      process.stdout.write(c(YELLOW, `\n  Ollama error: ${String(e)}\n`));
+      process.stdout.write(c(YELLOW, `\n  Ollama error: ${term(String(e))}\n`));
       const model = getConfigValue('ollama_model') || OLLAMA_DEFAULT_MODEL;
       const okModel = await interactiveOllamaSetup('✓', '~', model);
       if (okModel) {
@@ -1578,7 +1791,7 @@ export async function cmdBootstrap(): Promise<number> {
     return 0;
   } catch (e) {
     if (getConfigValue('provider') === 'ollama' && process.stdin.isTTY) {
-      process.stdout.write(c(YELLOW, `\n  Ollama error: ${String(e)}\n`));
+      process.stdout.write(c(YELLOW, `\n  Ollama error: ${term(String(e))}\n`));
       const model = getConfigValue('ollama_model') || OLLAMA_DEFAULT_MODEL;
       const okModel = await interactiveOllamaSetup('✓', '~', model);
       if (okModel) {
@@ -1756,6 +1969,9 @@ export function renderRepoScan(scan: RepoScanResult): void {
       process.stdout.write(c(DIM, '  Repo scan skipped: no AI provider configured. Add one: `cch init --provider anthropic`.\n'));
     } else {
       process.stdout.write(c(DIM, `  Repo scan skipped: ${scan.reason ?? 'nothing to analyze'}.\n`));
+      if (scan.suggestion) {
+        process.stdout.write('  ' + c(YELLOW, '→') + ' ' + c(DIM, scan.suggestion) + '\n');
+      }
     }
     return;
   }
@@ -1763,7 +1979,17 @@ export function renderRepoScan(scan: RepoScanResult): void {
   const learned = scan.habitsLearned + scan.memoriesLearned;
   const memoriesUpdated = scan.memoriesUpdated ?? 0;
   if (learned === 0 && scan.habitsUpdated === 0 && memoriesUpdated === 0) {
-    process.stdout.write(c(DIM, `  Scanned ${scan.filesAnalyzed} file${scan.filesAnalyzed === 1 ? '' : 's'}; no new habits found yet.\n`));
+    const fileCount = `${scan.filesAnalyzed} file${scan.filesAnalyzed === 1 ? '' : 's'}`;
+    process.stdout.write(c(DIM, `  Scanned ${fileCount}; the model returned no habits this pass.\n`));
+    // Explain WHY so an empty result never reads as a silent failure. Extraction
+    // quality is bounded by the model: small local models often return nothing,
+    // and the fix is a stronger one (or an API key), not re-running the same model.
+    const provider = getConfigValue('provider');
+    const ollamaModel = getConfigValue('ollama_model');
+    const why = provider === 'ollama'
+      ? `${ollamaModel || 'this model'} is small for code extraction. Try a stronger model (e.g. \`ollama pull qwen2.5-coder:7b\`) or an API key: \`cch init --provider anthropic\`.`
+      : `Re-run after some real edits, or try a stronger model. Repo scans lean on the model to spot patterns.`;
+    process.stdout.write('  ' + c(YELLOW, '→') + ' ' + c(DIM, why) + '\n');
     return;
   }
 
@@ -1806,13 +2032,37 @@ export function renderRepoScan(scan: RepoScanResult): void {
   }
 }
 
+// Resolve the per-repo .cch/ store for the current working directory and make
+// sure it is fully scaffolded. Falls back to the cwd when no .git is found so a
+// scan launched outside a repo still has a concrete place to write. The store
+// gets the same files the global store does (habits.md, preferences.md,
+// memories.md, log.jsonl) so the folder is never an empty mystery and every
+// reader/writer has a real file to land on, even before the first habit is
+// learned. config.yml is intentionally not created here: the store reuses the
+// global provider config.
+export function repoStoreCtx(): StorageContext {
+  const ctx = repoStorageContext(findRepoRoot() ?? process.cwd());
+  initHabitsMd(ctx);
+  initMemoriesMd(ctx);
+  initLog(ctx);
+  // Seed an empty preferences.md so the @import target exists immediately and
+  // injection has a file to read. Safe to call repeatedly: it rewrites from the
+  // (empty) habits store and prints the "nothing graduated yet" placeholder.
+  try { writePreferencesFile(ctx); } catch { /* best-effort scaffold */ }
+  return ctx;
+}
+
 // `cch learn --repo` (alias `cch learn this`): re-run the repo scan on demand,
-// forcing past the once-per-repo guard.
-export async function cmdLearnRepo(opts: { force?: boolean } = {}): Promise<number> {
-  process.stdout.write(c(DIM, '  Scanning this repository...\n'));
+// forcing past the once-per-repo guard. By default the scan writes into this
+// repo's own .cch/ store, not the global one, so a repo's specifics stay
+// scoped to that repo. Pass a ctx to override (e.g. the "both" flow).
+export async function cmdLearnRepo(opts: { force?: boolean; ctx?: StorageContext } = {}): Promise<number> {
+  const ctx = opts.ctx ?? repoStoreCtx();
+  process.stdout.write(c(DIM, '  Scanning this repository into its .cch/ store...\n'));
   try {
     const scan = await scanRepo({
       force: opts.force ?? true,
+      ctx,
       confirm: () => promptYesNoDefaultTrue('   Proceed with scan? [Y/n] '),
     });
     renderRepoScan(scan);
@@ -1826,6 +2076,31 @@ export async function cmdLearnRepo(opts: { force?: boolean } = {}): Promise<numb
     process.stderr.write(`cc-habits learn --repo: ${String(e)}\n`);
     return 1;
   }
+}
+
+// Plain `cch learn` (no scope flags) in an interactive terminal: ask where the
+// learned habits should land, so the user controls repo-local vs global scope
+// instead of everything silently piling into the global store.
+//   1) This repo      → scan source into <repo>/.cch/   (repo-scoped)
+//   2) This session    → distil recent edits into ~/.cc-habits   (global)
+//   3) Both            → session distil, then a repo scan
+// Non-interactive callers (auto-learn, pipes) skip the prompt and keep the
+// historical session-only behaviour so capture paths never block on input.
+export async function cmdLearnScoped(opts: { session?: string; since?: number } = {}): Promise<number> {
+  if (!process.stdin.isTTY) return cmdLearn(opts);
+  const choice = await runSelectMenu('  Where should cc-habits learn into?', [
+    { label: 'This repo     .cch/ store, scoped to this repository', value: 'repo' },
+    { label: 'This session  global store, applies everywhere', value: 'session' },
+    { label: 'Both          repo scan and session distil', value: 'both' },
+  ]);
+  if (!choice) return 0; // cancelled (Esc / q / Ctrl+C): exit cleanly, learn nothing.
+  if (choice.value === 'repo') return cmdLearnRepo({ force: true });
+  if (choice.value === 'both') {
+    const sessionCode = await cmdLearn(opts);
+    const repoCode = await cmdLearnRepo({ force: true });
+    return sessionCode || repoCode;
+  }
+  return cmdLearn(opts);
 }
 
 // learn ────────────────────────────────────────────────────────────────────
@@ -1893,7 +2168,7 @@ export async function cmdLearn(opts: { session?: string; since?: number; interac
     // a capture must not block a commit waiting for input. Such callers pass
     // interactive: false, and we fall through to the quiet one-line hint.
     if (opts.interactive !== false && getConfigValue('provider') === 'ollama' && process.stdin.isTTY) {
-      process.stdout.write(c(YELLOW, `\n  Ollama error: ${String(e)}\n`));
+      process.stdout.write(c(YELLOW, `\n  Ollama error: ${term(String(e))}\n`));
       const model = getConfigValue('ollama_model') || OLLAMA_DEFAULT_MODEL;
       const okModel = await interactiveOllamaSetup('✓', '~', model);
       if (okModel) {

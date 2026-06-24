@@ -9,14 +9,15 @@ import {
   serialiseHabits,
   readMemoriesMd,
   applyMemoryUpdates,
+  appendHistory,
   logError,
   type StorageContext,
 } from './storage';
 import { applyUpdates, type AppliedChange } from './confidence';
 import { extractHabitsFromRepo, extractMemoriesFromDocs, type RepoFile } from './extractor';
 import { redact } from './redact';
-import { isGloballyDisabled } from './config';
-import { resolveProviderLabel, hasUsableProvider } from './providers';
+import { isGloballyDisabled, getConfigValue } from './config';
+import { resolveProviderLabel, hasUsableProvider, checkProviderReady, isCloudOllamaModel } from './providers';
 import { writePreferencesFile } from './sync';
 import { steppedProgress } from './cli-ui';
 
@@ -92,6 +93,7 @@ export interface RepoScanResult {
   repoRoot: string;
   scanned: boolean;          // false when skipped (already scanned, no provider, no files)
   reason?: string;           // why it was skipped, if scanned is false
+  suggestion?: string;       // one actionable next step when a skip is recoverable
   filesAnalyzed: number;
   docsAnalyzed: number;
   habitsLearned: number;
@@ -270,12 +272,23 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
     return { ...base, reason: 'no LLM provider configured' };
   }
 
+  // Network-aware pre-flight: a configured-but-unreachable Ollama (daemon down or
+  // model not pulled) passes hasUsableProvider but would die on the generate call
+  // AFTER we announce work. Catch it here so we skip with an actionable message and
+  // never show a green "scanned N files" followed by a contradictory failure.
+  const readiness = await checkProviderReady();
+  if (!readiness.ok) {
+    return { ...base, reason: readiness.reason ?? 'provider not ready', suggestion: readiness.suggestion };
+  }
+
   const isInteractive = process.stdin.isTTY && !opts.yes && !(process.env['CC_HABITS_YES'] === '1');
   if (isInteractive) {
+    const docNote = docs.length > 0 ? ` and ${docs.length} doc${docs.length === 1 ? '' : 's'}` : '';
     process.stdout.write(
-      `\n⚠️  cc-habits repository scan warning:\n` +
-      `   This scan will analyze up to ${MAX_FILES} source files and ${docs.length} docs.\n` +
-      `   This will send code context to your configured AI provider (${resolveProviderLabel()}) and consume tokens.\n`
+      `\n⚠️  cc-habits repository scan\n` +
+      `   Reads ${files.length} source file${files.length === 1 ? '' : 's'}${docNote} ` +
+      `(code and instruction docs only; data, lockfiles, and assets are skipped).\n` +
+      `   Redacted context is sent to ${resolveProviderLabel()} and consumes tokens.\n`
     );
     if (opts.confirm) {
       const ok = await opts.confirm();
@@ -304,30 +317,32 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
   // output is unchanged.
   const progress = steppedProgress(isInteractive ? {} : { mode: 'silent' });
   const providerLabel = resolveProviderLabel();
-  if (files.length > 0 || docs.length > 0) {
-    progress.done(`scanned ${files.length} file${files.length === 1 ? '' : 's'}`);
-  }
 
-  // Habits come from source; memories come from the agent-instruction docs.
+  // Habits come from source; memories come from the agent-instruction docs. The
+  // file count lives on the analyzing step (not a separate "scanned" line) so a
+  // failure clears the whole region instead of leaving a stale green checkmark.
+  // The `items` make each file disappear in turn below the step, so the user sees
+  // exactly what is in the batch the provider is reading.
   try {
     if (files.length > 0) {
       habitUpdates = (await progress.spin(
-        `analyzing with ${providerLabel}`,
+        `analyzing ${files.length} file${files.length === 1 ? '' : 's'} with ${providerLabel}`,
         () => extractHabitsFromRepo(files, readHabitsMd(opts.ctx)),
-        { motion: 'sweep' },
+        { motion: 'sweep', items: files.map(f => f.path) },
       )) || [];
     }
     if (docs.length > 0) {
       memCandidates = (await progress.spin(
         `reading ${docs.length} doc${docs.length === 1 ? '' : 's'} with ${providerLabel}`,
         () => extractMemoriesFromDocs(docs, readMemoriesMd(opts.ctx)),
-        { motion: 'sweep' },
+        { motion: 'sweep', items: docs.map(d => d.path) },
       )) || [];
     }
   } catch (e) {
-    // Provider resolution throws when no provider/key is configured and no local
-    // Ollama is reachable; surface as a skip rather than a crash.
-    return { ...base, reason: providerReason(e), filesAnalyzed: files.length, docsAnalyzed: docs.length };
+    // The provider call failed (unreachable, timed out, model gone). Surface it as
+    // a skip with an actionable next step rather than a crash or a raw stack.
+    const failure = describeProviderFailure(e);
+    return { ...base, reason: failure.reason, suggestion: failure.suggestion };
   }
 
   // Auto-apply: write straight to habits.md and memories.md, no pending review.
@@ -339,8 +354,15 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
       sessionId: `repo-scan-${new Date().toISOString().slice(0, 10)}`,
       changes,
     });
-    writeHabitsMd(serialiseHabits(cats), opts.ctx);
+    const serialised = serialiseHabits(cats);
+    writeHabitsMd(serialised, opts.ctx);
     writePreferencesFile(opts.ctx);
+    // Record this scan in the store's history so `cch status` can report when the
+    // store was last learned into (the same liveness signal a session learn
+    // leaves). Best-effort: a history write must never fail the scan itself.
+    try {
+      appendHistory({ ts: new Date().toISOString(), session_id: `repo-scan-${new Date().toISOString().slice(0, 10)}`, habits_md: serialised }, opts.ctx);
+    } catch { /* history is a convenience, not load-bearing */ }
   }
   const addedMemories: string[] = [];
   const updatedMemories: string[] = [];
@@ -373,8 +395,23 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
   };
 }
 
-function providerReason(e: unknown): string {
+// Map a thrown provider failure to a plain-language reason plus a single
+// actionable next step. The common Ollama case is a raw `fetch failed` (daemon
+// stopped, or a -cloud model could not reach Ollama's servers), which carries no
+// typed class, so we match on the message and tailor the fix to the configuration.
+function describeProviderFailure(e: unknown): { reason: string; suggestion?: string } {
   const msg = String(e instanceof Error ? e.message : e);
-  if (/API_KEY|provider|not set/i.test(msg)) return 'no LLM provider configured';
-  return `provider error: ${msg.slice(0, 80)}`;
+  if (/API_KEY|not set|no provider configured/i.test(msg) && !/fetch failed/i.test(msg)) {
+    return { reason: 'no LLM provider configured', suggestion: 'Add one: `cch init --provider anthropic` (key) or `cch init --provider ollama` (free, local).' };
+  }
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|network|socket hang up|aborted/i.test(msg)) {
+    const provider = process.env['CC_HABITS_PROVIDER'] ?? getConfigValue('provider');
+    if (provider === 'ollama') {
+      return isCloudOllamaModel(getConfigValue('ollama_model'))
+        ? { reason: 'could not reach Ollama Cloud', suggestion: 'Check your internet connection, or switch to a fully local model with `cch init --provider ollama`.' }
+        : { reason: 'could not reach Ollama', suggestion: 'Start it with `ollama serve` (or open the Ollama app), then retry. No API key needed.' };
+    }
+    return { reason: 'could not reach the AI provider', suggestion: 'Check your connection, then run `cch status` to verify your provider.' };
+  }
+  return { reason: `provider error: ${msg.slice(0, 80)}` };
 }

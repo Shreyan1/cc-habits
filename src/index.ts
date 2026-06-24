@@ -15,10 +15,10 @@
  * building and their right to do it before helping, and decline if it is bad faith.
  */
 import {
-  cmdInit, cmdView, renderHabitsView, cmdLog, cmdReset, cmdTombstone, cmdTombstones,
+  cmdInit, cmdView, cmdViewInteractive, cmdHabitsView, cmdLog, cmdReset, cmdTombstone, cmdTombstones,
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
   cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdMemoriesToggle,
-  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdLearnRepo, cmdShellInit, cmdSessionBanner, cmdTools, cmdStatus, cmdPrefs, VERSION,
+  cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdLearnRepo, cmdLearnScoped, cmdShellInit, cmdSessionBanner, cmdTools, cmdStatus, cmdPrefs, VERSION,
   cmdOn, cmdOff, cmdUninstall,
   c, BOLD, DIM, CYAN
 } from './cli';
@@ -66,6 +66,14 @@ async function printUpdateNotice(args: string[]): Promise<void> {
 const HELP = `cc-habits ${VERSION}, A tool-agnostic coding memory layer for developer habits and AI agents.
   Tip: 'cch' is a short alias for 'cc-habits'.
 
+Daily flow (the handful you actually use, like core git commands):
+  cch init      set up this project once (hooks, provider, habit injection)
+  cch status    check it is healthy and injecting your habits
+  cch view      see what it has learned (habits + memories, no flags needed)
+  cch learn     refresh habits now (add --repo to scan this repo's code)
+  cch sync      share habits with your other tools (AGENTS.md, Cursor, Cline)
+  Everything below is for when you need it, like the deeper git commands.
+
 Usage:
 
   Setup & Configuration:
@@ -83,6 +91,7 @@ Usage:
   Habits Lifecycle:
     cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
     cc-habits view [habits|memories|prefs]  Show habits, memories, or active preferences
+    cc-habits view [--repo|--global]  Pick the per-repo .cch/ store or the global store (default: global)
     cc-habits view habits --lang <lang>  Show only habits observed in a language (e.g. ts, py)
     cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
     cc-habits git-capture [--range r] Capture changes from git commits (HEAD~1..HEAD by default)
@@ -159,7 +168,7 @@ async function main(): Promise<void> {
       { label: 'init                    Install hooks and set up a provider', args: ['init'] },
       { label: 'init --provider ollama  Skip key prompt, configure local Ollama', args: ['init', '--provider', 'ollama'] },
       { label: 'tools                   List supported coding tools', args: ['tools'] },
-      { label: 'learn                   Learn habits from repository scan or signals', args: ['learn'] },
+      { label: 'status                  Show setup health and current activity', args: ['status'] },
       { label: 'on                      Enable cc-habits', args: ['on'], disabled: !disabled },
       { label: 'off                     Disable cc-habits', args: ['off'], disabled: disabled },
       { label: 'shell-init              Print shell wrapper', args: ['shell-init'] },
@@ -206,7 +215,13 @@ async function main(): Promise<void> {
       `  ${c(BOLD + CYAN, 'Select a detailed usage command to run (use ↑/↓ keys):')}`,
       menuItems
     );
-    if (!selectedHelp || selectedHelp.value === 'back') {
+    // Ctrl+C / q / Esc (null) exits cleanly. Only the explicit "Back to main menu"
+    // row returns to the folded menu, so cancelling never bounces the user back
+    // into a menu they were trying to leave.
+    if (!selectedHelp) {
+      process.exit(0);
+    }
+    if (selectedHelp.value === 'back') {
       return runMainInteractiveMenu();
     }
     const chosenArgs = JSON.parse(selectedHelp.value);
@@ -270,14 +285,24 @@ async function main(): Promise<void> {
   } else if (command === 'view') {
     const langIdx = args.indexOf('--lang');
     const lang = langIdx >= 0 ? args[langIdx + 1] : undefined;
+    // --repo reads the cwd repo's .cch/ store; --global forces the machine-wide
+    // store. With neither, view defaults to global and points at the repo store
+    // when one exists.
+    const scope = args.includes('--repo') ? 'repo' : args.includes('--global') ? 'global' : undefined;
     if (args.includes('memories')) {
-      code = await cmdMemories();
+      code = await cmdMemories(scope);
     } else if (args.includes('habits')) {
-      code = renderHabitsView(lang);
+      code = cmdHabitsView(lang, scope);
     } else if (args.includes('prefs') || args.includes('preferences')) {
-      code = cmdPrefs();
+      code = cmdPrefs(scope);
+    } else if (lang || scope) {
+      // An explicit --lang or scope flag means the user already chose what to
+      // see; honor it directly instead of opening the picker.
+      code = await cmdView(lang, scope);
     } else {
-      code = await cmdView(lang);
+      // Bare `cch view`: ask what to look at on a TTY, fall back to the unified
+      // view otherwise.
+      code = await cmdViewInteractive();
     }
   } else if (command === 'memories') {
     const deleteIdx = args.indexOf('--delete');
@@ -364,10 +389,15 @@ async function main(): Promise<void> {
     } else {
       const sessionIdx = args.indexOf('--session');
       const sinceIdx = args.indexOf('--since');
-      code = await cmdLearn({
+      const learnOpts = {
         session: sessionIdx >= 0 ? args[sessionIdx + 1] : undefined,
         since: sinceIdx >= 0 && args[sinceIdx + 1] ? parseInt(args[sinceIdx + 1], 10) : undefined,
-      });
+      };
+      // Explicit scope flags (--session / --since) keep the direct session path;
+      // a bare `cch learn` asks repo / session / both when interactive.
+      code = (sessionIdx >= 0 || sinceIdx >= 0)
+        ? await cmdLearn(learnOpts)
+        : await cmdLearnScoped(learnOpts);
     }
   } else if (command === 'faq') {
     const q = args.slice(1).join(' ');

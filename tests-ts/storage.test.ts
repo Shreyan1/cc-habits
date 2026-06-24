@@ -24,6 +24,7 @@ import {
   readMemoryTombstones,
   addTombstone,
   isTombstoned,
+  LOG_HEADER,
 } from '../src/storage';
 
 // Save originals once
@@ -66,6 +67,19 @@ describe('storage', () => {
     expect(readSignals('a')).toHaveLength(1);
     expect(readSignals('b')).toHaveLength(1);
     expect(readSignals()).toHaveLength(2);
+  });
+
+  it('seeds the self-describing header when it creates the log itself', () => {
+    // Passive capture runs before `cch init`, so a hook can be the first thing to
+    // touch the log. appendSignal must seed the header in that case, otherwise the
+    // global log, the one that actually fills with signals, is the only store
+    // missing it. Remove the initLog-seeded file to simulate a virgin log.
+    fs.rmSync(storagePaths.logFile, { force: true });
+    appendSignal({ ts: '2026-05-18T00:00:00Z', session_id: 'fresh', type: 'edit', file: 'a.py', diff: '-x\n+y' });
+    const raw = fs.readFileSync(storagePaths.logFile, 'utf-8');
+    expect(raw.startsWith(LOG_HEADER)).toBe(true);
+    // The header coexists with the signal, and readSignals ignores the // lines.
+    expect(readSignals('fresh')).toHaveLength(1);
   });
 
   describe('countSignals (parse-free count, must equal readSignals().length)', () => {
