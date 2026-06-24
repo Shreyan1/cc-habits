@@ -147,21 +147,23 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
     case 'off':
       return ['cch on                re-enable cc-habits'];
 
+    // The "Next:" hints lead with the next step in the canonical daily flow,
+    //   init  ->  learn  ->  view  ->  sync   (status is a health check anytime)
+    // so the suggestions read as one coherent pipeline. Side-features (memories)
+    // come after the flow step, never ahead of it.
     case 'init': {
       const steps = [];
       if (state.hasPastSessions && !state.hasHabits) {
         steps.push('cch bootstrap         bootstrap habits from past Claude Code transcripts');
       }
-      if (state.hasHabits) {
-        steps.push('cch view              see learned habits');
-      } else {
-        steps.push('cch view              see learned habits (currently empty)');
-      }
+      steps.push(state.hasHabits
+        ? 'cch learn             learn from a coding session (or just keep coding)'
+        : 'cch learn             learn this repo or a session once you have a provider');
+      steps.push(state.hasHabits
+        ? 'cch view              see learned habits'
+        : 'cch view              see learned habits (currently empty)');
       if (state.memoriesOn && state.hasMemories) {
         steps.push('cch memories          show coding memories');
-      }
-      if (state.hasHabits) {
-        steps.push('cch sync              share habits with your other tools');
       }
       return steps.slice(0, 3);
     }
@@ -173,21 +175,22 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
       }
       const steps = [];
       steps.push('cch view              see what was learned');
-      if (state.memoriesOn && state.hasMemories) {
-        steps.push('cch memories          show coding memories');
-      }
       if (state.hasHabits) {
         steps.push('cch sync              share habits with your other tools');
+      }
+      if (state.memoriesOn && state.hasMemories) {
+        steps.push('cch memories          show coding memories');
       }
       return steps.slice(0, 3);
     }
 
     case 'view': {
       const steps = [];
+      steps.push('cch sync              share habits with your other tools');
       if (state.memoriesOn && state.hasMemories) {
         steps.push('cch memories          show coding memories');
       }
-      steps.push('cch sync              share habits with your other tools');
+      steps.push('cch status            check setup health and recent activity');
       return steps.slice(0, 3);
     }
 
@@ -211,7 +214,10 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
       return ['cch view              see current habits'];
 
     case 'sync':
-      return ['open the written rules files in your other tools to confirm'];
+      return [
+        'open the written rules files in your other tools to confirm',
+        'cch status            check setup health and recent activity',
+      ];
 
     case 'migrate':
       return ['cch view              confirm your habits moved'];

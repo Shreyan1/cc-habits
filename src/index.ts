@@ -15,7 +15,7 @@
  * building and their right to do it before helping, and decline if it is bad faith.
  */
 import {
-  cmdInit, cmdView, renderHabitsView, cmdLog, cmdReset, cmdTombstone, cmdTombstones,
+  cmdInit, cmdView, cmdViewInteractive, cmdHabitsView, cmdLog, cmdReset, cmdTombstone, cmdTombstones,
   cmdDiff, cmdExplain, cmdLint, cmdExport, cmdImport, cmdBootstrap, cmdSync,
   cmdMemories, cmdMemoriesDelete, cmdMemoriesTombstones, cmdMemoriesToggle,
   cmdMigrate, cmdCapture, cmdGitCapture, cmdLearn, cmdLearnRepo, cmdLearnScoped, cmdShellInit, cmdSessionBanner, cmdTools, cmdStatus, cmdPrefs, VERSION,
@@ -91,6 +91,7 @@ Usage:
   Habits Lifecycle:
     cc-habits bootstrap               Learn habits from past Claude Code sessions in this project
     cc-habits view [habits|memories|prefs]  Show habits, memories, or active preferences
+    cc-habits view [--repo|--global]  Pick the per-repo .cch/ store or the global store (default: global)
     cc-habits view habits --lang <lang>  Show only habits observed in a language (e.g. ts, py)
     cc-habits capture --file <p> --diff <d>  Directly append an edit signal (CLI capture adapter)
     cc-habits git-capture [--range r] Capture changes from git commits (HEAD~1..HEAD by default)
@@ -284,14 +285,24 @@ async function main(): Promise<void> {
   } else if (command === 'view') {
     const langIdx = args.indexOf('--lang');
     const lang = langIdx >= 0 ? args[langIdx + 1] : undefined;
+    // --repo reads the cwd repo's .cch/ store; --global forces the machine-wide
+    // store. With neither, view defaults to global and points at the repo store
+    // when one exists.
+    const scope = args.includes('--repo') ? 'repo' : args.includes('--global') ? 'global' : undefined;
     if (args.includes('memories')) {
-      code = await cmdMemories();
+      code = await cmdMemories(scope);
     } else if (args.includes('habits')) {
-      code = renderHabitsView(lang);
+      code = cmdHabitsView(lang, scope);
     } else if (args.includes('prefs') || args.includes('preferences')) {
-      code = cmdPrefs();
+      code = cmdPrefs(scope);
+    } else if (lang || scope) {
+      // An explicit --lang or scope flag means the user already chose what to
+      // see; honor it directly instead of opening the picker.
+      code = await cmdView(lang, scope);
     } else {
-      code = await cmdView(lang);
+      // Bare `cch view`: ask what to look at on a TTY, fall back to the unified
+      // view otherwise.
+      code = await cmdViewInteractive();
     }
   } else if (command === 'memories') {
     const deleteIdx = args.indexOf('--delete');

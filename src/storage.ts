@@ -193,6 +193,25 @@ const CANDIDATE_MEMORIES_SECTION_HEADER =
   '> These memories have not been observed enough times or approved by the user. ' +
   'Agents should not apply memories in this section.\n';
 
+// Comment header seeded into a fresh log.jsonl so the file explains itself. Each
+// line is prefixed with `//`, which every cc-habits reader skips (lines that fail
+// JSON.parse are ignored), so it never interferes with signal parsing. It states
+// the file's purpose and, crucially, why it can sit empty, since a brand-new repo
+// store or a tool whose hook has not fired yet looks identical to a broken setup.
+// No secrets here: this is static text, and the signals appended below are always
+// redacted before they are written.
+export const LOG_HEADER =
+  '// cc-habits capture log (log.jsonl): append-only, redacted audit trail.\n' +
+  '// Each line below is one edit signal (file path plus a trimmed, PII-redacted diff),\n' +
+  '// captured when a registered AI tool runs its cc-habits hook. This is the exact record\n' +
+  '// of what was stored and what would be sent to your extraction provider. Nothing else\n' +
+  '// leaves your machine, and secrets are redacted before any line is written here.\n' +
+  '// Empty? That is normal in two cases: (1) no edits have been captured yet because no\n' +
+  '// registered hook has fired; make an edit in a linked tool and run cch status to confirm\n' +
+  '// the hook is wired. (2) this is a per-repo .cch/ store -- repo scans (cch learn --repo)\n' +
+  '// write to habits.md/memories.md, not here; only hook-captured edit signals land in this\n' +
+  '// log, and the hook always writes to the global ~/.cc-habits/log.jsonl first.\n';
+
 export function ensureDirs(ctx?: StorageContext): void {
   fs.mkdirSync(getPaths(ctx).habitsDir, { recursive: true });
 }
@@ -269,11 +288,17 @@ function trimIfNeeded(filePath: string, maxLines: number): void {
       return; // absent or unstattable: nothing to trim
     }
     if (size <= LOG_ROTATE_BYTES) return;
-    const lines = fs.readFileSync(filePath, 'utf-8')
+    const all = fs.readFileSync(filePath, 'utf-8')
       .split('\n')
       .filter(l => l.trim());
-    if (lines.length <= maxLines) return;
-    safeWrite(filePath, lines.slice(-maxLines).join('\n') + '\n');
+    // Preserve any leading `//` comment header (the self-describing log preamble)
+    // so rotation trims only signal lines, never the explanation of the file.
+    const header: string[] = [];
+    let i = 0;
+    while (i < all.length && all[i]!.startsWith('//')) { header.push(all[i]!); i++; }
+    const records = all.slice(i);
+    if (records.length <= maxLines) return;
+    safeWrite(filePath, [...header, ...records.slice(-maxLines)].join('\n') + '\n');
   } catch {
     // trim is best-effort; never crash the caller
   }
@@ -298,8 +323,16 @@ export function initMemoriesMd(ctx?: StorageContext): void {
 export function initLog(ctx?: StorageContext): void {
   ensureDirs(ctx);
   const paths = getPaths(ctx);
-  if (!fs.existsSync(paths.logFile)) {
-    safeWrite(paths.logFile, '');
+  // Write the header to new files AND to files that already exist but are empty,
+  // so stores created before the LOG_HEADER was introduced get the self-describing
+  // preamble the next time something calls initLog.
+  const missing = !fs.existsSync(paths.logFile);
+  if (missing) {
+    safeWrite(paths.logFile, LOG_HEADER);
+  } else {
+    try {
+      if (fs.statSync(paths.logFile).size === 0) safeWrite(paths.logFile, LOG_HEADER);
+    } catch { /* leave the file as-is if we cannot stat it */ }
   }
 }
 

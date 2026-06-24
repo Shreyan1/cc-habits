@@ -17,9 +17,9 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { repoStorageContext, findRepoRoot, REPO_STORE_DIR, storagePaths } from '../src/storage';
+import { repoStorageContext, findRepoRoot, REPO_STORE_DIR, storagePaths, initLog, readSignals, LOG_HEADER } from '../src/storage';
 import { buildMergedInjectionContext, selectMergedInjectionMemories, processUserPromptSubmit } from '../src/hook';
-import { repoStoreCtx } from '../src/cli';
+import { repoStoreCtx, resolveViewScope } from '../src/cli';
 
 const HEADER = '<!-- cc-habits format v0.2 -->\n# Coding habits\n';
 function habit(category: string, rule: string, conf: number, sessions = 3): string {
@@ -89,6 +89,28 @@ describe('repoStoreCtx, scaffolds the full store', () => {
   });
 });
 
+describe('initLog seeds a self-describing comment header', () => {
+  it('writes a // comment header that readSignals ignores', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-loghdr-'));
+    fs.mkdirSync(path.join(root, '.git'));
+    const ctx = repoStorageContext(root);
+    try {
+      initLog(ctx);
+      const raw = fs.readFileSync(ctx.logFile, 'utf-8');
+      // The header is present and every header line is a // comment, so no parser
+      // mistakes it for a signal.
+      expect(raw).toBe(LOG_HEADER);
+      expect(raw.split('\n').filter(l => l.trim()).every(l => l.startsWith('//'))).toBe(true);
+      // The header explains why the file can be empty (the user's #3 ask).
+      expect(raw).toContain('Empty?');
+      // readSignals treats a header-only log as zero signals.
+      expect(readSignals(undefined, ctx)).toHaveLength(0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('buildMergedInjectionContext, repo wins on conflict', () => {
   it('drops a global habit whose rule duplicates a repo habit', () => {
     const globalMd = HEADER + habit('Style', 'Use tabs for indentation', 0.9);
@@ -137,6 +159,49 @@ describe('processUserPromptSubmit, layers the cwd repo store over the global one
       process.chdir(origCwd);
       fs.rmSync(root, { recursive: true, force: true });
       fs.rmSync(globalDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('resolveViewScope, default and explicit store selection', () => {
+  it('defaults to global and flags an available repo store from the cwd', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-scope-'));
+    fs.mkdirSync(path.join(root, '.git'));
+    const repoCtx = repoStorageContext(root);
+    fs.mkdirSync(repoCtx.habitsDir, { recursive: true });
+    fs.writeFileSync(repoCtx.habitsFile, HEADER);
+    const origCwd = process.cwd();
+    try {
+      process.chdir(root);
+      const def = resolveViewScope();
+      expect(def.scope).toBe('global');
+      expect(def.ctx).toBeUndefined();
+      expect(def.repoAvailable).toBe(true);
+
+      const repo = resolveViewScope('repo');
+      expect(repo.scope).toBe('repo');
+      // findRepoRoot resolves symlinks (macOS /var -> /private/var), so compare
+      // by the store-relative tail rather than the absolute prefix.
+      expect(repo.ctx?.habitsFile.endsWith(path.join(REPO_STORE_DIR, 'habits.md'))).toBe(true);
+    } finally {
+      process.chdir(origCwd);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to global with a note when --repo has no .cch/ store', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-scope-empty-'));
+    fs.mkdirSync(path.join(root, '.git'));
+    const origCwd = process.cwd();
+    try {
+      process.chdir(root);
+      const repo = resolveViewScope('repo');
+      expect(repo.scope).toBe('global');
+      expect(repo.repoAvailable).toBe(false);
+      expect(repo.note).toBeTruthy();
+    } finally {
+      process.chdir(origCwd);
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });

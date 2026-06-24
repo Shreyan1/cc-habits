@@ -6,7 +6,7 @@ import { runSelectMenu } from './menu';
 import { isCloudOllamaModel } from './providers';
 import {
   c, BOLD, CYAN, YELLOW, GREEN, RED, DIM, tildePath,
-  promptChoice, promptYesNo, promptYesNoDefaultTrue, promptSecret
+  promptChoice, promptYesNo, promptYesNoDefaultTrue, promptSecret, steppedProgress
 } from './cli-ui';
 
 // Persist the chosen provider as a set of upserts (not a whole-file overwrite),
@@ -143,14 +143,28 @@ export async function interactiveOllamaSetup(
 
   process.stdout.write('\n');
   process.stdout.write(c(DIM, '  Suggested models (any Ollama model works, these fit cc-habits\' habit extraction):\n'));
-  process.stdout.write(c(DIM, '    llama3.2              ~2GB    fastest, runs on almost anything (default)\n'));
-  process.stdout.write(c(DIM, '    qwen2.5-coder:7b      ~4.7GB  recommended, best at reading code diffs\n'));
-  process.stdout.write(c(DIM, '    qwen2.5-coder:3b      ~2GB    middle ground\n'));
-  process.stdout.write(c(DIM, '    phi-4 or qwen2.5:14b  ~9GB+   highest quality, needs 16GB+ RAM\n'));
+  process.stdout.write(c(DIM, '    qwen2.5-coder:7b      ~4.7GB  ') + c(GREEN, 'recommended') + c(DIM, ', best at reading code diffs\n'));
+  process.stdout.write(c(DIM, '    qwen2.5-coder:3b      ~2GB    good middle ground on 8GB RAM\n'));
+  process.stdout.write(c(DIM, '    llama3.2              ~2GB    fastest, but weak at extraction (often finds nothing)\n'));
+  process.stdout.write(c(DIM, '    qwen2.5:14b or phi-4  ~9GB+   highest quality, needs 16GB+ RAM\n'));
+  // Honesty up front, at the moment of choice: cloud models are not local, and a
+  // small local model trades privacy for weaker extraction. State both so the
+  // user picks with eyes open instead of discovering it after verification.
+  process.stdout.write(c(YELLOW, '  ⚠️  `-cloud` models run on Ollama\'s servers, so your redacted diffs leave your machine.\n'));
+  process.stdout.write(c(DIM, '      For a fully local, nothing-leaves-the-box setup, pick a model without `-cloud`.\n'));
   process.stdout.write('\n');
 
+  // Models cc-habits extracts well with. Surfaced as a "(recommended)" tag in the
+  // menu so a good small local model is an obvious pick among detected models.
+  const RECOMMENDED = new Set(['qwen2.5-coder:7b', 'qwen2.5-coder:3b', 'qwen2.5:14b', 'phi-4']);
+  const annotate = (m: string): string => {
+    if (isCloudOllamaModel(m)) return `${m}  ${c(YELLOW, '(cloud, sends diffs off-device)')}`;
+    if (RECOMMENDED.has(m)) return `${m}  ${c(GREEN, '(recommended, local)')}`;
+    return `${m}  ${c(DIM, '(local)')}`;
+  };
+
   while (true) {
-    const menuItems = otherModels.map(m => ({ label: m, value: m }));
+    const menuItems = otherModels.map(m => ({ label: annotate(m), value: m }));
     menuItems.push({ label: 'Configure/pull a different model separately', value: 'configure_separately' });
 
     const selected = await runSelectMenu(
@@ -165,39 +179,45 @@ export async function interactiveOllamaSetup(
     }
 
     const candidateModel = selected.value;
-    process.stdout.write(`\n  Verifying model '${candidateModel}'...\n`);
 
+    // Probe the model with a tiny generate call. This can take several seconds
+    // (especially while Ollama loads the weights into memory the first time), so
+    // animate a spinner over the wait instead of a frozen "Verifying..." line.
     let verificationOk = false;
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 30000);
-      const res = await fetch(`${OLLAMA_DEFAULT_URL}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: candidateModel,
-          prompt: 'Say "hello" in one word',
-          stream: false,
-        }),
-        signal: ctrl.signal,
-      });
-      clearTimeout(timer);
-      if (res.ok) {
-        const body = await res.json() as { response?: string };
-        if (body && body.response) {
-          verificationOk = true;
+    let modelError = '';
+    let connectError = '';
+    const probe = async (): Promise<void> => {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 30000);
+        const res = await fetch(`${OLLAMA_DEFAULT_URL}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: candidateModel,
+            prompt: 'Say "hello" in one word',
+            stream: false,
+          }),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const body = await res.json() as { response?: string };
+          if (body && body.response) verificationOk = true;
+        } else {
+          try {
+            const body = await res.json() as { error?: string };
+            if (body && body.error) modelError = body.error;
+          } catch { /* ignore */ }
         }
-      } else {
-        try {
-          const body = await res.json() as { error?: string };
-          if (body && body.error) {
-            process.stdout.write(c(RED, `  Model error: ${body.error}\n`));
-          }
-        } catch { /* ignore */ }
+      } catch (err) {
+        connectError = String(err);
       }
-    } catch (err) {
-      process.stdout.write(c(RED, `  Verification failed to connect: ${String(err)}\n`));
-    }
+    };
+    process.stdout.write('\n');
+    await steppedProgress().spin(`verifying model '${candidateModel}'`, probe, { motion: 'distill' });
+    if (modelError) process.stdout.write(c(RED, `  Model error: ${modelError}\n`));
+    if (connectError) process.stdout.write(c(RED, `  Verification failed to connect: ${connectError}\n`));
 
     if (verificationOk) {
       process.stdout.write(c(GREEN, `  ${tick} Model '${candidateModel}' verified successfully!\n`));

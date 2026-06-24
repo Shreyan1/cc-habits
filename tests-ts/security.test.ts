@@ -313,7 +313,10 @@ describe('SEC-8: JSONL log is not injectable via newlines in diff or file path',
         new_string: 'line one\nnew line two here',
       },
     });
-    const raw = fs.readFileSync(storagePaths.logFile, 'utf-8').trim().split('\n');
+    // Ignore the self-describing `//` comment header seeded into a fresh log; the
+    // injection guarantee is about signal lines only.
+    const raw = fs.readFileSync(storagePaths.logFile, 'utf-8').trim().split('\n')
+      .filter(l => l.trim() && !l.startsWith('//'));
     // Should be exactly one log line, not two (no JSONL injection)
     expect(raw).toHaveLength(1);
     // That line should parse cleanly
@@ -330,7 +333,8 @@ describe('SEC-8: JSONL log is not injectable via newlines in diff or file path',
         new_string: 'const x: number = 1',
       },
     });
-    const raw = fs.readFileSync(storagePaths.logFile, 'utf-8').trim().split('\n');
+    const raw = fs.readFileSync(storagePaths.logFile, 'utf-8').trim().split('\n')
+      .filter(l => l.trim() && !l.startsWith('//'));
     expect(raw).toHaveLength(1);
     const parsed = JSON.parse(raw[0]) as Record<string, unknown>;
     expect(parsed['session_id']).toBe('sec-jsonl-2'); // not 'hacked'

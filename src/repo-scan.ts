@@ -9,6 +9,7 @@ import {
   serialiseHabits,
   readMemoriesMd,
   applyMemoryUpdates,
+  appendHistory,
   logError,
   type StorageContext,
 } from './storage';
@@ -353,8 +354,15 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
       sessionId: `repo-scan-${new Date().toISOString().slice(0, 10)}`,
       changes,
     });
-    writeHabitsMd(serialiseHabits(cats), opts.ctx);
+    const serialised = serialiseHabits(cats);
+    writeHabitsMd(serialised, opts.ctx);
     writePreferencesFile(opts.ctx);
+    // Record this scan in the store's history so `cch status` can report when the
+    // store was last learned into (the same liveness signal a session learn
+    // leaves). Best-effort: a history write must never fail the scan itself.
+    try {
+      appendHistory({ ts: new Date().toISOString(), session_id: `repo-scan-${new Date().toISOString().slice(0, 10)}`, habits_md: serialised }, opts.ctx);
+    } catch { /* history is a convenience, not load-bearing */ }
   }
   const addedMemories: string[] = [];
   const updatedMemories: string[] = [];

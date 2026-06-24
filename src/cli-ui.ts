@@ -2,14 +2,14 @@ import os from 'os';
 import { type Memory, getRuleHash } from './storage';
 import { shuffledTips, TIP_MARKERS } from './tips';
 
-export const BOLD   = '\x1b[1m';
-export const DIM    = '\x1b[2m';
-export const GREEN  = '\x1b[38;2;150;210;30m';  // Softer Acid Lime (#96D21E)
+export const BOLD = '\x1b[1m';
+export const DIM = '\x1b[2m';
+export const GREEN = '\x1b[38;2;150;210;30m';  // Softer Acid Lime (#96D21E)
 export const YELLOW = '\x1b[38;2;140;90;215m';  // Softer Purple/Learning (#8C5AD7)
-export const RED    = '\x1b[38;2;215;60;105m';  // Softer Neon Pink/Negatives (#D73C69)
-export const CYAN   = '\x1b[38;2;20;160;220m';   // Softer Accent Cyan (#14A0DC)
+export const RED = '\x1b[38;2;215;60;105m';  // Softer Neon Pink/Negatives (#D73C69)
+export const CYAN = '\x1b[38;2;20;160;220m';   // Softer Accent Cyan (#14A0DC)
 export const ACID_LIME = '\x1b[38;2;176;255;26m'; // Vivid Acid Lime (#B0FF1A), loading bar only
-export const RESET  = '\x1b[0m';
+export const RESET = '\x1b[0m';
 
 export const NO_COLOR = !process.stdout.isTTY || !!process.env['NO_COLOR'];
 
@@ -97,7 +97,7 @@ export function renderBrandedCard(subtitle: string, statusText: string): void {
   const INNER = 44;
   const MARGIN = 2;
   const borderChar = c(DIM + CYAN, '│');
-  const topBorder    = c(DIM + CYAN, `┌${'─'.repeat(INNER)}┐`);
+  const topBorder = c(DIM + CYAN, `┌${'─'.repeat(INNER)}┐`);
   const bottomBorder = c(DIM + CYAN, `└${'─'.repeat(INNER)}┘`);
 
   // Wrap one line of inner content in box borders, right-padding to INNER.
@@ -118,12 +118,12 @@ export function renderBrandedCard(subtitle: string, statusText: string): void {
   const iconLeft = Math.floor((INNER - ICON_WIDTH) / 2);
 
   // Clamp dynamic fields so long model names never overflow the box.
-  const sub  = subtitle.slice(0, INNER - 'cc-habits · '.length);
+  const sub = subtitle.slice(0, INNER - 'cc-habits · '.length);
   const stat = statusText.slice(0, INNER);
 
-  const title   = c(BOLD + CYAN, 'cc-habits') + c(DIM, ' · ') + c(BOLD, sub);
-  const tagline = c(DIM, 'One tool-agnostic developer memory layer');
-  const status  = c(DIM, stat);
+  const title = c(BOLD + CYAN, 'cc-habits') + c(DIM, ' · ') + c(BOLD, sub);
+  const tagline = c(DIM, 'One layer to rule them all');
+  const status = c(DIM, stat);
 
   const blank = row('');
   process.stdout.write('\n');
@@ -354,7 +354,7 @@ export const LEARN = YELLOW;
 // habit (depth); `sweep` shows a bar travelling across a repo (breadth). Both are
 // fixed-width so the label never jitters between frames.
 const DISTILL_FRAMES = ['·     ·', ' ·   · ', '  · ·  ', '   ◆   ', '   ◇   ', '   ◆   '];
-const SWEEP_FRAMES    = ['[▰▱▱▱▱]', '[▱▰▱▱▱]', '[▱▱▰▱▱]', '[▱▱▱▰▱]', '[▱▱▱▱▰]'];
+const SWEEP_FRAMES = ['[▰▱▱▱▱]', '[▱▰▱▱▱]', '[▱▱▰▱▱]', '[▱▱▱▰▱]', '[▱▱▱▱▰]'];
 
 export type StepMotion = 'distill' | 'sweep';
 export interface StepHandle {
@@ -400,13 +400,13 @@ async function animateSpin<T>(
   sopts: { motion?: StepMotion; color?: string; items?: string[] },
 ): Promise<T> {
   const frames = sopts.motion === 'sweep' ? SWEEP_FRAMES : DISTILL_FRAMES;
-  const color  = sopts.color ?? (sopts.motion === 'sweep' ? ACID_LIME : LEARN);
+  const color = sopts.color ?? (sopts.motion === 'sweep' ? ACID_LIME : LEARN);
   // When `items` are supplied (e.g. the files in a repo scan), the secondary line
   // reveals them one at a time, each disappearing as the next appears, so the user
   // sees exactly what is in the batch the provider is working on. Otherwise it
   // rotates educational tips. Both fill the same genuine provider wait.
-  const items  = sopts.items && sopts.items.length > 0 ? sopts.items : null;
-  const tips   = shuffledTips();
+  const items = sopts.items && sopts.items.length > 0 ? sopts.items : null;
+  const tips = shuffledTips();
   let ti = 0, mi = 0, fi = 0;
   let started = false;
 
@@ -422,17 +422,20 @@ async function animateSpin<T>(
     process.stdout.write(started ? `\r\x1b[1A\x1b[K${step}\n\r\x1b[K${secondaryLine()}` : `${step}\n${secondaryLine()}`);
     started = true;
   };
-  const showCursor  = (): void => { process.stdout.write('\x1b[?25h'); };
+  const showCursor = (): void => { process.stdout.write('\x1b[?25h'); };
   const clearRegion = (): void => { process.stdout.write('\r\x1b[K\x1b[1A\r\x1b[K'); };
-  const onSigint    = (): void => { clearRegion(); showCursor(); process.exit(130); };
+  const onSigint = (): void => { clearRegion(); showCursor(); process.exit(130); };
 
   process.stdout.write('\x1b[?25l'); // hide cursor while animating
   process.once('SIGINT', onSigint);
   draw();
   const spinTimer = setInterval((): void => { fi = (fi + 1) % frames.length; draw(); }, 80);
-  // Files cycle quickly so several are seen during a short call; tips dwell longer
-  // so each one stays readable.
-  const secondaryTimer = setInterval((): void => { ti++; mi++; draw(); }, items ? 900 : 5000);
+  // Files cycle fast enough that the whole batch streams past during a typical
+  // provider wait (so a 34-file scan actually shows all 34 names, not just the
+  // first few), with a readable floor and ceiling. Tips dwell longer so each one
+  // stays readable.
+  const itemInterval = items ? Math.max(140, Math.min(900, Math.round(3000 / items.length))) : 5000;
+  const secondaryTimer = setInterval((): void => { ti++; mi++; draw(); }, itemInterval);
   const cleanup = (): void => {
     clearInterval(spinTimer);
     clearInterval(secondaryTimer);
