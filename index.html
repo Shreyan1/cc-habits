@@ -120,7 +120,7 @@
           "operatingSystem": "macOS, Linux, Windows (Node.js 20+)",
           "url": "https://shreyan1.github.io/cc-habits/",
           "downloadUrl": "https://www.npmjs.com/package/cc-habits",
-          "softwareVersion": "0.7.20",
+          "softwareVersion": "0.8.0",
           "description": "cc-habits (cch) is a tool-agnostic, local-first memory layer for AI coding agents. It passively learns a developer's coding habits from their real edits and carries them across Claude Code, Cursor, Codex, Gemini, Kimi, Cline, and any Git workflow, so every agent writes code in the developer's own style, with no manual rules files to maintain. No telemetry, no server, no analytics.",
           "featureList": [
             "Learns coding habits automatically from your real edits",
@@ -145,7 +145,7 @@
             {
               "@type": "Question",
               "name": "Does cc-habits work across all my projects?",
-              "acceptedAnswer": { "@type": "Answer", "text": "Yes. Hooks live in each tool's settings (for example ~/.claude/settings.json or ~/.gemini/settings.json) and your habits live in ~/.cc-habits/, all user-level. Everything is global by default, with no per-project setup." }
+              "acceptedAnswer": { "@type": "Answer", "text": "Yes. Your global habits in ~/.cc-habits/ apply everywhere. You can also scope habits to a single repo: run cch learn --repo or cch init inside a project to create a per-repo .cch/ store. Repo-local rules take priority over global ones for that repo." }
             },
             {
               "@type": "Question",
@@ -265,7 +265,7 @@ cch init</code></pre>
       <h2>Frequently asked questions</h2>
 
       <h3>Does cc-habits work across all my projects?</h3>
-      <p>Yes. Hooks live in each tool's settings (for example <code>~/.claude/settings.json</code> or <code>~/.gemini/settings.json</code>) and your habits live in <code>~/.cc-habits/</code>, all user-level. Everything is global by default, with no per-project setup.</p>
+      <p>Yes. Your global habits in <code>~/.cc-habits/</code> apply everywhere. You can also scope habits to a single repo: run <code>cch learn --repo</code> or <code>cch init</code> inside a project to create a per-repo <code>.cch/</code> store. Repo-local rules take priority over global ones for that repo.</p>
 
       <h3>I already auto-generate a CLAUDE.md. Does cc-habits replace it?</h3>
       <p>No, it fills the gap. <code>cch init</code> adds a single <code>@import</code> line to your existing <code>~/.claude/CLAUDE.md</code> and overwrites nothing. Your generated file stays; cc-habits keeps it current with what you actually do.</p>

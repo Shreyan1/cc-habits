@@ -449,7 +449,7 @@ const FAQ_GROUPS = [
     items: [
       {
         q: "Does this work across all my projects?",
-        a: <span>Yes. Hooks live in each tool's settings (for example <code>~/.claude/settings.json</code> or <code>~/.gemini/settings.json</code>) and your habits in <code>~/.cc-habits/</code>, all user-level. Everything is global by default, with no per-project setup.</span>
+        a: <span>Yes. Your global habits in <code>~/.cc-habits/</code> apply everywhere. You can also scope habits to a single repo: run <strong><em>cch learn --repo</em></strong> or <strong><em>cch init</em></strong> inside a project to create a per-repo <code>.cch/</code> store. Repo-local rules take priority over global ones for that repo.</span>
       },
       {
         q: "I already auto-generate a CLAUDE.md. Does this replace it?",

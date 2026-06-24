@@ -17,7 +17,7 @@ window.useTweakSet = useTweakSet;
 
 const COPY = {
   heroHeadline: "Every coding agent, writing like you.",
-  heroCaption: "cc-habits  ·  v0.7.20  ·  open source",
+  heroCaption: "cc-habits  ·  v0.8.0  ·  open source",
   heroTagline: "Stop re-explaining your style to every AI tool. cc-habits learns how you code once, and makes Claude Code, Cursor, Codex, and the rest write like you, automatically.",
   heroSub:
     "It runs quietly in the background, learns from the edits you already make, and keeps one private profile every agent reads. Local-first. No telemetry. No rules files to babysit.",
