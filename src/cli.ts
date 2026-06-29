@@ -45,11 +45,11 @@ import { ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, Pro
 import { redact } from './redact';
 import { memoriesEnabled, setMemoriesEnabled, consentGiven, recordConsent, setGloballyDisabled, getConfigValue, isGloballyDisabled, addSyncTargets } from './config';
 import { formatStopSummary, autoApplyWarning } from './hook';
-import { detectInstalledTools } from './detect';
+import { detectInstalledTools, isAntigravityMigrated } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.8.0';
+export const VERSION = '0.8.1';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -163,6 +163,27 @@ function printHookProof(toolId: string, settingsPath: string): void {
   } catch {
     // Proof is best-effort, never block or fail init over it.
   }
+}
+
+// Honest notice for users whose Gemini CLI has been replaced by Google's
+// Antigravity CLI. Google retired the consumer Gemini CLI on 2026-06-18 and
+// relocated its hook surface into a new workspace format it has not finalized
+// publicly, so our capture hooks can no longer fire there. Injection still works
+// through GEMINI.md, which Antigravity keeps reading, so the user loses nothing
+// they have learned. We frame this plainly: it is Google's migration, we have
+// already absorbed the injection side, and we are holding capture only until
+// Google publishes the final format, rather than register hooks that would
+// silently never run.
+function printAntigravityNotice(): void {
+  process.stdout.write(c(YELLOW, '  ! Google has moved the Gemini CLI to its new Antigravity CLI (agy),\n'));
+  process.stdout.write(c(DIM,    '    retiring the old Gemini CLI on 2026-06-18 and relocating hooks into a\n'));
+  process.stdout.write(c(DIM,    '    new format it has not finalized publicly yet.\n'));
+  process.stdout.write(c(GREEN,  '    Good news: your learned habits still inject into Antigravity through\n'));
+  process.stdout.write(c(GREEN,  '    GEMINI.md, so nothing you have learned is lost.\n'));
+  process.stdout.write(c(DIM,    '    We are holding off on Antigravity capture hooks only until Google\n'));
+  process.stdout.write(c(DIM,    '    confirms the format, so we never register a hook that quietly fails.\n'));
+  process.stdout.write(c(DIM,    '    Sorry for the gap this migration introduced; we are tracking it and\n'));
+  process.stdout.write(c(DIM,    '    will ship Antigravity capture the moment the format is public.\n'));
 }
 
 // #3: the compact "here is what Recommended will do" table shown before the
@@ -303,16 +324,25 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(c(YELLOW, `    ! could not wire preferences.md import: ${String(e).slice(0, 60)}\n`));
         }
       } else if (tool.id === 'gemini') {
-        const register = await askYes('  Register hooks in Gemini CLI? [Y/n] ');
-        if (register) {
-          process.stdout.write('\n');
-          const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerJsonHooks(tool.settingsPath, 'gemini', hookBin);
-          process.stdout.write(`    ${postAdded ? tick : dash} AfterTool hook ${postAdded ? 'registered' : 'already registered'}\n`);
-          process.stdout.write(`    ${stopAdded ? tick : dash} AfterAgent hook ${stopAdded ? 'registered' : 'already registered'}\n`);
-          process.stdout.write(`    ${promptAdded ? tick : dash} BeforeAgent hook ${promptAdded ? 'registered' : 'already registered'}\n`);
-          process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
+        // If Google has already migrated this user onto the Antigravity CLI, the
+        // old Gemini hook surface no longer fires. Wire injection only (it still
+        // works via GEMINI.md) and skip capture hooks rather than register dead ones.
+        if (isAntigravityMigrated()) {
+          printAntigravityNotice();
           syncTargetsToEnable.add('gemini');
-          printHookProof('gemini', tool.settingsPath);
+          process.stdout.write(`    ${tick} habits will inject into Antigravity via GEMINI.md\n`);
+        } else {
+          const register = await askYes('  Register hooks in Gemini CLI? [Y/n] ');
+          if (register) {
+            process.stdout.write('\n');
+            const { postAdded, stopAdded, promptAdded, sessionStartAdded } = registerJsonHooks(tool.settingsPath, 'gemini', hookBin);
+            process.stdout.write(`    ${postAdded ? tick : dash} AfterTool hook ${postAdded ? 'registered' : 'already registered'}\n`);
+            process.stdout.write(`    ${stopAdded ? tick : dash} AfterAgent hook ${stopAdded ? 'registered' : 'already registered'}\n`);
+            process.stdout.write(`    ${promptAdded ? tick : dash} BeforeAgent hook ${promptAdded ? 'registered' : 'already registered'}\n`);
+            process.stdout.write(`    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? 'registered' : 'already registered'}\n`);
+            syncTargetsToEnable.add('gemini');
+            printHookProof('gemini', tool.settingsPath);
+          }
         }
       } else if (tool.id === 'codex') {
         const register = await askYes('  Register hooks in Codex CLI? [Y/n] ');
@@ -1557,6 +1587,13 @@ export function cmdTools(): number {
     detectedIds = new Set();
   }
 
+  let antigravity = false;
+  try {
+    antigravity = isAntigravityMigrated();
+  } catch {
+    antigravity = false;
+  }
+
   process.stdout.write(c(BOLD, '\n  Supported tools\n\n'));
   for (const tool of SUPPORTED_TOOLS) {
     const installed = detectedIds.has(tool.id);
@@ -1565,6 +1602,13 @@ export function cmdTools(): number {
     process.stdout.write(`  ${mark} ${c(BOLD, tool.name)}${status}\n`);
     process.stdout.write(c(DIM, `      capture: ${tool.capture}\n`));
     process.stdout.write(c(DIM, `      inject:  ${tool.inject}\n`));
+    // Honesty: if Google has moved this user onto the Antigravity CLI, the old
+    // Gemini capture hooks no longer fire. Say so plainly on the Gemini row.
+    if (tool.id === 'gemini' && antigravity) {
+      process.stdout.write(c(YELLOW, `      note:    Google moved Gemini CLI to Antigravity (agy). Injection via\n`));
+      process.stdout.write(c(YELLOW, `               GEMINI.md still works; capture is paused until Google\n`));
+      process.stdout.write(c(YELLOW, `               publishes the new hook format.\n`));
+    }
   }
   process.stdout.write(c(DIM, '\n  ✓ = detected on this machine · · = supported but not detected\n'));
   process.stdout.write(c(DIM, '  Run `cch init` to register hooks for your detected tools.\n\n'));

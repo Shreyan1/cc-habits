@@ -60,6 +60,13 @@ export const FAQ_DATABASE: FAQEntry[] = [
     answer: 'Run `cch tools` to see every supported tool and which ones are detected in your current project. As of v0.5, supported tools include Claude Code, Cursor, Cline, Gemini CLI, Codex, Kimi, and Aider. Learning happens via hooks in each tool.'
   },
   {
+    id: 'gemini-antigravity-migration',
+    category: 'Getting Started',
+    question: 'Google moved Gemini CLI to Antigravity CLI. Does cc-habits still work?',
+    keywords: ['gemini', 'antigravity', 'agy', 'migration', 'migrated', 'retired', 'deprecated', 'google', 'moved', 'replace', 'replaced'],
+    answer: 'Yes, your habits still inject. Google retired the consumer Gemini CLI on 2026-06-18 and moved everyone to its new Antigravity CLI (the `agy` binary). cc-habits keeps injecting your learned habits into Antigravity through GEMINI.md, which it still reads, so nothing you have learned is lost. The one piece on hold is automatic edit capture from Antigravity: Google relocated hooks into a new format it has not finalized publicly, so we are deliberately not registering capture hooks that would silently never fire. We are tracking Google\'s migration and will ship Antigravity capture the moment the format is public. In the meantime, `cch bootstrap` and git capture still record your edits.'
+  },
+  {
     id: 'where-is-habits-file',
     category: 'Getting Started',
     question: 'Where are my habits stored?',

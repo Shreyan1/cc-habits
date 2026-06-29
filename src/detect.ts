@@ -70,3 +70,27 @@ export function detectInstalledTools(): ToolInfo[] {
 
   return tools;
 }
+
+/**
+ * Detects whether the user has moved from Google's Gemini CLI to its successor,
+ * the Antigravity CLI. Google retired the consumer Gemini CLI on 2026-06-18 and
+ * is steering everyone onto Antigravity, which ships the `agy` binary and keeps a
+ * global config tree at ~/.gemini/antigravity-cli/.
+ *
+ * This matters because Antigravity relocated its hook surface off the old
+ * ~/.gemini/settings.json (AfterTool/AfterAgent) events into a new workspace
+ * format Google has not finalized publicly. When that move has happened, our
+ * Gemini capture hooks no longer fire, so we use this signal to wire injection
+ * only and hold off on capture rather than register hooks that quietly never run.
+ *
+ * Best-effort and never throws: both checks swallow their own errors.
+ */
+export function isAntigravityMigrated(): boolean {
+  try {
+    const home = os.homedir();
+    if (fs.existsSync(path.join(home, '.gemini', 'antigravity-cli'))) return true;
+  } catch {
+    // fall through to the binary check
+  }
+  return isCliOnPath('agy');
+}
