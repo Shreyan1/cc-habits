@@ -1786,19 +1786,28 @@ export async function cmdUninstall(yes: boolean): Promise<number> {
 
   // 5. Delete entire ~/.cc-habits directory
   const storeDir = storagePaths.habitsDir;
-  // Added base name and is safe to check if cc habits is in root - if yes then dont delete since it may delete full drive
-  const base_name = path.basename(storeDir).toLowerCase();
-  const is_safe = base_name === ".cc-habits" || base_name === ".cch";
+  // Safety gate: only delete directories cc-habits actually owns (a
+  // .cc-habits/.cch store). A misconfigured CC_HABITS_DIR pointing at a home
+  // directory, repo root, or filesystem root must never be wiped by uninstall.
+  const baseName = path.basename(storeDir);
+  const is_safe = baseName === '.cc-habits' || baseName === '.cch';
   if (fs.existsSync(storeDir)) {
-    try {
-      fs.rmSync(storeDir, { recursive: true, force: true });
+    if (!is_safe) {
       process.stdout.write(
-        `  ${tick} Deleted storage directory: ${storeDir}\n`,
+        `  ${dash} Refusing to delete ${storeDir}: it is not a cc-habits store (expected a .cc-habits or .cch directory).\n` +
+          `      Delete it manually if you are sure this is what you intend.\n`,
       );
-    } catch (e) {
-      process.stdout.write(
-        `  ${dash} Failed to delete storage directory ${storeDir}: ${String(e)}\n`,
-      );
+    } else {
+      try {
+        fs.rmSync(storeDir, { recursive: true, force: true });
+        process.stdout.write(
+          `  ${tick} Deleted storage directory: ${storeDir}\n`,
+        );
+      } catch (e) {
+        process.stdout.write(
+          `  ${dash} Failed to delete storage directory ${storeDir}: ${String(e)}\n`,
+        );
+      }
     }
   }
 
