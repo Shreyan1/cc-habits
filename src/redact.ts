@@ -49,51 +49,58 @@ const PAN_RE = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi;
 const CARD_CANDIDATE_RE = /\b(?:\d[\s\-]?){12,19}\b/g;
 
 function luhnCheck(s: string): boolean {
-  const digits = s.replace(/[\s\-]/g, '');
+  const digits = s.replace(/[\s\-]/g, "");
   if (!/^\d+$/.test(digits) || digits.length < 12) return false;
   let total = 0;
   for (let i = 0; i < digits.length; i++) {
     let n = parseInt(digits[digits.length - 1 - i], 10);
-    if (i % 2 === 1) { n *= 2; if (n > 9) n -= 9; }
+    if (i % 2 === 1) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
     total += n;
   }
   return total % 10 === 0;
 }
 
 // PEM private key blocks. FP class: none.
-const PEM_KEY_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
+const PEM_KEY_RE =
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
 
 // AWS long-term/temporary access key IDs. FP class: none (AKIA/ASIA + exact 16).
 const AWS_KEY_RE = /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g;
 
 // Known LLM / developer-platform API key prefixes. FP class: short placeholders.
 const API_KEY_PREFIXES_RE = new RegExp(
-  '(?:' + [
-    'sk-ant-[a-zA-Z0-9_-]{20,}',
-    'sk-proj-[a-zA-Z0-9_-]{20,}',
-    'sk-[a-zA-Z0-9]{48}',
-    'gsk_[a-zA-Z0-9]{40,}',
-    'ghp_[A-Za-z0-9]{36,}',
-    'gho_[A-Za-z0-9]{36,}',
-    'ghu_[A-Za-z0-9]{36,}',
-    'ghs_[A-Za-z0-9]{16,}',
-    'ghr_[A-Za-z0-9]{36,}',
-    'github_pat_[A-Za-z0-9_]{20,}',
-    'xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+',
-    'xoxp-[0-9]+-[0-9]+-[0-9]+-[a-f0-9]+',
-    'xapp-[A-Za-z0-9-]{20,}',
-    'sk_live_[A-Za-z0-9]{20,}',
-    'rk_live_[A-Za-z0-9]{20,}',
-    'AIza[0-9A-Za-z\\-_]{20,}',
-  ].join('|') + ')',
-  'g',
+  "(?:" +
+    [
+      "sk-ant-[a-zA-Z0-9_-]{20,}",
+      "sk-proj-[a-zA-Z0-9_-]{20,}",
+      "sk-[a-zA-Z0-9]{48}",
+      "gsk_[a-zA-Z0-9]{40,}",
+      "ghp_[A-Za-z0-9]{36,}",
+      "gho_[A-Za-z0-9]{36,}",
+      "ghu_[A-Za-z0-9]{36,}",
+      "ghs_[A-Za-z0-9]{16,}",
+      "ghr_[A-Za-z0-9]{36,}",
+      "github_pat_[A-Za-z0-9_]{20,}",
+      "xoxb-[0-9]+-[0-9]+-[a-zA-Z0-9]+",
+      "xoxp-[0-9]+-[0-9]+-[0-9]+-[a-f0-9]+",
+      "xapp-[A-Za-z0-9-]{20,}",
+      "sk_live_[A-Za-z0-9]{20,}",
+      "rk_live_[A-Za-z0-9]{20,}",
+      "AIza[0-9A-Za-z\\-_]{20,}",
+    ].join("|") +
+    ")",
+  "g",
 );
 
 // JWT. FP class: none (eyJ header prefix is unique).
 const JWT_RE = /eyJ[a-zA-Z0-9_-]{4,}\.[a-zA-Z0-9_-]{4,}\.[a-zA-Z0-9_-]{4,}/g;
 
 // DB connection strings with embedded credentials.
-const DB_CONN_RE = /[a-zA-Z][a-zA-Z0-9+\-.]*:\/\/[^:@/\s]{1,64}:[^@\s]{6,}@[^\s"'`]{4,}/g;
+const DB_CONN_RE =
+  /[a-zA-Z][a-zA-Z0-9+\-.]*:\/\/[^:@/\s]{1,64}:[^@\s]{6,}@[^\s"'`]{4,}/g;
 
 // Indian Aadhaar, spaced/hyphenated 4-4-4 only, first digit 2-9.
 const AADHAAR_RE = /\b[2-9][0-9]{3}[\s\-][0-9]{4}[\s\-][0-9]{4}\b/g;
@@ -109,7 +116,7 @@ const SSN_RE = /\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/g;
 const NHS_CANDIDATE_RE = /\b\d{3}[\s\-]?\d{3}[\s\-]?\d{4}\b/g;
 
 function nhsCheck(s: string): boolean {
-  const d = s.replace(/[\s\-]/g, '');
+  const d = s.replace(/[\s\-]/g, "");
   if (!/^\d{10}$/.test(d)) return false;
   let sum = 0;
   for (let i = 0; i < 9; i++) sum += parseInt(d[i], 10) * (10 - i);
@@ -123,7 +130,8 @@ function nhsCheck(s: string): boolean {
 // UK National Insurance number. Prefix excludes D,F,I,Q,U,V (first/second) and O
 // (second), plus disallowed pairs. Suffix A-D. Optionally spaced.
 // Source: https://www.gov.uk/hmrc-internal-manuals/national-insurance-manual/nim39110
-const UK_NI_RE = /\b(?!BG|GB|NK|KN|TN|NT|ZZ)[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b/g;
+const UK_NI_RE =
+  /\b(?!BG|GB|NK|KN|TN|NT|ZZ)[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b/g;
 
 // IBAN, gated by the Mod-97 checksum (valid when the rearranged number mod 97 == 1).
 // Covers EU/intl bank accounts (OpenPipe "banking_number"). FP class: near zero
@@ -131,20 +139,22 @@ const UK_NI_RE = /\b(?!BG|GB|NK|KN|TN|NT|ZZ)[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]\
 const IBAN_CANDIDATE_RE = /\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g;
 
 function ibanCheck(s: string): boolean {
-  const v = s.replace(/\s/g, '').toUpperCase();
+  const v = s.replace(/\s/g, "").toUpperCase();
   if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(v)) return false;
   const rearranged = v.slice(4) + v.slice(0, 4);
   let remainder = 0;
   for (const ch of rearranged) {
     const code = /[0-9]/.test(ch) ? ch : (ch.charCodeAt(0) - 55).toString();
-    for (const digit of code) remainder = (remainder * 10 + parseInt(digit, 10)) % 97;
+    for (const digit of code)
+      remainder = (remainder * 10 + parseInt(digit, 10)) % 97;
   }
   return remainder === 1;
 }
 
 // US phone numbers in canonical separated forms. Requires separators or a +1
 // prefix to avoid matching bare 10-digit identifiers. FP class: low.
-const US_PHONE_RE = /(?:\+?1[\s.\-]?)?(?:\(\d{3}\)|\d{3})[\s.\-]\d{3}[\s.\-]\d{4}\b/g;
+const US_PHONE_RE =
+  /(?:\+?1[\s.\-]?)?(?:\(\d{3}\)|\d{3})[\s.\-]\d{3}[\s.\-]\d{4}\b/g;
 
 // ── Context-gated keyed-value redaction ──────────────────────────────────────
 //
@@ -155,47 +165,113 @@ const US_PHONE_RE = /(?:\+?1[\s.\-]?)?(?:\(\d{3}\)|\d{3})[\s.\-]\d{3}[\s.\-]\d{4
 // bare `name`/`id`) that would over-trigger on ordinary code.
 const SENSITIVE_KEYS = [
   // Names (compounds only, never bare "name")
-  'first_?name', 'last_?name', 'full_?name', 'middle_?name', 'maiden_?name',
-  'patient_?name', 'customer_?name', 'sur_?name', 'given_?name', 'legal_?name',
+  "first_?name",
+  "last_?name",
+  "full_?name",
+  "middle_?name",
+  "maiden_?name",
+  "patient_?name",
+  "customer_?name",
+  "sur_?name",
+  "given_?name",
+  "legal_?name",
   // Date of birth
-  'date_?of_?birth', 'dob', 'birth_?date', 'birthday', 'birthdate',
+  "date_?of_?birth",
+  "dob",
+  "birth_?date",
+  "birthday",
+  "birthdate",
   // Medical (HIPAA)
-  'diagnosis', 'medical_?record', 'mrn', 'patient_?id', 'icd_?10', 'icd_?code',
-  'health_?condition', 'medical_?condition', 'medication', 'prescription', 'npi',
+  "diagnosis",
+  "medical_?record",
+  "mrn",
+  "patient_?id",
+  "icd_?10",
+  "icd_?code",
+  "health_?condition",
+  "medical_?condition",
+  "medication",
+  "prescription",
+  "npi",
   // Government / national IDs
-  'ssn', 'social_?security', 'aadhaar', 'pan_?number', 'passport', 'passport_?no',
-  'national_?insurance', 'nino', 'nhs_?number', 'drivers?_?licen[cs]e',
-  'licen[cs]e_?number', 'tax_?id', 'tin', 'voter_?id',
+  "ssn",
+  "social_?security",
+  "aadhaar",
+  "pan_?number",
+  "passport",
+  "passport_?no",
+  "national_?insurance",
+  "nino",
+  "nhs_?number",
+  "drivers?_?licen[cs]e",
+  "licen[cs]e_?number",
+  "tax_?id",
+  "tin",
+  "voter_?id",
   // Contact / location
-  'phone', 'phone_?number', 'mobile', 'telephone', 'home_?address',
-  'street_?address', 'address_?line', 'postal_?code', 'zip_?code', 'zipcode',
+  "phone",
+  "phone_?number",
+  "mobile",
+  "telephone",
+  "home_?address",
+  "street_?address",
+  "address_?line",
+  "postal_?code",
+  "zip_?code",
+  "zipcode",
   // GDPR Article 9 special categories
-  'religion', 'religious_?affiliation', 'ethnicity', 'race', 'nationality',
-  'sexual_?orientation', 'political_?affiliation', 'biometric',
+  "religion",
+  "religious_?affiliation",
+  "ethnicity",
+  "race",
+  "nationality",
+  "sexual_?orientation",
+  "political_?affiliation",
+  "biometric",
   // Financial
-  'account_?number', 'routing_?number', 'iban', 'swift', 'bank_?account',
-  'salary', 'income', 'credit_?score',
+  "account_?number",
+  "routing_?number",
+  "iban",
+  "swift",
+  "bank_?account",
+  "salary",
+  "income",
+  "credit_?score",
   // Generic secrets (structured patterns catch known prefixes; this catches the rest)
-  'password', 'passwd', 'pwd', 'secret', 'api_?key', 'apikey', 'access_?token',
-  'refresh_?token', 'private_?key', 'client_?secret', 'auth_?token',
+  "password",
+  "passwd",
+  "pwd",
+  "secret",
+  "api_?key",
+  "apikey",
+  "access_?token",
+  "refresh_?token",
+  "private_?key",
+  "client_?secret",
+  "auth_?token",
 ];
-
+// Previous code stopped at first space so if name == abc def gh --> abc is redacted but def and gh are leaked
 const KEYED_VALUE_RE = new RegExp(
-  '\\b(' + SENSITIVE_KEYS.join('|') + ')\\b(\\s*[:=]\\s*)' +
-  '("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|`(?:[^`\\\\]|\\\\.)*`|[^\\s,;)\\]}]+)',
-  'gi',
+  "\\b(" +
+    SENSITIVE_KEYS.join("|") +
+    ")\\b(\\s*[:=]\\s*)" +
+    "(\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'|`(?:[^`\\\\]|\\\\.)*`|[^\\s,;)\\]}]+(?:[ \\t]+[^\\s,;)\\]}]+)*)",
+  "gi",
 );
 
 // Replace the value while preserving the key, separator, and quote style. Skips
 // values that are already redacted so the pass is idempotent and never clobbers
 // an earlier structured replacement (e.g. card="<REDACTED:card>").
 function redactKeyedValues(text: string): string {
-  return text.replace(KEYED_VALUE_RE, (_m, key: string, sep: string, value: string) => {
-    if (value.includes('<REDACTED')) return `${key}${sep}${value}`;
-    const q = value[0];
-    const wrap = (q === '"' || q === "'" || q === '`') ? q : '';
-    return `${key}${sep}${wrap}<REDACTED:pii>${wrap}`;
-  });
+  return text.replace(
+    KEYED_VALUE_RE,
+    (_m, key: string, sep: string, value: string) => {
+      if (value.includes("<REDACTED")) return `${key}${sep}${value}`;
+      const q = value[0];
+      const wrap = q === '"' || q === "'" || q === "`" ? q : "";
+      return `${key}${sep}${wrap}<REDACTED:pii>${wrap}`;
+    },
+  );
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
@@ -208,20 +284,26 @@ function redactKeyedValues(text: string): string {
 //   5. Context-gated keyed values LAST (it skips already-redacted values).
 // Returns a new string, never mutates the input, idempotent.
 export function redact(text: string): string {
-  text = text.replace(PEM_KEY_RE, '<REDACTED:private-key>');
-  text = text.replace(AWS_KEY_RE, '<REDACTED:aws-key>');
-  text = text.replace(API_KEY_PREFIXES_RE, '<REDACTED:api-key>');
-  text = text.replace(JWT_RE, '<REDACTED:jwt>');
-  text = text.replace(DB_CONN_RE, '<REDACTED:db-url>');
-  text = text.replace(NHS_CANDIDATE_RE, m => (nhsCheck(m) ? '<REDACTED:nhs>' : m));
-  text = text.replace(UK_NI_RE, '<REDACTED:uk-ni>');
-  text = text.replace(IBAN_CANDIDATE_RE, m => (ibanCheck(m) ? '<REDACTED:iban>' : m));
-  text = text.replace(AADHAAR_RE, '<REDACTED:aadhaar>');
-  text = text.replace(SSN_RE, '<REDACTED:ssn>');
-  text = text.replace(US_PHONE_RE, '<REDACTED:phone>');
-  text = text.replace(EMAIL_RE, '<REDACTED:email>');
-  text = text.replace(PAN_RE, '<REDACTED:pan>');
-  text = text.replace(CARD_CANDIDATE_RE, m => (luhnCheck(m) ? '<REDACTED:card>' : m));
+  text = text.replace(PEM_KEY_RE, "<REDACTED:private-key>");
+  text = text.replace(AWS_KEY_RE, "<REDACTED:aws-key>");
+  text = text.replace(API_KEY_PREFIXES_RE, "<REDACTED:api-key>");
+  text = text.replace(JWT_RE, "<REDACTED:jwt>");
+  text = text.replace(DB_CONN_RE, "<REDACTED:db-url>");
+  text = text.replace(NHS_CANDIDATE_RE, (m) =>
+    nhsCheck(m) ? "<REDACTED:nhs>" : m,
+  );
+  text = text.replace(UK_NI_RE, "<REDACTED:uk-ni>");
+  text = text.replace(IBAN_CANDIDATE_RE, (m) =>
+    ibanCheck(m) ? "<REDACTED:iban>" : m,
+  );
+  text = text.replace(AADHAAR_RE, "<REDACTED:aadhaar>");
+  text = text.replace(SSN_RE, "<REDACTED:ssn>");
+  text = text.replace(US_PHONE_RE, "<REDACTED:phone>");
+  text = text.replace(EMAIL_RE, "<REDACTED:email>");
+  text = text.replace(PAN_RE, "<REDACTED:pan>");
+  text = text.replace(CARD_CANDIDATE_RE, (m) =>
+    luhnCheck(m) ? "<REDACTED:card>" : m,
+  );
   text = redactKeyedValues(text);
   return text;
 }

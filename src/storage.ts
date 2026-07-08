@@ -1,7 +1,7 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import crypto from 'crypto';
+import fs from "fs";
+import os from "os";
+import path from "path";
+import crypto from "crypto";
 
 // Read guard: if a log file somehow exceeds this we skip the read entirely.
 const MAX_LOG_READ_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -9,10 +9,10 @@ const MAX_LOG_READ_BYTES = 50 * 1024 * 1024; // 50 MB
 // Rotation: trim append-only files before they reach the read guard.
 // Checked after every append so the file never silently fills the disk.
 const LOG_ROTATE_BYTES = 2 * 1024 * 1024; // 2 MB, trim trigger
-const LOG_ROTATE_LINES = 5_000;            // signals kept after trim
-const HISTORY_ROTATE_LINES = 100;          // history snapshots kept after trim
+const LOG_ROTATE_LINES = 5_000; // signals kept after trim
+const HISTORY_ROTATE_LINES = 100; // history snapshots kept after trim
 
-export const FORMAT_VERSION = 'v0.3';
+export const FORMAT_VERSION = "v0.3";
 
 export interface Signal {
   ts: string;
@@ -21,7 +21,15 @@ export interface Signal {
   file: string;
   diff: string;
   language?: string;
-  source?: 'claude-code' | 'git' | 'vscode' | 'cli' | 'gemini' | 'codex' | 'cline' | 'kimi';
+  source?:
+    | "claude-code"
+    | "git"
+    | "vscode"
+    | "cli"
+    | "gemini"
+    | "codex"
+    | "cline"
+    | "kimi";
 }
 
 export interface Habit {
@@ -39,13 +47,13 @@ export interface Habit {
 export type HabitsMap = Record<string, Habit[]>;
 
 export function defaultRoot(): string {
-  if (process.env['CC_HABITS_DIR']) {
-    return process.env['CC_HABITS_DIR'];
+  if (process.env["CC_HABITS_DIR"]) {
+    return process.env["CC_HABITS_DIR"];
   }
   try {
     let dir = process.cwd();
     while (true) {
-      const candidate = path.join(dir, '.cc-habits');
+      const candidate = path.join(dir, ".cc-habits");
       if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
         return candidate;
       }
@@ -56,29 +64,28 @@ export function defaultRoot(): string {
   } catch {
     // fallback
   }
-  return path.join(os.homedir(), '.cc-habits');
+  return path.join(os.homedir(), ".cc-habits");
 }
-
 
 export const storagePaths = {
   habitsDir: defaultRoot(),
-  habitsFile: path.join(defaultRoot(), 'habits.md'),
-  preferencesFile: path.join(defaultRoot(), 'preferences.md'),
-  memoriesFile: path.join(defaultRoot(), 'memories.md'),
-  logFile: path.join(defaultRoot(), 'log.jsonl'),
-  errorLog: path.join(defaultRoot(), 'error.log'),
-  tombstonesFile: path.join(defaultRoot(), '.tombstones.json'),
-  memoryTombstonesFile: path.join(defaultRoot(), '.memory-tombstones.json'),
-  memoryIndexFile: path.join(defaultRoot(), '.memory-index.json'),
-  snapshotFile: path.join(defaultRoot(), '.snapshot.json'),
-  historyFile: path.join(defaultRoot(), '.history.jsonl'),
-  provenanceFile: path.join(defaultRoot(), '.provenance.json'),
+  habitsFile: path.join(defaultRoot(), "habits.md"),
+  preferencesFile: path.join(defaultRoot(), "preferences.md"),
+  memoriesFile: path.join(defaultRoot(), "memories.md"),
+  logFile: path.join(defaultRoot(), "log.jsonl"),
+  errorLog: path.join(defaultRoot(), "error.log"),
+  tombstonesFile: path.join(defaultRoot(), ".tombstones.json"),
+  memoryTombstonesFile: path.join(defaultRoot(), ".memory-tombstones.json"),
+  memoryIndexFile: path.join(defaultRoot(), ".memory-index.json"),
+  snapshotFile: path.join(defaultRoot(), ".snapshot.json"),
+  historyFile: path.join(defaultRoot(), ".history.jsonl"),
+  provenanceFile: path.join(defaultRoot(), ".provenance.json"),
   // Throttle cache for the npm latest-version check, so we hit the registry at
   // most once per TTL window rather than on every CLI invocation.
-  updateCheckFile: path.join(defaultRoot(), '.update-check.json'),
+  updateCheckFile: path.join(defaultRoot(), ".update-check.json"),
   // config.yml lives in the same directory as habits.md so that CC_HABITS_DIR
   // overrides both the data files AND the provider config in one env var.
-  configFile: path.join(defaultRoot(), 'config.yml'),
+  configFile: path.join(defaultRoot(), "config.yml"),
 };
 
 export interface StorageContext {
@@ -106,7 +113,7 @@ export function getPaths(ctx?: StorageContext): StorageContext {
 // repo's own habits, preferences, and memories, separate from the global
 // ~/.cc-habits store. This stops one repo's specifics (e.g. a finance app's
 // brand colors) from bleeding into unrelated repos via the global @import.
-export const REPO_STORE_DIR = '.cch';
+export const REPO_STORE_DIR = ".cch";
 
 // Build a StorageContext rooted at <repoRoot>/.cch/. Every read/write that is
 // passed this context operates on the repo-local store instead of the global
@@ -115,18 +122,18 @@ export function repoStorageContext(repoRoot: string): StorageContext {
   const dir = path.join(repoRoot, REPO_STORE_DIR);
   return {
     habitsDir: dir,
-    habitsFile: path.join(dir, 'habits.md'),
-    preferencesFile: path.join(dir, 'preferences.md'),
-    memoriesFile: path.join(dir, 'memories.md'),
-    logFile: path.join(dir, 'log.jsonl'),
-    errorLog: path.join(dir, 'error.log'),
-    tombstonesFile: path.join(dir, '.tombstones.json'),
-    memoryTombstonesFile: path.join(dir, '.memory-tombstones.json'),
-    memoryIndexFile: path.join(dir, '.memory-index.json'),
-    snapshotFile: path.join(dir, '.snapshot.json'),
-    historyFile: path.join(dir, '.history.jsonl'),
-    provenanceFile: path.join(dir, '.provenance.json'),
-    updateCheckFile: path.join(dir, '.update-check.json'),
+    habitsFile: path.join(dir, "habits.md"),
+    preferencesFile: path.join(dir, "preferences.md"),
+    memoriesFile: path.join(dir, "memories.md"),
+    logFile: path.join(dir, "log.jsonl"),
+    errorLog: path.join(dir, "error.log"),
+    tombstonesFile: path.join(dir, ".tombstones.json"),
+    memoryTombstonesFile: path.join(dir, ".memory-tombstones.json"),
+    memoryIndexFile: path.join(dir, ".memory-index.json"),
+    snapshotFile: path.join(dir, ".snapshot.json"),
+    historyFile: path.join(dir, ".history.jsonl"),
+    provenanceFile: path.join(dir, ".provenance.json"),
+    updateCheckFile: path.join(dir, ".update-check.json"),
     // The repo store reuses the global provider config: extraction credentials
     // are a machine-level concern, not a per-repo one.
     configFile: storagePaths.configFile,
@@ -141,7 +148,7 @@ export function findRepoRoot(start?: string): string | null {
   try {
     let dir = start || process.cwd();
     while (true) {
-      if (fs.existsSync(path.join(dir, '.git'))) {
+      if (fs.existsSync(path.join(dir, ".git"))) {
         return dir;
       }
       const parent = path.dirname(dir);
@@ -158,16 +165,16 @@ const FILE_MODE = 0o600;
 
 const HABITS_HEADER =
   `<!-- cc-habits format ${FORMAT_VERSION} -->\n` +
-  '# Coding habits\n\n' +
-  'Auto-generated by cc-habits. You may edit this file; rules you delete will not be recreated.\n';
+  "# Coding habits\n\n" +
+  "Auto-generated by cc-habits. You may edit this file; rules you delete will not be recreated.\n";
 
 const LEARNING_SECTION_HEADER =
-  '\n## Learning (not yet active)\n\n' +
-  '> These habits have been observed in only one session. They are quarantined ' +
-  'here until reinforced in a second distinct session. Claude should not apply ' +
-  'rules in this section.\n';
+  "\n## Learning (not yet active)\n\n" +
+  "> These habits have been observed in only one session. They are quarantined " +
+  "here until reinforced in a second distinct session. Claude should not apply " +
+  "rules in this section.\n";
 
-export const MEMORIES_FORMAT_VERSION = 'v0.1';
+export const MEMORIES_FORMAT_VERSION = "v0.1";
 
 export interface Memory {
   text: string;
@@ -185,13 +192,13 @@ export type MemoriesMap = Record<string, Memory[]>;
 
 const MEMORIES_HEADER =
   `<!-- cc-habits memories format ${MEMORIES_FORMAT_VERSION} -->\n` +
-  '# Coding memories\n\n' +
-  'Auto-generated by cc-habits. You may edit this file; memories you delete will not be recreated.\n';
+  "# Coding memories\n\n" +
+  "Auto-generated by cc-habits. You may edit this file; memories you delete will not be recreated.\n";
 
 const CANDIDATE_MEMORIES_SECTION_HEADER =
-  '\n## Candidates (not yet active)\n\n' +
-  '> These memories have not been observed enough times or approved by the user. ' +
-  'Agents should not apply memories in this section.\n';
+  "\n## Candidates (not yet active)\n\n" +
+  "> These memories have not been observed enough times or approved by the user. " +
+  "Agents should not apply memories in this section.\n";
 
 // Comment header seeded into a fresh log.jsonl so the file explains itself. Each
 // line is prefixed with `//`, which every cc-habits reader skips (lines that fail
@@ -201,16 +208,16 @@ const CANDIDATE_MEMORIES_SECTION_HEADER =
 // No secrets here: this is static text, and the signals appended below are always
 // redacted before they are written.
 export const LOG_HEADER =
-  '// cc-habits capture log (log.jsonl): append-only, redacted audit trail.\n' +
-  '// Each line below is one edit signal (file path plus a trimmed, PII-redacted diff),\n' +
-  '// captured when a registered AI tool runs its cc-habits hook. This is the exact record\n' +
-  '// of what was stored and what would be sent to your extraction provider. Nothing else\n' +
-  '// leaves your machine, and secrets are redacted before any line is written here.\n' +
-  '// Empty? That is normal in two cases: (1) no edits have been captured yet because no\n' +
-  '// registered hook has fired; make an edit in a linked tool and run cch status to confirm\n' +
-  '// the hook is wired. (2) this is a per-repo .cch/ store, where repo scans (cch learn --repo)\n' +
-  '// write to habits.md/memories.md, not here; only hook-captured edit signals land in this\n' +
-  '// log, and the hook always writes to the global ~/.cc-habits/log.jsonl first.\n';
+  "// cc-habits capture log (log.jsonl): append-only, redacted audit trail.\n" +
+  "// Each line below is one edit signal (file path plus a trimmed, PII-redacted diff),\n" +
+  "// captured when a registered AI tool runs its cc-habits hook. This is the exact record\n" +
+  "// of what was stored and what would be sent to your extraction provider. Nothing else\n" +
+  "// leaves your machine, and secrets are redacted before any line is written here.\n" +
+  "// Empty? That is normal in two cases: (1) no edits have been captured yet because no\n" +
+  "// registered hook has fired; make an edit in a linked tool and run cch status to confirm\n" +
+  "// the hook is wired. (2) this is a per-repo .cch/ store, where repo scans (cch learn --repo)\n" +
+  "// write to habits.md/memories.md, not here; only hook-captured edit signals land in this\n" +
+  "// log, and the hook always writes to the global ~/.cc-habits/log.jsonl first.\n";
 
 // Control characters that must never survive into a stored data file or a value
 // later printed to the terminal: C0 controls and DEL (\x00-\x1f, \x7f) PLUS the
@@ -252,10 +259,14 @@ function safeWrite(filePath: string, content: string): void {
   const dir = path.dirname(filePath);
   const tmpPath = path.join(dir, `.cc-habits-tmp-${process.pid}-${Date.now()}`);
   try {
-    fs.writeFileSync(tmpPath, content, { encoding: 'utf-8', mode: FILE_MODE });
+    fs.writeFileSync(tmpPath, content, { encoding: "utf-8", mode: FILE_MODE });
     fs.renameSync(tmpPath, filePath);
   } catch (e) {
-    try { fs.unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      /* best-effort cleanup */
+    }
     throw e;
   }
 }
@@ -263,9 +274,14 @@ function safeWrite(filePath: string, content: string): void {
 function safeAppend(filePath: string, content: string): void {
   // O_NOFOLLOW (POSIX) makes open() fail atomically if the final path component is
   // a symlink, closing the TOCTOU window between our old lstat check and the write.
-  const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
+  const oNoFollow: number =
+    (fs.constants as Record<string, number>)["O_NOFOLLOW"] ?? 0;
   if (oNoFollow) {
-    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | oNoFollow;
+    const flags =
+      fs.constants.O_WRONLY |
+      fs.constants.O_CREAT |
+      fs.constants.O_APPEND |
+      oNoFollow;
     const fd = fs.openSync(filePath, flags, FILE_MODE);
     try {
       fs.writeSync(fd, content);
@@ -277,7 +293,10 @@ function safeAppend(filePath: string, content: string): void {
     if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink()) {
       throw new Error(`refusing to append through symlink: ${filePath}`);
     }
-    fs.appendFileSync(filePath, content, { encoding: 'utf-8', mode: FILE_MODE });
+    fs.appendFileSync(filePath, content, {
+      encoding: "utf-8",
+      mode: FILE_MODE,
+    });
   }
 }
 
@@ -299,17 +318,24 @@ function trimIfNeeded(filePath: string, maxLines: number): void {
       return; // absent or unstattable: nothing to trim
     }
     if (size <= LOG_ROTATE_BYTES) return;
-    const all = fs.readFileSync(filePath, 'utf-8')
-      .split('\n')
-      .filter(l => l.trim());
+    const all = fs
+      .readFileSync(filePath, "utf-8")
+      .split("\n")
+      .filter((l) => l.trim());
     // Preserve any leading `//` comment header (the self-describing log preamble)
     // so rotation trims only signal lines, never the explanation of the file.
     const header: string[] = [];
     let i = 0;
-    while (i < all.length && all[i]!.startsWith('//')) { header.push(all[i]!); i++; }
+    while (i < all.length && all[i]!.startsWith("//")) {
+      header.push(all[i]!);
+      i++;
+    }
     const records = all.slice(i);
     if (records.length <= maxLines) return;
-    safeWrite(filePath, [...header, ...records.slice(-maxLines)].join('\n') + '\n');
+    safeWrite(
+      filePath,
+      [...header, ...records.slice(-maxLines)].join("\n") + "\n",
+    );
   } catch {
     // trim is best-effort; never crash the caller
   }
@@ -342,8 +368,11 @@ export function initLog(ctx?: StorageContext): void {
     safeWrite(paths.logFile, LOG_HEADER);
   } else {
     try {
-      if (fs.statSync(paths.logFile).size === 0) safeWrite(paths.logFile, LOG_HEADER);
-    } catch { /* leave the file as-is if we cannot stat it */ }
+      if (fs.statSync(paths.logFile).size === 0)
+        safeWrite(paths.logFile, LOG_HEADER);
+    } catch {
+      /* leave the file as-is if we cannot stat it */
+    }
   }
 }
 
@@ -356,29 +385,43 @@ export function appendSignal(signal: Signal, ctx?: StorageContext): void {
   // log, the one that actually fills with signals, would be the only store
   // missing the header. Mirrors initLog's missing/empty seeding.
   try {
-    if (!fs.existsSync(paths.logFile) || fs.statSync(paths.logFile).size === 0) {
+    if (
+      !fs.existsSync(paths.logFile) ||
+      fs.statSync(paths.logFile).size === 0
+    ) {
       safeWrite(paths.logFile, LOG_HEADER);
     }
-  } catch { /* seeding is best-effort; never block a capture */ }
+  } catch {
+    /* seeding is best-effort; never block a capture */
+  }
   // Strip control characters from session_id before writing to JSONL.
   // JSON.stringify escapes them anyway, but defence-in-depth: a crafted session_id
   // with null bytes or other controls could confuse downstream parsers or logging.
-  const safe: Signal = { ...signal, session_id: signal.session_id.replace(STORAGE_CONTROL_CHARS, '') };
-  safeAppend(paths.logFile, JSON.stringify(safe) + '\n');
+  const safe: Signal = {
+    ...signal,
+    session_id: signal.session_id.replace(STORAGE_CONTROL_CHARS, ""),
+  };
+  safeAppend(paths.logFile, JSON.stringify(safe) + "\n");
   trimIfNeeded(paths.logFile, LOG_ROTATE_LINES);
 }
 
-export function readSignals(sessionId?: string, ctx?: StorageContext): Signal[] {
+export function readSignals(
+  sessionId?: string,
+  ctx?: StorageContext,
+): Signal[] {
   const paths = getPaths(ctx);
   if (!fs.existsSync(paths.logFile)) return [];
   // Guard against reading a runaway log file that could exhaust process memory.
   const stat = fs.statSync(paths.logFile);
   if (stat.size > MAX_LOG_READ_BYTES) {
     // Log the oversized-file event and return empty rather than crash.
-    logError(`readSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
+    logError(
+      `readSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`,
+      ctx,
+    );
     return [];
   }
-  const lines = fs.readFileSync(paths.logFile, 'utf-8').split('\n');
+  const lines = fs.readFileSync(paths.logFile, "utf-8").split("\n");
   const signals: Signal[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
@@ -417,11 +460,15 @@ export function countSignals(sessionId?: string, ctx?: StorageContext): number {
   let fd: number | null = null;
   try {
     // Same runaway-file guard as readSignals: skip rather than risk memory blowup.
-    const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
+    const oNoFollow: number =
+      (fs.constants as Record<string, number>)["O_NOFOLLOW"] ?? 0;
     fd = fs.openSync(paths.logFile, fs.constants.O_RDONLY | oNoFollow);
     const st = fs.fstatSync(fd);
     if (st.size > MAX_LOG_READ_BYTES) {
-      logError(`countSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
+      logError(
+        `countSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`,
+        ctx,
+      );
       fs.closeSync(fd);
       return 0;
     }
@@ -429,14 +476,18 @@ export function countSignals(sessionId?: string, ctx?: StorageContext): number {
     fs.closeSync(fd);
   } catch {
     if (fd !== null) {
-      try { fs.closeSync(fd); } catch {}
+      try {
+        fs.closeSync(fd);
+      } catch {}
     }
     return 0; // absent, vanished mid-read, or unreadable
   }
   // With a session id, match its exact serialized field; without one, match the
   // field key present on every signal line (counts all sessions).
-  const needleStr = sessionId ? `"session_id":${JSON.stringify(sessionId)}` : '"session_id":';
-  const needle = Buffer.from(needleStr, 'utf-8');
+  const needleStr = sessionId
+    ? `"session_id":${JSON.stringify(sessionId)}`
+    : '"session_id":';
+  const needle = Buffer.from(needleStr, "utf-8");
   let count = 0;
   let pos = buf.indexOf(needle);
   while (pos !== -1) {
@@ -449,7 +500,7 @@ export function countSignals(sessionId?: string, ctx?: StorageContext): number {
 export function readHabitsMd(ctx?: StorageContext): string {
   const paths = getPaths(ctx);
   if (!fs.existsSync(paths.habitsFile)) return HABITS_HEADER;
-  return fs.readFileSync(paths.habitsFile, 'utf-8');
+  return fs.readFileSync(paths.habitsFile, "utf-8");
 }
 
 export function writeHabitsMd(content: string, ctx?: StorageContext): void {
@@ -460,7 +511,7 @@ export function writeHabitsMd(content: string, ctx?: StorageContext): void {
 export function readMemoriesMd(ctx?: StorageContext): string {
   const paths = getPaths(ctx);
   if (!fs.existsSync(paths.memoriesFile)) return MEMORIES_HEADER;
-  return fs.readFileSync(paths.memoriesFile, 'utf-8');
+  return fs.readFileSync(paths.memoriesFile, "utf-8");
 }
 
 export function writeMemoriesMd(content: string, ctx?: StorageContext): void {
@@ -470,7 +521,7 @@ export function writeMemoriesMd(content: string, ctx?: StorageContext): void {
 
 // Tombstones (A2) ──────────────────────────────────────────────────────────
 function normalizeRule(s: string): string {
-  return s.trim().replace(/\.$/, '').toLowerCase();
+  return s.trim().replace(/\.$/, "").toLowerCase();
 }
 
 // Fuzzy tombstone matching ──────────────────────────────────────────────────
@@ -482,10 +533,44 @@ function normalizeRule(s: string): string {
 // catch lexically without false positives, those are handled upstream by
 // feeding tombstones into the extraction prompt.
 const TOMBSTONE_STOPWORDS = new Set([
-  'a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'and', 'or', 'with', 'use',
-  'using', 'do', 'not', 'always', 'never', 'prefer', 'should', 'must', 'when',
-  'that', 'this', 'your', 'all', 'any', 'as', 'is', 'are', 'be', 'it', 'its',
-  'into', 'from', 'at', 'by', 'avoid', 'instead',
+  "a",
+  "an",
+  "the",
+  "to",
+  "of",
+  "in",
+  "on",
+  "for",
+  "and",
+  "or",
+  "with",
+  "use",
+  "using",
+  "do",
+  "not",
+  "always",
+  "never",
+  "prefer",
+  "should",
+  "must",
+  "when",
+  "that",
+  "this",
+  "your",
+  "all",
+  "any",
+  "as",
+  "is",
+  "are",
+  "be",
+  "it",
+  "its",
+  "into",
+  "from",
+  "at",
+  "by",
+  "avoid",
+  "instead",
 ]);
 
 // Significant content tokens: lowercase, alnum-only, stopwords removed, light
@@ -493,10 +578,10 @@ const TOMBSTONE_STOPWORDS = new Set([
 function significantTokens(s: string): Set<string> {
   return new Set(
     normalizeRule(s)
-      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/[^a-z0-9\s]/g, " ")
       .split(/\s+/)
-      .map(t => t.replace(/s$/, ''))
-      .filter(t => t.length > 2 && !TOMBSTONE_STOPWORDS.has(t)),
+      .map((t) => t.replace(/s$/, ""))
+      .filter((t) => t.length > 2 && !TOMBSTONE_STOPWORDS.has(t)),
   );
 }
 
@@ -523,15 +608,20 @@ function isFuzzyMatch(candidate: string, tombstoned: string): boolean {
   let shared = 0;
   for (const t of ca) if (cb.has(t)) shared++;
   if (shared < TOMBSTONE_MIN_SHARED_TOKENS) return false;
-  return ruleSimilarity(candidate, tombstoned) >= TOMBSTONE_SIMILARITY_THRESHOLD;
+  return (
+    ruleSimilarity(candidate, tombstoned) >= TOMBSTONE_SIMILARITY_THRESHOLD
+  );
 }
 
 export function readTombstones(ctx?: StorageContext): string[] {
   const paths = getPaths(ctx);
   if (!fs.existsSync(paths.tombstonesFile)) return [];
   try {
-    const data = JSON.parse(fs.readFileSync(paths.tombstonesFile, 'utf-8')) as unknown;
-    if (Array.isArray(data)) return data.filter((x): x is string => typeof x === 'string');
+    const data = JSON.parse(
+      fs.readFileSync(paths.tombstonesFile, "utf-8"),
+    ) as unknown;
+    if (Array.isArray(data))
+      return data.filter((x): x is string => typeof x === "string");
   } catch {
     // malformed, treat as empty
   }
@@ -541,7 +631,10 @@ export function readTombstones(ctx?: StorageContext): string[] {
 export function writeTombstones(rules: string[], ctx?: StorageContext): void {
   ensureDirs(ctx);
   const unique = Array.from(new Set(rules.map(normalizeRule))).filter(Boolean);
-  safeWrite(getPaths(ctx).tombstonesFile, JSON.stringify(unique, null, 2) + '\n');
+  safeWrite(
+    getPaths(ctx).tombstonesFile,
+    JSON.stringify(unique, null, 2) + "\n",
+  );
 }
 
 export function addTombstone(rule: string, ctx?: StorageContext): void {
@@ -555,7 +648,7 @@ export function isTombstoned(rule: string, ctx?: StorageContext): boolean {
   const tombstones = readTombstones(ctx);
   // Fast path: exact normalized match. Fallback: fuzzy near-duplicate match so a
   // lightly reworded variant of a deleted rule is still blocked.
-  return tombstones.some(t => t === target || isFuzzyMatch(rule, t));
+  return tombstones.some((t) => t === target || isFuzzyMatch(rule, t));
 }
 
 // Memory tombstones ────────────────────────────────────────────────────────
@@ -563,8 +656,11 @@ export function readMemoryTombstones(ctx?: StorageContext): string[] {
   const paths = getPaths(ctx);
   if (!fs.existsSync(paths.memoryTombstonesFile)) return [];
   try {
-    const data = JSON.parse(fs.readFileSync(paths.memoryTombstonesFile, 'utf-8')) as unknown;
-    if (Array.isArray(data)) return data.filter((x): x is string => typeof x === 'string');
+    const data = JSON.parse(
+      fs.readFileSync(paths.memoryTombstonesFile, "utf-8"),
+    ) as unknown;
+    if (Array.isArray(data))
+      return data.filter((x): x is string => typeof x === "string");
   } catch {
     // malformed, treat as empty
   }
@@ -574,7 +670,10 @@ export function readMemoryTombstones(ctx?: StorageContext): string[] {
 function writeMemoryTombstones(texts: string[], ctx?: StorageContext): void {
   ensureDirs(ctx);
   const unique = Array.from(new Set(texts.map(normalizeRule))).filter(Boolean);
-  safeWrite(getPaths(ctx).memoryTombstonesFile, JSON.stringify(unique, null, 2) + '\n');
+  safeWrite(
+    getPaths(ctx).memoryTombstonesFile,
+    JSON.stringify(unique, null, 2) + "\n",
+  );
 }
 
 export function addMemoryTombstone(text: string, ctx?: StorageContext): void {
@@ -583,10 +682,13 @@ export function addMemoryTombstone(text: string, ctx?: StorageContext): void {
   writeMemoryTombstones(current, ctx);
 }
 
-export function isMemoryTombstoned(text: string, ctx?: StorageContext): boolean {
+export function isMemoryTombstoned(
+  text: string,
+  ctx?: StorageContext,
+): boolean {
   const target = normalizeRule(text);
   const tombstones = readMemoryTombstones(ctx);
-  return tombstones.some(t => t === target || isFuzzyMatch(text, t));
+  return tombstones.some((t) => t === target || isFuzzyMatch(text, t));
 }
 
 // Snapshot (auto-detect manual deletes) ────────────────────────────────────
@@ -594,7 +696,9 @@ export function readSnapshot(ctx?: StorageContext): HabitsMap | null {
   const paths = getPaths(ctx);
   if (!fs.existsSync(paths.snapshotFile)) return null;
   try {
-    return JSON.parse(fs.readFileSync(paths.snapshotFile, 'utf-8')) as HabitsMap;
+    return JSON.parse(
+      fs.readFileSync(paths.snapshotFile, "utf-8"),
+    ) as HabitsMap;
   } catch {
     return null;
   }
@@ -607,7 +711,10 @@ export function writeSnapshot(cats: HabitsMap, ctx?: StorageContext): void {
 
 // Compare snapshot to current parsed habits.md. Any rule present in snapshot
 // but absent from current was manually deleted by the user, tombstone it.
-export function detectManualDeletes(current: HabitsMap, ctx?: StorageContext): string[] {
+export function detectManualDeletes(
+  current: HabitsMap,
+  ctx?: StorageContext,
+): string[] {
   const snapshot = readSnapshot(ctx);
   if (snapshot === null) return [];
   const currentRules = new Set<string>();
@@ -634,7 +741,7 @@ export interface HistoryEntry {
 export function appendHistory(entry: HistoryEntry, ctx?: StorageContext): void {
   ensureDirs(ctx);
   const paths = getPaths(ctx);
-  safeAppend(paths.historyFile, JSON.stringify(entry) + '\n');
+  safeAppend(paths.historyFile, JSON.stringify(entry) + "\n");
   trimIfNeeded(paths.historyFile, HISTORY_ROTATE_LINES);
 }
 
@@ -643,15 +750,22 @@ export function readHistory(ctx?: StorageContext): HistoryEntry[] {
   if (!fs.existsSync(paths.historyFile)) return [];
   const stat = fs.statSync(paths.historyFile);
   if (stat.size > MAX_LOG_READ_BYTES) {
-    logError(`readHistory: .history.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
+    logError(
+      `readHistory: .history.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`,
+      ctx,
+    );
     return [];
   }
-  const lines = fs.readFileSync(paths.historyFile, 'utf-8').split('\n');
+  const lines = fs.readFileSync(paths.historyFile, "utf-8").split("\n");
   const out: HistoryEntry[] = [];
   for (const line of lines) {
     const t = line.trim();
     if (!t) continue;
-    try { out.push(JSON.parse(t) as HistoryEntry); } catch { /* skip */ }
+    try {
+      out.push(JSON.parse(t) as HistoryEntry);
+    } catch {
+      /* skip */
+    }
   }
   return out;
 }
@@ -671,7 +785,9 @@ export function readProvenance(ctx?: StorageContext): ProvenanceMap {
   const paths = getPaths(ctx);
   if (!fs.existsSync(paths.provenanceFile)) return {};
   try {
-    return JSON.parse(fs.readFileSync(paths.provenanceFile, 'utf-8')) as ProvenanceMap;
+    return JSON.parse(
+      fs.readFileSync(paths.provenanceFile, "utf-8"),
+    ) as ProvenanceMap;
   } catch {
     return {};
   }
@@ -682,9 +798,13 @@ export function writeProvenance(m: ProvenanceMap, ctx?: StorageContext): void {
   safeWrite(getPaths(ctx).provenanceFile, JSON.stringify(m, null, 2));
 }
 
-export function appendProvenance(ruleKey: string, refs: ProvenanceRef[], ctx?: StorageContext): void {
+export function appendProvenance(
+  ruleKey: string,
+  refs: ProvenanceRef[],
+  ctx?: StorageContext,
+): void {
   const map = readProvenance(ctx);
-  const key = ruleKey.trim().replace(/\.$/, '').toLowerCase();
+  const key = ruleKey.trim().replace(/\.$/, "").toLowerCase();
   const existing = map[key] ?? [];
   // Cap per-rule provenance at 10 most-recent entries to bound disk usage.
   const merged = [...existing, ...refs].slice(-10);
@@ -692,8 +812,11 @@ export function appendProvenance(ruleKey: string, refs: ProvenanceRef[], ctx?: S
   writeProvenance(map, ctx);
 }
 
-export function lookupProvenance(rule: string, ctx?: StorageContext): ProvenanceRef[] {
-  const key = rule.trim().replace(/\.$/, '').toLowerCase();
+export function lookupProvenance(
+  rule: string,
+  ctx?: StorageContext,
+): ProvenanceRef[] {
+  const key = rule.trim().replace(/\.$/, "").toLowerCase();
   const map = readProvenance(ctx);
   if (map[key]) return map[key];
   // Fuzzy: substring match.
@@ -718,19 +841,19 @@ export function parseHabits(md: string): HabitsMap {
     }
   };
 
-  for (const line of md.split('\n')) {
-    if (line.startsWith('## Learning')) {
+  for (const line of md.split("\n")) {
+    if (line.startsWith("## Learning")) {
       flush();
       inLearning = true;
       currentCat = null;
       continue;
     }
-    if (line.startsWith('## ')) {
+    if (line.startsWith("## ")) {
       flush();
       currentCat = line.slice(3).trim();
       inLearning = false;
       if (!cats[currentCat]) cats[currentCat] = [];
-    } else if (line.startsWith('- ')) {
+    } else if (line.startsWith("- ")) {
       // In the learning section, lines are prefixed with [Category]
       let bodyLine = line;
       let learnCat: string | null = null;
@@ -756,22 +879,40 @@ export function parseHabits(md: string): HabitsMap {
         // Adopt this category for flushing
         currentCat = cat;
       }
-    } else if (line.trim().startsWith('- Signal:') && currentHabit !== null) {
-      const m = line.match(/- Signal:\s*(\d+)\s+reinforcing,\s*(\d+)\s+contradicting/);
+    } else if (line.trim().startsWith("- Signal:") && currentHabit !== null) {
+      const m = line.match(
+        /- Signal:\s*(\d+)\s+reinforcing,\s*(\d+)\s+contradicting/,
+      );
       if (m) {
         currentHabit.reinforcing = parseInt(m[1], 10);
         currentHabit.contradicting = parseInt(m[2], 10);
       }
-    } else if (line.trim().startsWith('- Sessions seen:') && currentHabit !== null) {
+    } else if (
+      line.trim().startsWith("- Sessions seen:") &&
+      currentHabit !== null
+    ) {
       const m = line.match(/- Sessions seen:\s*(\d+)/);
       if (m) currentHabit.sessions_seen = parseInt(m[1], 10);
-    } else if (line.trim().startsWith('- Languages:') && currentHabit !== null) {
+    } else if (
+      line.trim().startsWith("- Languages:") &&
+      currentHabit !== null
+    ) {
       const m = line.match(/- Languages:\s*(.+)/);
-      if (m) currentHabit.languages = m[1].split(',').map(s => s.trim()).filter(Boolean);
-    } else if (line.trim().startsWith('- First learned:') && currentHabit !== null) {
-      currentHabit.first_learned = line.split(':').slice(1).join(':').trim();
-    } else if (line.trim().startsWith('- Last updated:') && currentHabit !== null) {
-      currentHabit.last_updated = line.split(':').slice(1).join(':').trim();
+      if (m)
+        currentHabit.languages = m[1]
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+    } else if (
+      line.trim().startsWith("- First learned:") &&
+      currentHabit !== null
+    ) {
+      currentHabit.first_learned = line.split(":").slice(1).join(":").trim();
+    } else if (
+      line.trim().startsWith("- Last updated:") &&
+      currentHabit !== null
+    ) {
+      currentHabit.last_updated = line.split(":").slice(1).join(":").trim();
     }
   }
 
@@ -780,25 +921,27 @@ export function parseHabits(md: string): HabitsMap {
 }
 
 function renderHabit(h: Habit, lines: string[], categoryPrefix?: string): void {
-  const rule = h.rule.trim().replace(/\.$/, '');
-  const prefix = categoryPrefix ? `[${categoryPrefix}] ` : '';
+  const rule = h.rule.trim().replace(/\.$/, "");
+  const prefix = categoryPrefix ? `[${categoryPrefix}] ` : "";
   lines.push(`- ${prefix}${rule}. Confidence: ${h.confidence.toFixed(2)}`);
-  lines.push(`  - Signal: ${h.reinforcing} reinforcing, ${h.contradicting} contradicting`);
+  lines.push(
+    `  - Signal: ${h.reinforcing} reinforcing, ${h.contradicting} contradicting`,
+  );
   lines.push(`  - Sessions seen: ${h.sessions_seen}`);
   if (h.languages && h.languages.length > 0) {
-    lines.push(`  - Languages: ${h.languages.join(', ')}`);
+    lines.push(`  - Languages: ${h.languages.join(", ")}`);
   }
   if (h.first_learned) lines.push(`  - First learned: ${h.first_learned}`);
   if (h.last_updated) lines.push(`  - Last updated: ${h.last_updated}`);
-  lines.push('');
+  lines.push("");
 }
 
 export function serialiseHabits(cats: HabitsMap): string {
   const lines: string[] = [
     `<!-- cc-habits format ${FORMAT_VERSION} -->`,
-    '# Coding habits',
-    '',
-    'Auto-generated by cc-habits. You may edit this file; rules you delete will not be recreated.',
+    "# Coding habits",
+    "",
+    "Auto-generated by cc-habits. You may edit this file; rules you delete will not be recreated.",
   ];
 
   const active: HabitsMap = {};
@@ -818,7 +961,7 @@ export function serialiseHabits(cats: HabitsMap): string {
   for (const category of Object.keys(active).sort()) {
     const habits = active[category];
     if (!habits || habits.length === 0) continue;
-    lines.push('', `## ${category}`, '');
+    lines.push("", `## ${category}`, "");
     for (const h of habits) renderHabit(h, lines);
   }
 
@@ -827,16 +970,19 @@ export function serialiseHabits(cats: HabitsMap): string {
     for (const [category, h] of learning) renderHabit(h, lines, category);
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 // Memories parsing / serialising ──────────────────────────────────────────
 function splitList(s: string): string[] {
-  return s.split(',').map(x => x.trim()).filter(Boolean);
+  return s
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 }
 
 function stripFinalPeriod(s: string): string {
-  return s.trim().replace(/\.$/, '');
+  return s.trim().replace(/\.$/, "");
 }
 
 export function parseMemories(md: string): MemoriesMap {
@@ -853,21 +999,21 @@ export function parseMemories(md: string): MemoriesMap {
     }
   };
 
-  for (const line of md.split('\n')) {
-    if (line.startsWith('## Candidates')) {
+  for (const line of md.split("\n")) {
+    if (line.startsWith("## Candidates")) {
       flush();
       inCandidates = true;
       currentSection = null;
       continue;
     }
-    if (line.startsWith('## ')) {
+    if (line.startsWith("## ")) {
       flush();
       currentSection = line.slice(3).trim();
       inCandidates = false;
       if (!sections[currentSection]) sections[currentSection] = [];
       continue;
     }
-    if (line.startsWith('- ')) {
+    if (line.startsWith("- ")) {
       flush();
       let body = line.slice(2).trim();
       let targetSection = currentSection;
@@ -883,7 +1029,7 @@ export function parseMemories(md: string): MemoriesMap {
       currentMemory = {
         text: stripFinalPeriod(body),
         trigger: [],
-        confidence: inCandidates ? 0.50 : 0.70,
+        confidence: inCandidates ? 0.5 : 0.7,
         seen: 1,
         sessions_seen: inCandidates ? 1 : 2,
       };
@@ -891,25 +1037,27 @@ export function parseMemories(md: string): MemoriesMap {
     }
     if (currentMemory === null) continue;
     const trimmed = line.trim();
-    if (trimmed.startsWith('- Trigger:')) {
-      currentMemory.trigger = splitList(trimmed.split(':').slice(1).join(':'));
-    } else if (trimmed.startsWith('- Correction:')) {
-      currentMemory.correction = trimmed.split(':').slice(1).join(':').trim();
-    } else if (trimmed.startsWith('- Confidence:')) {
-      const n = parseFloat(trimmed.split(':').slice(1).join(':').trim());
+    if (trimmed.startsWith("- Trigger:")) {
+      currentMemory.trigger = splitList(trimmed.split(":").slice(1).join(":"));
+    } else if (trimmed.startsWith("- Correction:")) {
+      currentMemory.correction = trimmed.split(":").slice(1).join(":").trim();
+    } else if (trimmed.startsWith("- Confidence:")) {
+      const n = parseFloat(trimmed.split(":").slice(1).join(":").trim());
       if (!Number.isNaN(n)) currentMemory.confidence = n;
-    } else if (trimmed.startsWith('- Seen:')) {
-      const n = parseInt(trimmed.split(':').slice(1).join(':').trim(), 10);
+    } else if (trimmed.startsWith("- Seen:")) {
+      const n = parseInt(trimmed.split(":").slice(1).join(":").trim(), 10);
       if (!Number.isNaN(n)) currentMemory.seen = n;
-    } else if (trimmed.startsWith('- Sessions seen:')) {
-      const n = parseInt(trimmed.split(':').slice(1).join(':').trim(), 10);
+    } else if (trimmed.startsWith("- Sessions seen:")) {
+      const n = parseInt(trimmed.split(":").slice(1).join(":").trim(), 10);
       if (!Number.isNaN(n)) currentMemory.sessions_seen = n;
-    } else if (trimmed.startsWith('- Languages:')) {
-      currentMemory.languages = splitList(trimmed.split(':').slice(1).join(':'));
-    } else if (trimmed.startsWith('- First seen:')) {
-      currentMemory.first_seen = trimmed.split(':').slice(1).join(':').trim();
-    } else if (trimmed.startsWith('- Last seen:')) {
-      currentMemory.last_seen = trimmed.split(':').slice(1).join(':').trim();
+    } else if (trimmed.startsWith("- Languages:")) {
+      currentMemory.languages = splitList(
+        trimmed.split(":").slice(1).join(":"),
+      );
+    } else if (trimmed.startsWith("- First seen:")) {
+      currentMemory.first_seen = trimmed.split(":").slice(1).join(":").trim();
+    } else if (trimmed.startsWith("- Last seen:")) {
+      currentMemory.last_seen = trimmed.split(":").slice(1).join(":").trim();
     }
   }
 
@@ -917,30 +1065,34 @@ export function parseMemories(md: string): MemoriesMap {
   return sections;
 }
 
-function renderMemory(memory: Memory, lines: string[], sectionPrefix?: string): void {
-  const prefix = sectionPrefix ? `[${sectionPrefix}] ` : '';
+function renderMemory(
+  memory: Memory,
+  lines: string[],
+  sectionPrefix?: string,
+): void {
+  const prefix = sectionPrefix ? `[${sectionPrefix}] ` : "";
   lines.push(`- ${prefix}${stripFinalPeriod(memory.text)}.`);
   if (memory.trigger.length > 0) {
-    lines.push(`  - Trigger: ${memory.trigger.join(', ')}`);
+    lines.push(`  - Trigger: ${memory.trigger.join(", ")}`);
   }
   if (memory.correction) lines.push(`  - Correction: ${memory.correction}`);
   lines.push(`  - Confidence: ${memory.confidence.toFixed(2)}`);
   lines.push(`  - Seen: ${memory.seen}`);
   lines.push(`  - Sessions seen: ${memory.sessions_seen}`);
   if (memory.languages && memory.languages.length > 0) {
-    lines.push(`  - Languages: ${memory.languages.join(', ')}`);
+    lines.push(`  - Languages: ${memory.languages.join(", ")}`);
   }
   if (memory.first_seen) lines.push(`  - First seen: ${memory.first_seen}`);
   if (memory.last_seen) lines.push(`  - Last seen: ${memory.last_seen}`);
-  lines.push('');
+  lines.push("");
 }
 
 export function serialiseMemories(sections: MemoriesMap): string {
   const lines: string[] = [
     `<!-- cc-habits memories format ${MEMORIES_FORMAT_VERSION} -->`,
-    '# Coding memories',
-    '',
-    'Auto-generated by cc-habits. You may edit this file; memories you delete will not be recreated.',
+    "# Coding memories",
+    "",
+    "Auto-generated by cc-habits. You may edit this file; memories you delete will not be recreated.",
   ];
 
   const active: MemoriesMap = {};
@@ -960,21 +1112,26 @@ export function serialiseMemories(sections: MemoriesMap): string {
   for (const section of Object.keys(active).sort()) {
     const memories = active[section];
     if (!memories || memories.length === 0) continue;
-    lines.push('', `## ${section}`, '');
+    lines.push("", `## ${section}`, "");
     for (const memory of memories) renderMemory(memory, lines);
   }
 
   if (candidates.length > 0) {
     lines.push(CANDIDATE_MEMORIES_SECTION_HEADER);
-    for (const [section, memory] of candidates) renderMemory(memory, lines, section);
+    for (const [section, memory] of candidates)
+      renderMemory(memory, lines, section);
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 // Memory update application ───────────────────────────────────────────────
 function normalizeMemoryText(s: string): string {
-  return s.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ');
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ");
 }
 
 export interface MemoryCandidate {
@@ -999,14 +1156,19 @@ export function applyMemoryUpdates(
 
   for (const candidate of candidates) {
     if (isMemoryTombstoned(candidate.text, ctx)) continue;
-    const section = candidate.section || 'Repeated mistakes';
+    const section = candidate.section || "Repeated mistakes";
     if (!sections[section]) sections[section] = [];
     const normalised = normalizeMemoryText(candidate.text);
-    const existing = sections[section].find(m => normalizeMemoryText(m.text) === normalised);
+    const existing = sections[section].find(
+      (m) => normalizeMemoryText(m.text) === normalised,
+    );
     if (existing) {
       existing.seen = (existing.seen ?? 1) + 1;
       existing.sessions_seen = Math.min((existing.sessions_seen ?? 1) + 1, 99);
-      existing.confidence = Math.min(+(existing.confidence + 0.10).toFixed(2), 0.95);
+      existing.confidence = Math.min(
+        +(existing.confidence + 0.1).toFixed(2),
+        0.95,
+      );
       existing.last_seen = today;
       updatedMemories?.push(existing.text);
     } else {
@@ -1016,13 +1178,13 @@ export function applyMemoryUpdates(
       // attacker-authored correction could plant ANSI escapes that fire when the
       // file is rendered by `cch memories`. The injection-time sanitizeRule in
       // hook.ts is the second layer; this keeps the stored file and terminal clean.
-      const scrub = (s: string): string => s.replace(STORAGE_CONTROL_CHARS, '');
-      const cleanedText = scrub(candidate.text).replace(/\.$/, '');
+      const scrub = (s: string): string => s.replace(STORAGE_CONTROL_CHARS, "");
+      const cleanedText = scrub(candidate.text).replace(/\.$/, "");
       sections[section].push({
         text: cleanedText,
         trigger: candidate.trigger.map(scrub),
         correction: scrub(candidate.correction),
-        confidence: 0.50,
+        confidence: 0.5,
         seen: 1,
         sessions_seen: 1,
         first_seen: today,
@@ -1080,17 +1242,26 @@ export function tightenLegacyModes(ctx?: StorageContext): void {
 export function sanitizeFilePath(p: string): string {
   // Strip any traversal segments; collapse to a safe representation.
   // We keep the path for human-readability but drop dangerous fragments.
-  if (!p) return '';
+  if (!p) return "";
   // Reject literal control characters that could break log line parsing or, once
   // displayed in `cch status`, inject terminal escape sequences. Covers C0, DEL,
   // and C1 (the 8-bit CSI/OSC range), not just C0.
-  const cleaned = p.replace(STORAGE_CONTROL_CHARS, '');
+  const cleaned = p.replace(STORAGE_CONTROL_CHARS, "");
   // Block path traversal: replace `..` segments with `_` so the displayed
   // path is unambiguous and cannot be re-interpreted by other tools.
-  return cleaned.split('/').map(seg => seg === '..' ? '_' : seg).join('/');
+  // Added unix and windows file path parsing
+  return cleaned
+    .split(/[\\/]/)
+    .map((seg) => (seg === ".." ? "_" : seg))
+    .join("/");
 }
 
 export function getRuleHash(text: string): string {
-  const clean = text.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  return 'cch' + crypto.createHash('sha256').update(clean).digest('hex').slice(0, 8);
+  const clean = text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return (
+    "cch" + crypto.createHash("sha256").update(clean).digest("hex").slice(0, 8)
+  );
 }

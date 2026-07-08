@@ -1,26 +1,42 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { AnthropicProvider } from './anthropic';
-import { OpenAIProvider } from './openai';
-import { GroqProvider } from './groq';
-import { OllamaProvider } from './ollama';
-import { ClaudeCliProvider } from './claude-cli';
-import { GeminiCliProvider } from './gemini-cli';
-import { CodexCliProvider } from './codex-cli';
-import { spawnSync } from 'child_process';
-import { storagePaths } from '../storage';
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { AnthropicProvider } from "./anthropic";
+import { OpenAIProvider } from "./openai";
+import { GroqProvider } from "./groq";
+import { OllamaProvider } from "./ollama";
+import { ClaudeCliProvider } from "./claude-cli";
+import { GeminiCliProvider } from "./gemini-cli";
+import { CodexCliProvider } from "./codex-cli";
+import { spawnSync } from "child_process";
+import { storagePaths } from "../storage";
 
 // Re-export the contract and error types so existing importers of './providers'
 // keep working. The definitions live in types.ts to avoid an import cycle.
-import type { Provider } from './types';
-export { Provider, ProviderRateLimitError, ProviderTimeoutError, ProviderPayloadError, ProviderAuthError, ProviderNotInstalledError, ProviderQuotaError, ProviderModelNotFoundError } from './types';
+import type { Provider } from "./types";
+export {
+  Provider,
+  ProviderRateLimitError,
+  ProviderTimeoutError,
+  ProviderPayloadError,
+  ProviderAuthError,
+  ProviderNotInstalledError,
+  ProviderQuotaError,
+  ProviderModelNotFoundError,
+} from "./types";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const REPO_SCAN_TIMEOUT_MS = 90_000;
 
 export interface ProviderConfig {
-  provider: 'anthropic' | 'openai' | 'groq' | 'ollama' | 'claude-cli' | 'gemini-cli' | 'codex-cli';
+  provider:
+    | "anthropic"
+    | "openai"
+    | "groq"
+    | "ollama"
+    | "claude-cli"
+    | "gemini-cli"
+    | "codex-cli";
   anthropic_api_key?: string;
   openai_api_key?: string;
   openai_model?: string;
@@ -32,12 +48,13 @@ export interface ProviderConfig {
 
 // Minimal regex-driven YAML reader. The config file path comes from storagePaths
 // so that CC_HABITS_DIR overrides both data files AND the provider config together.
+// Fixed provider bug -- doesnt check for uncommented line and breaks config
 function readConfig(): ProviderConfig {
-  const cfg: ProviderConfig = { provider: 'anthropic' };
+  const cfg: ProviderConfig = { provider: "anthropic" };
   let configPath = storagePaths.configFile;
   if (!fs.existsSync(configPath)) {
-    if (!process.env['CC_HABITS_DIR']) {
-      const globalConfig = path.join(os.homedir(), '.cc-habits', 'config.yml');
+    if (!process.env["CC_HABITS_DIR"]) {
+      const globalConfig = path.join(os.homedir(), ".cc-habits", "config.yml");
       if (fs.existsSync(globalConfig)) {
         configPath = globalConfig;
       } else {
@@ -48,22 +65,49 @@ function readConfig(): ProviderConfig {
     }
   }
   try {
-    const text = fs.readFileSync(configPath, 'utf-8');
+    const text = fs.readFileSync(configPath, "utf-8");
     const read = (key: string): string | undefined => {
-      const m = text.match(new RegExp(`${key}\\s*:\\s*["']?([^\\s"'\\n]+)["']?`));
-      return m ? m[1] : undefined;
+      const lines = text.split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("#") || !trimmed) continue;
+        const match = trimmed.match(new RegExp(`^${key}\\s*:\\s*(.*)$`));
+        if (match) {
+          let val = match[1].trim();
+          const hashIdx = val.indexOf("#");
+          if (hashIdx >= 0) {
+            val = val.slice(0, hashIdx).trim();
+          }
+          if (
+            (val.startsWith('"') && val.endsWith('"')) ||
+            (val.startsWith("'") && val.endsWith("'"))
+          ) {
+            val = val.slice(1, -1);
+          }
+          return val;
+        }
+      }
+      return undefined;
     };
-    const provider = read('provider');
-    if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic' || provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli') {
+    const provider = read("provider");
+    if (
+      provider === "openai" ||
+      provider === "groq" ||
+      provider === "ollama" ||
+      provider === "anthropic" ||
+      provider === "claude-cli" ||
+      provider === "gemini-cli" ||
+      provider === "codex-cli"
+    ) {
       cfg.provider = provider;
     }
-    cfg.anthropic_api_key = read('anthropic_api_key');
-    cfg.openai_api_key = read('openai_api_key');
-    cfg.openai_model = read('openai_model');
-    cfg.groq_api_key = read('groq_api_key');
-    cfg.groq_model = read('groq_model');
-    cfg.ollama_url = read('ollama_url');
-    cfg.ollama_model = read('ollama_model');
+    cfg.anthropic_api_key = read("anthropic_api_key");
+    cfg.openai_api_key = read("openai_api_key");
+    cfg.openai_model = read("openai_model");
+    cfg.groq_api_key = read("groq_api_key");
+    cfg.groq_model = read("groq_model");
+    cfg.ollama_url = read("ollama_url");
+    cfg.ollama_model = read("ollama_model");
   } catch {
     // fall through to default
   }
@@ -82,16 +126,19 @@ function readConfig(): ProviderConfig {
 // An explicit CC_HABITS_PROVIDER override is still honored verbatim, since that is
 // a deliberate, current choice rather than stale config.
 export function resolveProviderLabel(): string {
-  const forced = process.env['CC_HABITS_PROVIDER'];
+  const forced = process.env["CC_HABITS_PROVIDER"];
   if (forced) return forced;
-  const configExists = fs.existsSync(storagePaths.configFile)
-    || (!process.env['CC_HABITS_DIR'] && fs.existsSync(path.join(os.homedir(), '.cc-habits', 'config.yml')));
+  const configExists =
+    fs.existsSync(storagePaths.configFile) ||
+    (!process.env["CC_HABITS_DIR"] &&
+      fs.existsSync(path.join(os.homedir(), ".cc-habits", "config.yml")));
   if (!configExists) {
-    return process.env['ANTHROPIC_API_KEY'] ? 'anthropic' : 'none';
+    return process.env["ANTHROPIC_API_KEY"] ? "anthropic" : "none";
   }
   const cfg = readConfig();
-  if (isParkedProvider(cfg.provider)) return 'none';
-  if (cfg.provider === 'ollama') return `ollama (${cfg.ollama_model ?? 'llama3.2'})`;
+  if (isParkedProvider(cfg.provider)) return "none";
+  if (cfg.provider === "ollama")
+    return `ollama (${cfg.ollama_model ?? "llama3.2"})`;
   return cfg.provider;
 }
 
@@ -104,15 +151,15 @@ export function resolveProviderLabel(): string {
  */
 export function extractionPrivacyNote(): string {
   const label = resolveProviderLabel();
-  if (label === 'none') return '';
-  const forced = process.env['CC_HABITS_PROVIDER'];
+  if (label === "none") return "";
+  const forced = process.env["CC_HABITS_PROVIDER"];
   const cfg = readConfig();
   const provider = forced ?? cfg.provider;
-  if (provider === 'ollama') {
-    const model = process.env['CC_HABITS_OLLAMA_MODEL'] ?? cfg.ollama_model;
+  if (provider === "ollama") {
+    const model = process.env["CC_HABITS_OLLAMA_MODEL"] ?? cfg.ollama_model;
     return isCloudOllamaModel(model)
-      ? 'sending redacted diffs to Ollama Cloud'
-      : 'nothing leaves this machine';
+      ? "sending redacted diffs to Ollama Cloud"
+      : "nothing leaves this machine";
   }
   return `sending redacted diffs to ${provider}`;
 }
@@ -120,7 +167,11 @@ export function extractionPrivacyNote(): string {
 // CLI-linking providers are parked for this release (reachable only via an
 // explicit --provider, never the default UX). Treated as not-usable everywhere
 // the front door decides whether to offer or run an extraction.
-const PARKED_PROVIDERS: readonly string[] = ['claude-cli', 'gemini-cli', 'codex-cli'];
+const PARKED_PROVIDERS: readonly string[] = [
+  "claude-cli",
+  "gemini-cli",
+  "codex-cli",
+];
 
 export function isParkedProvider(provider: string): boolean {
   return PARKED_PROVIDERS.includes(provider);
@@ -135,12 +186,14 @@ export function isParkedProvider(provider: string): boolean {
 export function hasUsableProvider(): boolean {
   try {
     const cfg = readConfig();
-    const provider = process.env['CC_HABITS_PROVIDER'] ?? cfg.provider;
+    const provider = process.env["CC_HABITS_PROVIDER"] ?? cfg.provider;
     if (isParkedProvider(provider)) return false;
-    if (provider === 'ollama') return true;
-    if (provider === 'openai') return !!(process.env['OPENAI_API_KEY'] ?? cfg.openai_api_key);
-    if (provider === 'groq') return !!(process.env['GROQ_API_KEY'] ?? cfg.groq_api_key);
-    return !!(process.env['ANTHROPIC_API_KEY'] ?? cfg.anthropic_api_key); // anthropic (default)
+    if (provider === "ollama") return true;
+    if (provider === "openai")
+      return !!(process.env["OPENAI_API_KEY"] ?? cfg.openai_api_key);
+    if (provider === "groq")
+      return !!(process.env["GROQ_API_KEY"] ?? cfg.groq_api_key);
+    return !!(process.env["ANTHROPIC_API_KEY"] ?? cfg.anthropic_api_key); // anthropic (default)
   } catch {
     return false;
   }
@@ -148,8 +201,8 @@ export function hasUsableProvider(): boolean {
 
 export interface ProviderReadiness {
   ok: boolean;
-  reason?: string;       // short, plain-language cause when not ok
-  suggestion?: string;   // one actionable next step
+  reason?: string; // short, plain-language cause when not ok
+  suggestion?: string; // one actionable next step
 }
 
 // Network-aware pre-flight for the configured provider. hasUsableProvider() only
@@ -162,20 +215,30 @@ export interface ProviderReadiness {
 // hasUsableProvider (credential) plus the typed error on the real call.
 export async function checkProviderReady(): Promise<ProviderReadiness> {
   const cfg = readConfig();
-  const provider = process.env['CC_HABITS_PROVIDER'] ?? cfg.provider;
-  if (provider !== 'ollama') return { ok: true };
+  const provider = process.env["CC_HABITS_PROVIDER"] ?? cfg.provider;
+  if (provider !== "ollama") return { ok: true };
 
-  const url   = process.env['CC_HABITS_OLLAMA_URL'] ?? cfg.ollama_url ?? 'http://localhost:11434';
-  const model = process.env['CC_HABITS_OLLAMA_MODEL'] ?? cfg.ollama_model ?? 'llama3.2';
+  const url =
+    process.env["CC_HABITS_OLLAMA_URL"] ??
+    cfg.ollama_url ??
+    "http://localhost:11434";
+  const model =
+    process.env["CC_HABITS_OLLAMA_MODEL"] ?? cfg.ollama_model ?? "llama3.2";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), OLLAMA_PROBE_TIMEOUT_MS);
   try {
     const res = await fetch(`${url}/api/tags`, { signal: controller.signal });
     if (!res.ok) {
-      return { ok: false, reason: `Ollama returned HTTP ${res.status}`, suggestion: 'Restart Ollama, then retry.' };
+      return {
+        ok: false,
+        reason: `Ollama returned HTTP ${res.status}`,
+        suggestion: "Restart Ollama, then retry.",
+      };
     }
-    const data  = await res.json() as { models?: Array<{ name?: string }> };
-    const names = (data.models ?? []).map(m => m?.name).filter((n): n is string => !!n);
+    const data = (await res.json()) as { models?: Array<{ name?: string }> };
+    const names = (data.models ?? [])
+      .map((m) => m?.name)
+      .filter((n): n is string => !!n);
     // A cloud model is not in the local tag list and runs remotely, so a reachable
     // daemon is all we can verify here; a real cloud outage surfaces on the generate
     // call and is mapped to a friendly message by the caller.
@@ -191,8 +254,9 @@ export async function checkProviderReady(): Promise<ProviderReadiness> {
   } catch {
     return {
       ok: false,
-      reason: 'Ollama is not reachable',
-      suggestion: 'Start it with `ollama serve` (or open the Ollama app), then retry. No API key needed.',
+      reason: "Ollama is not reachable",
+      suggestion:
+        "Start it with `ollama serve` (or open the Ollama app), then retry. No API key needed.",
     };
   } finally {
     clearTimeout(timer);
@@ -203,34 +267,44 @@ export function selectProvider(): Provider {
   const cfg = readConfig();
 
   // Env vars override config file selection.
-  const forced = process.env['CC_HABITS_PROVIDER'];
-  const chosen = (forced ?? cfg.provider) as ProviderConfig['provider'];
+  const forced = process.env["CC_HABITS_PROVIDER"];
+  const chosen = (forced ?? cfg.provider) as ProviderConfig["provider"];
 
-  if (chosen === 'claude-cli') {
+  if (chosen === "claude-cli") {
     return new ClaudeCliProvider();
   }
-  if (chosen === 'gemini-cli') {
+  if (chosen === "gemini-cli") {
     return new GeminiCliProvider();
   }
-  if (chosen === 'codex-cli') {
+  if (chosen === "codex-cli") {
     return new CodexCliProvider();
   }
-  if (chosen === 'openai') {
-    const key = process.env['OPENAI_API_KEY'] ?? cfg.openai_api_key;
-    if (!key) throw new Error('OpenAI provider selected but OPENAI_API_KEY/openai_api_key not set.');
-    return new OpenAIProvider(key, cfg.openai_model ?? 'gpt-4o-mini');
+  if (chosen === "openai") {
+    const key = process.env["OPENAI_API_KEY"] ?? cfg.openai_api_key;
+    if (!key)
+      throw new Error(
+        "OpenAI provider selected but OPENAI_API_KEY/openai_api_key not set.",
+      );
+    return new OpenAIProvider(key, cfg.openai_model ?? "gpt-4o-mini");
   }
-  if (chosen === 'groq') {
-    const key = process.env['GROQ_API_KEY'] ?? cfg.groq_api_key;
-    if (!key) throw new Error('Groq provider selected but GROQ_API_KEY/groq_api_key not set.');
-    return new GroqProvider(key, cfg.groq_model ?? 'llama-3.3-70b-versatile');
+  if (chosen === "groq") {
+    const key = process.env["GROQ_API_KEY"] ?? cfg.groq_api_key;
+    if (!key)
+      throw new Error(
+        "Groq provider selected but GROQ_API_KEY/groq_api_key not set.",
+      );
+    return new GroqProvider(key, cfg.groq_model ?? "llama-3.3-70b-versatile");
   }
-  if (chosen === 'ollama') {
-    return new OllamaProvider(cfg.ollama_url ?? 'http://localhost:11434', cfg.ollama_model ?? 'llama3.2');
+  if (chosen === "ollama") {
+    return new OllamaProvider(
+      cfg.ollama_url ?? "http://localhost:11434",
+      cfg.ollama_model ?? "llama3.2",
+    );
   }
   // anthropic (default)
-  const key = process.env['ANTHROPIC_API_KEY'] ?? cfg.anthropic_api_key;
-  if (!key) throw new Error('ANTHROPIC_API_KEY not set and not found in config.');
+  const key = process.env["ANTHROPIC_API_KEY"] ?? cfg.anthropic_api_key;
+  if (!key)
+    throw new Error("ANTHROPIC_API_KEY not set and not found in config.");
   return new AnthropicProvider(key);
 }
 
@@ -244,7 +318,11 @@ export function selectProvider(): Provider {
 const OLLAMA_PROBE_TIMEOUT_MS = 1500;
 // Local-only defaults. cc-habits markets Ollama as the "fully local, nothing
 // leaves your machine" option, so auto-selection must never prefer a cloud model.
-const PREFERRED_OLLAMA_MODELS = ['llama3.2', 'qwen2.5-coder:7b', 'qwen2.5-coder:3b'];
+const PREFERRED_OLLAMA_MODELS = [
+  "llama3.2",
+  "qwen2.5-coder:7b",
+  "qwen2.5-coder:3b",
+];
 
 // Ollama "cloud" models carry a `-cloud` tag suffix (e.g. gemma4:31b-cloud).
 // Their inference runs on Ollama's servers, not the local machine: requests are
@@ -258,35 +336,48 @@ export function isCloudOllamaModel(model?: string): boolean {
 // True only when no provider was explicitly chosen and no cloud key is present,
 // so we never override a user's deliberate provider selection.
 function shouldTryOllamaFallback(): boolean {
-  if (process.env['CC_HABITS_PROVIDER']) return false; // explicit choice, respect it
+  if (process.env["CC_HABITS_PROVIDER"]) return false; // explicit choice, respect it
   const cfg = readConfig();
-  if (cfg.provider !== 'anthropic') return false;      // explicit non-anthropic choice
+  if (cfg.provider !== "anthropic") return false; // explicit non-anthropic choice
   // cfg.provider === 'anthropic' here is either explicit or the default. Only fall
   // back when there is genuinely no anthropic key to use.
-  return !(process.env['ANTHROPIC_API_KEY'] ?? cfg.anthropic_api_key);
+  return !(process.env["ANTHROPIC_API_KEY"] ?? cfg.anthropic_api_key);
 }
 
 // Probe a local Ollama and pick a model. Returns null when Ollama is unreachable
 // or exposes no models. Bounded by a short timeout so it never hangs a hook.
-export async function detectOllama(): Promise<{ url: string; model: string } | null> {
+export async function detectOllama(): Promise<{
+  url: string;
+  model: string;
+} | null> {
   const cfg = readConfig();
-  const url = process.env['CC_HABITS_OLLAMA_URL'] ?? cfg.ollama_url ?? 'http://localhost:11434';
+  const url =
+    process.env["CC_HABITS_OLLAMA_URL"] ??
+    cfg.ollama_url ??
+    "http://localhost:11434";
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), OLLAMA_PROBE_TIMEOUT_MS);
   try {
     const res = await fetch(`${url}/api/tags`, { signal: controller.signal });
     if (!res.ok) return null;
-    const data = await res.json() as { models?: Array<{ name?: string }> };
-    const names = (data.models ?? []).map(m => m?.name).filter((n): n is string => !!n);
+    const data = (await res.json()) as { models?: Array<{ name?: string }> };
+    const names = (data.models ?? [])
+      .map((m) => m?.name)
+      .filter((n): n is string => !!n);
     if (names.length === 0) return null;
     // Preference order, biased away from cloud models so we never silently route a
     // "local" fallback through Ollama's cloud: an explicitly configured model wins
     // (even a cloud one, since that is the user's deliberate choice), then a known
     // local default, then any local model, and only a cloud model when nothing
     // local is installed.
-    const configured   = cfg.ollama_model && names.includes(cfg.ollama_model) ? cfg.ollama_model : undefined;
-    const preferredLocal = PREFERRED_OLLAMA_MODELS.find(p => names.includes(p));
-    const firstLocal   = names.find(n => !isCloudOllamaModel(n));
+    const configured =
+      cfg.ollama_model && names.includes(cfg.ollama_model)
+        ? cfg.ollama_model
+        : undefined;
+    const preferredLocal = PREFERRED_OLLAMA_MODELS.find((p) =>
+      names.includes(p),
+    );
+    const firstLocal = names.find((n) => !isCloudOllamaModel(n));
     const model = configured ?? preferredLocal ?? firstLocal ?? names[0];
     return { url, model };
   } catch {
@@ -317,17 +408,19 @@ export async function selectProviderAsync(): Promise<Provider> {
       const where = isCloudOllamaModel(found.model)
         ? `Ollama cloud model ${found.model} (runs on Ollama's servers, redacted diffs leave your machine)`
         : `local Ollama (${found.model})`;
-      process.stderr.write(`cc-habits: no provider configured, using ${where}\n`);
+      process.stderr.write(
+        `cc-habits: no provider configured, using ${where}\n`,
+      );
     }
     return new OllamaProvider(found.url, found.model);
   }
 }
 
-export function probeCliProvider(name: 'claude' | 'gemini' | 'codex'): boolean {
+export function probeCliProvider(name: "claude" | "gemini" | "codex"): boolean {
   try {
-    const result = spawnSync(name, ['--version'], {
+    const result = spawnSync(name, ["--version"], {
       timeout: 2000,
-      encoding: 'utf-8',
+      encoding: "utf-8",
     });
     return !result.error && result.status === 0;
   } catch {
