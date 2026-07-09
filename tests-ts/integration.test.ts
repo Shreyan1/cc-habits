@@ -36,7 +36,9 @@ const FAKE_UPDATES = [
 ];
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-test-'));
+  const baseTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-test-'));
+  tmpDir = path.join(baseTmp, '.cc-habits');
+  fs.mkdirSync(tmpDir, { recursive: true });
   storagePaths.habitsDir = tmpDir;
   storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
   storagePaths.memoriesFile = path.join(tmpDir, 'memories.md');

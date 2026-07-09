@@ -304,14 +304,15 @@ The core CLI is pure Node.js and runs anywhere Node 20+ runs. The pieces that ne
 | **Gemini CLI** (`gemini-cli`) | $0 extra             | WIP: use`cch init --provider gemini-cli`          |
 | **Codex CLI** (`codex-cli`)   | $0 extra             | WIP: use`cch init --provider codex-cli`           |
 
-> **No API key?** Ollama is free, fully local, and needs no account:
->
-> ```bash
-> brew install ollama          # or download from ollama.com
-> ollama pull llama3.2
-> ollama serve &
-> cch init --provider ollama
-> ```
+### Ollama Quickstart
+
+Running extraction locally with Ollama is the strongest privacy story: **nothing leaves your machine**.
+
+1. **Install Ollama**: `brew install ollama` (macOS) or download from [ollama.com](https://ollama.com/download) (Windows/Linux)
+2. **Pull a small model**: `ollama pull llama3.2:1b` (or your preferred model)
+3. **Start Ollama**: Ensure the Ollama app or background daemon is running.
+4. **Point cc-habits to it**: `cch init --provider ollama`
+5. **Confirm**: run `cch status` to verify your local provider is active.
 
 > [!IMPORTANT]
 > **Model Capabilities & Extraction Quality:**

@@ -38,10 +38,10 @@ describe('#12, init wires the @import independent of the capture-hooks choice', 
   it('addImportToClaudeMd is no longer nested inside the `if (register)` block', () => {
     const src = read(CLI_SRC);
     const branch = src.slice(
-      src.indexOf("tool.id === 'claude-code'"),
-      src.indexOf("tool.id === 'gemini'"),
+      src.indexOf('tool.id === "claude-code"'),
+      src.indexOf('tool.id === "gemini"'),
     );
-    const proofIdx = branch.indexOf("printHookProof('claude-code'");
+    const proofIdx = branch.indexOf('printHookProof("claude-code"');
     const importIdx = branch.indexOf('addImportToClaudeMd()');
     expect(proofIdx).toBeGreaterThan(-1);
     expect(importIdx).toBeGreaterThan(proofIdx);

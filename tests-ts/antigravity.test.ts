@@ -28,6 +28,7 @@ beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-antigravity-'));
   originalHome = process.env.HOME;
   process.env.HOME = tmpHome;
+  vi.spyOn(os, 'homedir').mockReturnValue(tmpHome);
   execFileSyncMock.mockReset();
   execFileSyncMock.mockImplementation(() => {
     throw new Error('not found');
