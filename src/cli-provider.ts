@@ -13,11 +13,12 @@ import {
 // so selecting a new provider replaces any stale `provider:` line (e.g. a leftover
 // parked codex-cli) while preserving unrelated keys like consent_given and
 // memories_enabled. Always writes the `provider` key so the selection is explicit.
-function saveProviderConfig(entries: Record<string, string>): void {
+async function saveProviderConfig(entries: Record<string, string>): Promise<void> {
   for (const [key, value] of Object.entries(entries)) {
-    setConfigValue(key, value);
+    await setConfigValue(key, value);
   }
 }
+
 
 const CONFIG_FILE = storagePaths.configFile;
 const OLLAMA_DEFAULT_URL   = 'http://localhost:11434';
@@ -221,7 +222,7 @@ export async function interactiveOllamaSetup(
 
     if (verificationOk) {
       process.stdout.write(c(GREEN, `  ${tick} Model '${candidateModel}' verified successfully!\n`));
-      saveProviderConfig({ provider: 'ollama', ollama_url: OLLAMA_DEFAULT_URL, ollama_model: candidateModel });
+      await saveProviderConfig({ provider: 'ollama', ollama_url: OLLAMA_DEFAULT_URL, ollama_model: candidateModel });
       process.stdout.write(`  ${tick} Ollama config saved (model: ${candidateModel})\n`);
       // Honesty: a `-cloud` model is not local. Do not let the "fully local"
       // framing of Ollama imply privacy it does not provide for this choice.
@@ -247,7 +248,7 @@ export async function configureProvider(provider: string, tick: string, dash: st
   fs.mkdirSync(dir, { recursive: true });
 
   if (provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli') {
-    saveProviderConfig({ provider });
+    await saveProviderConfig({ provider });
     process.stdout.write(`  ${tick} Config saved (provider: ${provider})\n`);
     process.stdout.write(c(DIM, `    ↳ proof, written to ${tildePath(CONFIG_FILE)}: provider: ${provider}\n`));
     return;
@@ -263,7 +264,7 @@ export async function configureProvider(provider: string, tick: string, dash: st
 
   if (provider === 'ollama') {
     if (!process.stdin.isTTY) {
-      saveProviderConfig({ provider: 'ollama', ollama_url: OLLAMA_DEFAULT_URL, ollama_model: OLLAMA_DEFAULT_MODEL });
+      await saveProviderConfig({ provider: 'ollama', ollama_url: OLLAMA_DEFAULT_URL, ollama_model: OLLAMA_DEFAULT_MODEL });
       return;
     }
     await interactiveOllamaSetup(tick, dash);
@@ -275,7 +276,7 @@ export async function configureProvider(provider: string, tick: string, dash: st
     process.stdout.write(c(DIM, '  Get an API key at https://console.anthropic.com\n\n'));
     const key = await promptSecret('  Enter your Anthropic API key (hidden): ');
     if (key) {
-      saveProviderConfig({ provider: 'anthropic', anthropic_api_key: key });
+      await saveProviderConfig({ provider: 'anthropic', anthropic_api_key: key });
       process.stdout.write(`  ${tick} API key saved to ~/.cc-habits/config.yml\n`);
     } else {
       process.stdout.write(`  ${dash} No key entered. Set ANTHROPIC_API_KEY env var before use.\n`);
@@ -288,7 +289,7 @@ export async function configureProvider(provider: string, tick: string, dash: st
     process.stdout.write(c(DIM, '  Get an API key at https://platform.openai.com\n\n'));
     const key = await promptSecret('  Enter your OpenAI API key (hidden): ');
     if (key) {
-      saveProviderConfig({ provider: 'openai', openai_api_key: key, openai_model: 'gpt-4o-mini' });
+      await saveProviderConfig({ provider: 'openai', openai_api_key: key, openai_model: 'gpt-4o-mini' });
       process.stdout.write(`  ${tick} OpenAI config saved (model: gpt-4o-mini)\n`);
     } else {
       process.stdout.write(`  ${dash} No key entered.\n`);
@@ -301,7 +302,7 @@ export async function configureProvider(provider: string, tick: string, dash: st
     process.stdout.write(c(DIM, '  Get a free API key at https://console.groq.com\n\n'));
     const key = await promptSecret('  Enter your Groq API key (hidden): ');
     if (key) {
-      saveProviderConfig({ provider: 'groq', groq_api_key: key, groq_model: 'llama-3.3-70b-versatile' });
+      await saveProviderConfig({ provider: 'groq', groq_api_key: key, groq_model: 'llama-3.3-70b-versatile' });
       process.stdout.write(`  ${tick} Groq config saved\n`);
     } else {
       process.stdout.write(`  ${dash} No key entered.\n`);

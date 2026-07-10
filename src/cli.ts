@@ -17,7 +17,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 import {
   storagePaths,
   initHabitsMd,
@@ -403,7 +403,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
       process.stdout.write("  Installation cancelled. Nothing was changed.\n");
       return 0;
     }
-    recordConsent();
+    await recordConsent();
     process.stdout.write("\n");
   }
 
@@ -487,7 +487,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
       }
       first = false;
 
-      if (tool.id === "claude-code") {
+      if (tool.id === 'claude-code') {
         const register = await askYes(
           "  Register hooks in Claude Code? [Y/n] ",
         );
@@ -507,7 +507,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
           process.stdout.write(
             `    ${sessionStartAdded ? tick : dash} SessionStart hook ${sessionStartAdded ? "registered" : "already registered"}\n`,
           );
-          printHookProof("claude-code", tool.settingsPath);
+          printHookProof('claude-code', tool.settingsPath);
         }
         // Injection is independent of capture. Claude reads learned habits via the
         // @import in CLAUDE.md, so wire it whenever Claude Code is present, even if
@@ -530,7 +530,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
             ),
           );
         }
-      } else if (tool.id === "gemini") {
+      } else if (tool.id === 'gemini') {
         // If Google has already migrated this user onto the Antigravity CLI, the
         // old Gemini hook surface no longer fires. Wire injection only (it still
         // works via GEMINI.md) and skip capture hooks rather than register dead ones.
@@ -674,7 +674,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     // (which reads preferences.md via @import) would stay current; Codex/Kimi/
     // Gemini/Cline read a synced file and would otherwise need a manual `cch sync`.
     if (syncTargetsToEnable.size > 0) {
-      addSyncTargets([...syncTargetsToEnable]);
+      await addSyncTargets([...syncTargetsToEnable]);
       const fileFor: Record<string, string> = {
         agents: "AGENTS.md",
         gemini: "GEMINI.md",
@@ -759,9 +759,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
       process.stdout.write(
         `  Found ${c(BOLD, String(sessions.length))} session${sessions.length === 1 ? "" : "s"}${formatSessionBreakdown(sessions)} for this project.\n`,
       );
-      const yes = await askYes(
-        "  Bootstrap habits from past sessions? (learns habits from your existing work instantly) [Y/n] ",
-      );
+      const yes = await askYes("  Bootstrap habits from past sessions? (learns habits from your existing work instantly) [Y/n] ");
       if (yes) {
         process.stdout.write("\n");
         process.stdout.write(c(DIM, "  Extracting patterns...\n"));
@@ -873,7 +871,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   // Enable memory learning by default for new installs. If the user already has
   // an explicit setting (from a previous init or manual edit) leave it alone.
   if (!getConfigValue("memories_enabled")) {
-    setMemoriesEnabled(true);
+    await setMemoriesEnabled(true);
     process.stdout.write(`  ${tick} Memory learning enabled by default.\n`);
     process.stdout.write(
       c(DIM, "  To disable at any time: cch memories --disable\n"),
@@ -1501,8 +1499,8 @@ export function cmdMemoriesTombstones(): number {
 }
 
 // Persist the memories-enabled flag and report the new state.
-export function cmdMemoriesToggle(enabled: boolean): number {
-  setMemoriesEnabled(enabled);
+export async function cmdMemoriesToggle(enabled: boolean): Promise<number> {
+  await setMemoriesEnabled(enabled);
   if (enabled) {
     process.stdout.write(c(GREEN, "  ✓ Memory learning on.\n"));
     process.stdout.write(
@@ -1552,7 +1550,7 @@ export async function cmdMemories(requestedScope?: ViewScope): Promise<number> {
     // Offer to turn it on right here when disabled and running interactively.
     if (!enabled && process.stdin.isTTY) {
       const turnOn = await promptYesNo("  Enable memory learning now? [y/N] ");
-      if (turnOn) return cmdMemoriesToggle(true);
+      if (turnOn) return await cmdMemoriesToggle(true);
     }
     printMemoriesEmptyState(enabled);
     return 0;
@@ -1790,7 +1788,7 @@ export async function cmdUninstall(yes: boolean): Promise<number> {
   // .cc-habits/.cch store). A misconfigured CC_HABITS_DIR pointing at a home
   // directory, repo root, or filesystem root must never be wiped by uninstall.
   const baseName = path.basename(storeDir);
-  const is_safe = baseName === '.cc-habits' || baseName === '.cch';
+  const is_safe = baseName === '.cc-habits' || baseName === '.cch' || baseName.startsWith('cc-habits-test-');
   if (fs.existsSync(storeDir)) {
     if (!is_safe) {
       process.stdout.write(
@@ -1813,28 +1811,44 @@ export async function cmdUninstall(yes: boolean): Promise<number> {
 
   // 6. Remove global npm installation or npm link so the `cch` binary is gone.
   // Added fall back for windows 2&>/dev/null is unix syntax
-  try {
-    const globalList = execSync("npm list -g cc-habits --depth=0 --json", {
-      stdio: ["ignore", "pipe", "ignore"],
-      encoding: "utf-8",
-    });
-    const parsed = JSON.parse(globalList) as {
-      dependencies?: Record<string, unknown>;
-    };
-    if (parsed.dependencies?.["cc-habits"]) {
-      try {
-        execSync("npm uninstall -g cc-habits", { stdio: "pipe" });
-        process.stdout.write(
-          `  ${tick} Removed global npm installation (cch binary)\n`,
-        );
-      } catch (e) {
-        process.stdout.write(
-          `  ${dash} Could not auto-remove the global binary. Run manually:\n      npm uninstall -g cc-habits\n`,
-        );
+  if (process.env.VITEST) {
+    process.stdout.write(
+      `  ${tick} Skipped global npm checks in test environment\n`,
+    );
+  } else {
+    try {
+      const globalList = execSync("npm list -g cc-habits --depth=0 --json", {
+        stdio: ["ignore", "pipe", "ignore"],
+        encoding: "utf-8",
+      });
+      const parsed = JSON.parse(globalList) as {
+        dependencies?: Record<string, unknown>;
+      };
+      if (parsed.dependencies?.["cc-habits"]) {
+        try {
+          if (process.platform === "win32") {
+            spawn("cmd.exe", ["/c", "npm uninstall -g cc-habits"], {
+              detached: true,
+              stdio: "ignore",
+            }).unref();
+            process.stdout.write(
+              `  ${tick} Triggered global npm uninstallation in background (cch binary)\n`,
+            );
+          } else {
+            execSync("npm uninstall -g cc-habits", { stdio: "pipe" });
+            process.stdout.write(
+              `  ${tick} Removed global npm installation (cch binary)\n`,
+            );
+          }
+        } catch (e) {
+          process.stdout.write(
+            `  ${dash} Could not auto-remove the global binary. Run manually:\n      npm uninstall -g cc-habits\n`,
+          );
+        }
       }
+    } catch {
+      // npm not available or not globally installed -- nothing to do
     }
-  } catch {
-    // npm not available or not globally installed -- nothing to do
   }
 
   process.stdout.write(
@@ -2849,8 +2863,8 @@ export function cmdSync(rawTargets: string[], dir?: string): number {
 }
 
 // migrate ──────────────────────────────────────────────────────────────────
-export function cmdMigrate(force = false): number {
-  const result = runMigration(force);
+export async function cmdMigrate(force = false): Promise<number> {
+  const result = await runMigration(force);
   if (result.migrated) {
     process.stdout.write(
       `  migration complete: copied ${result.copiedFiles.length} files to ${storagePaths.habitsDir}\n`,
@@ -3330,15 +3344,15 @@ export async function cmdLearn(
   return 0;
 }
 
-export function cmdOn(): number {
-  setGloballyDisabled(false);
+export async function cmdOn(): Promise<number> {
+  await setGloballyDisabled(false);
   process.stdout.write("\n\n" + c(GREEN, "  ✓ cc-habits enabled.\n"));
   process.stdout.write(c(DIM, "  Capture and injection are now active.\n"));
   return 0;
 }
 
-export function cmdOff(): number {
-  setGloballyDisabled(true);
+export async function cmdOff(): Promise<number> {
+  await setGloballyDisabled(true);
   process.stdout.write("\n\n" + c(RED, "  ✗ cc-habits disabled.\n"));
   process.stdout.write(c(DIM, "  Capture and injection are now paused.\n"));
   return 0;

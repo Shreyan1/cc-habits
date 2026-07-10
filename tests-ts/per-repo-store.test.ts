@@ -32,21 +32,21 @@ function memory(text: string, trigger: string, correction: string, conf = 0.8): 
 }
 
 describe('repoStorageContext', () => {
-  it('roots every data file under <repoRoot>/.cch/', () => {
+  it('roots every data file under <repoRoot>/.cch/', async () => {
     const ctx = repoStorageContext('/tmp/myrepo');
     expect(ctx.habitsDir).toBe(path.join('/tmp/myrepo', REPO_STORE_DIR));
     expect(ctx.habitsFile).toBe(path.join('/tmp/myrepo', REPO_STORE_DIR, 'habits.md'));
     expect(ctx.memoriesFile).toBe(path.join('/tmp/myrepo', REPO_STORE_DIR, 'memories.md'));
   });
 
-  it('reuses the global provider config (credentials are machine-level)', () => {
+  it('reuses the global provider config (credentials are machine-level)', async () => {
     const ctx = repoStorageContext('/tmp/myrepo');
     expect(ctx.configFile).toBe(storagePaths.configFile);
   });
 });
 
 describe('findRepoRoot', () => {
-  it('walks up to the nearest .git directory', () => {
+  it('walks up to the nearest .git directory', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-root-'));
     fs.mkdirSync(path.join(root, '.git'));
     const nested = path.join(root, 'a', 'b');
@@ -58,7 +58,7 @@ describe('findRepoRoot', () => {
     }
   });
 
-  it('returns null when no .git is found', () => {
+  it('returns null when no .git is found', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-norepo-'));
     try {
       expect(findRepoRoot(root)).toBeNull();
@@ -69,7 +69,7 @@ describe('findRepoRoot', () => {
 });
 
 describe('repoStoreCtx, scaffolds the full store', () => {
-  it('creates habits.md, memories.md, preferences.md, and log.jsonl even before anything is learned', () => {
+  it('creates habits.md, memories.md, preferences.md, and log.jsonl even before anything is learned', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-scaffold-'));
     fs.mkdirSync(path.join(root, '.git'));
     const origCwd = process.cwd();
@@ -90,7 +90,7 @@ describe('repoStoreCtx, scaffolds the full store', () => {
 });
 
 describe('initLog seeds a self-describing comment header', () => {
-  it('writes a // comment header that readSignals ignores', () => {
+  it('writes a // comment header that readSignals ignores', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-loghdr-'));
     fs.mkdirSync(path.join(root, '.git'));
     const ctx = repoStorageContext(root);
@@ -112,7 +112,7 @@ describe('initLog seeds a self-describing comment header', () => {
 });
 
 describe('buildMergedInjectionContext, repo wins on conflict', () => {
-  it('drops a global habit whose rule duplicates a repo habit', () => {
+  it('drops a global habit whose rule duplicates a repo habit', async () => {
     const globalMd = HEADER + habit('Style', 'Use tabs for indentation', 0.9);
     const repoMd = HEADER + habit('Style', 'Use tabs for indentation', 0.75);
     const out = buildMergedInjectionContext(globalMd, repoMd);
@@ -122,7 +122,7 @@ describe('buildMergedInjectionContext, repo wins on conflict', () => {
     expect(occurrences).toBe(1);
   });
 
-  it('includes habits unique to each store', () => {
+  it('includes habits unique to each store', async () => {
     const globalMd = HEADER + habit('Lang', 'Prefer ternaries over if/else', 0.85);
     const repoMd = HEADER + habit('Brand', 'Use charcoal #1A202C for headers', 0.8);
     const out = buildMergedInjectionContext(globalMd, repoMd);
@@ -130,13 +130,13 @@ describe('buildMergedInjectionContext, repo wins on conflict', () => {
     expect(out).toContain('Use charcoal #1A202C for headers');
   });
 
-  it('returns null when neither store has a graduated habit', () => {
+  it('returns null when neither store has a graduated habit', async () => {
     expect(buildMergedInjectionContext(HEADER, HEADER)).toBeNull();
   });
 });
 
 describe('processUserPromptSubmit, layers the cwd repo store over the global one', () => {
-  it('injects both global and repo-local habits, repo store resolved from cwd', () => {
+  it('injects both global and repo-local habits, repo store resolved from cwd', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-e2e-'));
     fs.mkdirSync(path.join(root, '.git'));
     // Global store lives in its own temp dir, separate from the repo .cch/.
@@ -152,7 +152,7 @@ describe('processUserPromptSubmit, layers the cwd repo store over the global one
     const origCwd = process.cwd();
     try {
       process.chdir(root);
-      const out = processUserPromptSubmit({ prompt: 'write a header component' }, globalCtx);
+      const out = await processUserPromptSubmit({ prompt: 'write a header component' }, globalCtx);
       expect(out).toContain('Prefer ternaries over if/else');
       expect(out).toContain('Use charcoal #1A202C for headers');
     } finally {
@@ -164,7 +164,7 @@ describe('processUserPromptSubmit, layers the cwd repo store over the global one
 });
 
 describe('resolveViewScope, default and explicit store selection', () => {
-  it('defaults to global and flags an available repo store from the cwd', () => {
+  it('defaults to global and flags an available repo store from the cwd', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-scope-'));
     fs.mkdirSync(path.join(root, '.git'));
     const repoCtx = repoStorageContext(root);
@@ -189,7 +189,7 @@ describe('resolveViewScope, default and explicit store selection', () => {
     }
   });
 
-  it('falls back to global with a note when --repo has no .cch/ store', () => {
+  it('falls back to global with a note when --repo has no .cch/ store', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cch-scope-empty-'));
     fs.mkdirSync(path.join(root, '.git'));
     const origCwd = process.cwd();
@@ -207,7 +207,7 @@ describe('resolveViewScope, default and explicit store selection', () => {
 });
 
 describe('selectMergedInjectionMemories, repo wins on conflict', () => {
-  it('keeps the repo copy of a duplicated memory and dedups by text', () => {
+  it('keeps the repo copy of a duplicated memory and dedups by text', async () => {
     const prompt = 'fix the header color logic';
     const globalMd = MEM_HEADER + memory('Header color must be exact', 'header', 'Use the global token');
     const repoMd = MEM_HEADER + memory('Header color must be exact', 'header', 'Use #1A202C charcoal');

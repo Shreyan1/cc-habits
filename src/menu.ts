@@ -186,7 +186,7 @@ export function runSelectMenu(
     const onKey = (_str: string, key: { name?: string; ctrl?: boolean }): void => {
       if (!key) return;
       if (key.name === 'up' || key.name === 'down') {
-        selected = nextIndex(selected, key.name, items.map(it => ({ disabled: it.disabled })));
+        selected = nextIndex(selected, key.name, items);
         redraw();
         return;
       }

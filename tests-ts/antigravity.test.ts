@@ -7,11 +7,11 @@ import path from 'path';
 // on any host, including a developer machine that actually has Antigravity
 // installed. execFileSync throws by default here, which makes isCliOnPath('agy')
 // report "not found" unless a test opts in.
-const execFileSyncMock = vi.fn(() => {
+const mockExecFileSync = vi.fn(() => {
   throw new Error('not found');
 });
 vi.mock('child_process', () => ({
-  execFileSync: (...args: unknown[]) => execFileSyncMock(...args),
+  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }));
 
 // Imported after the mock is declared so detect.ts binds the mocked execFileSync.
@@ -23,21 +23,31 @@ import { isAntigravityMigrated } from '../src/detect';
 
 let tmpHome: string;
 let originalHome: string | undefined;
+let originalUserProfile: string | undefined;
+let homedirSpy: any;
+
+let mockExecFileSyncVar = mockExecFileSync;
 
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-antigravity-'));
   originalHome = process.env.HOME;
+  originalUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
-  execFileSyncMock.mockReset();
-  execFileSyncMock.mockImplementation(() => {
+  process.env.USERPROFILE = tmpHome;
+  homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(tmpHome);
+  mockExecFileSync.mockReset();
+  mockExecFileSync.mockImplementation(() => {
     throw new Error('not found');
   });
 });
 
 afterEach(() => {
+  homedirSpy.mockRestore();
   vi.restoreAllMocks();
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 
@@ -48,7 +58,7 @@ describe('Antigravity CLI migration detection', () => {
   });
 
   it('returns true when the agy binary is on PATH even without the config tree', () => {
-    execFileSyncMock.mockImplementation(() => Buffer.from('/usr/local/bin/agy'));
+    mockExecFileSync.mockImplementation(() => Buffer.from('/usr/local/bin/agy'));
     expect(isAntigravityMigrated()).toBe(true);
   });
 

@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import {
   Provider,
   ProviderRateLimitError,
@@ -12,44 +12,59 @@ export class GeminiCliProvider implements Provider {
   name = 'gemini-cli';
 
   async generate(prompt: string, opts: { maxTokens: number; timeoutMs: number }): Promise<string> {
-    const result = spawnSync('gemini', ['-p', prompt], {
-      timeout: opts.timeoutMs,
-      encoding: 'utf-8',
+    return new Promise((resolve, reject) => {
+      const child = spawn('gemini', [], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (data) => { stdout += data.toString(); });
+      child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      const timeout = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new ProviderTimeoutError(this.name, opts.timeoutMs));
+      }, opts.timeoutMs);
+
+      child.on('error', (err: any) => {
+        clearTimeout(timeout);
+        if (err.code === 'ENOENT') {
+          reject(new ProviderNotInstalledError(this.name));
+        } else {
+          reject(err);
+        }
+      });
+
+      child.on('close', (code) => {
+        clearTimeout(timeout);
+        const combined = (stdout + '\n' + stderr).toLowerCase();
+        
+        if (code !== 0) {
+          if (combined.includes('quota') || combined.includes('credit') || combined.includes('balance exhausted')) {
+            return reject(new ProviderQuotaError(this.name, stderr || undefined));
+          }
+          if (combined.includes('rate limit') || combined.includes('429') || combined.includes('too many requests')) {
+            return reject(new ProviderRateLimitError(this.name));
+          }
+          if (
+            combined.includes('auth') ||
+            combined.includes('login') ||
+            combined.includes('unauthorized') ||
+            combined.includes('key') ||
+            combined.includes('token')
+          ) {
+            return reject(new ProviderAuthError(this.name, stderr || undefined));
+          }
+          return reject(new Error(`gemini CLI failed with exit code ${code}: ${stderr || stdout}`));
+        }
+
+        resolve(stdout || '');
+      });
+
+      child.stdin.write(prompt);
+      child.stdin.end();
     });
-
-    if (result.error) {
-      if ((result.error as any).code === 'ENOENT') {
-        throw new ProviderNotInstalledError(this.name);
-      }
-      if (result.signal === 'SIGTERM' || (result.error as any).code === 'ETIMEDOUT') {
-        throw new ProviderTimeoutError(this.name, opts.timeoutMs);
-      }
-      throw result.error;
-    }
-
-    const stderr = result.stderr || '';
-    const stdout = result.stdout || '';
-    const combined = (stdout + '\n' + stderr).toLowerCase();
-
-    if (result.status !== 0) {
-      if (combined.includes('quota') || combined.includes('credit') || combined.includes('balance exhausted')) {
-        throw new ProviderQuotaError(this.name, result.stderr || undefined);
-      }
-      if (combined.includes('rate limit') || combined.includes('429') || combined.includes('too many requests')) {
-        throw new ProviderRateLimitError(this.name);
-      }
-      if (
-        combined.includes('auth') ||
-        combined.includes('login') ||
-        combined.includes('unauthorized') ||
-        combined.includes('key') ||
-        combined.includes('token')
-      ) {
-        throw new ProviderAuthError(this.name, result.stderr || undefined);
-      }
-      throw new Error(`gemini CLI failed with exit code ${result.status}: ${result.stderr || result.stdout}`);
-    }
-
-    return result.stdout || '';
   }
 }

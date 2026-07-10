@@ -8,12 +8,12 @@ import {
   ProviderQuotaError,
 } from './types';
 
-export class ClaudeCliProvider implements Provider {
-  name = 'claude-cli';
+export class AntigravityCliProvider implements Provider {
+  name = 'antigravity-cli';
 
   async generate(prompt: string, opts: { maxTokens: number; timeoutMs: number }): Promise<string> {
     return new Promise((resolve, reject) => {
-      const child = spawn('claude', [], {
+      const child = spawn('agy', [], {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -57,7 +57,7 @@ export class ClaudeCliProvider implements Provider {
           ) {
             return reject(new ProviderAuthError(this.name, stderr || undefined));
           }
-          return reject(new Error(`claude CLI failed with exit code ${code}: ${stderr || stdout}`));
+          return reject(new Error(`antigravity CLI failed with exit code ${code}: ${stderr || stdout}`));
         }
 
         resolve(stdout || '');

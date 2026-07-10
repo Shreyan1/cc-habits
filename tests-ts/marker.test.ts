@@ -25,38 +25,38 @@ const ACTIVE_HABITS_MD = `<!-- cc-habits format v0.2 -->
 `;
 
 describe('buildSessionBanner', () => {
-  it('fires on the first edit of a session (editCount=1) with a truthful count', () => {
+  it('fires on the first edit of a session (editCount=1) with a truthful count', async () => {
     const out = buildSessionBanner(ACTIVE_HABITS_MD, 1);
     expect(out).not.toBeNull();
     expect(out).toContain('2 habits active');
   });
 
-  it('never names a specific rule, stays generic', () => {
+  it('never names a specific rule, stays generic', async () => {
     const out = buildSessionBanner(ACTIVE_HABITS_MD, 1);
     expect(out).not.toContain('try/catch');
     expect(out).not.toContain('return types');
     expect(out).not.toContain('Error Handling');
   });
 
-  it('points to cch view for details', () => {
+  it('points to cch view for details', async () => {
     const out = buildSessionBanner(ACTIVE_HABITS_MD, 1);
     expect(out).toContain('cch view');
   });
 
-  it('returns null on subsequent edits (editCount != 1)', () => {
+  it('returns null on subsequent edits (editCount != 1)', async () => {
     expect(buildSessionBanner(ACTIVE_HABITS_MD, 0)).toBeNull();
     expect(buildSessionBanner(ACTIVE_HABITS_MD, 2)).toBeNull();
     expect(buildSessionBanner(ACTIVE_HABITS_MD, 99)).toBeNull();
   });
 
-  it('returns a capturing message when no active habits exist (first-session reassurance)', () => {
+  it('returns a capturing message when no active habits exist (first-session reassurance)', async () => {
     const out = buildSessionBanner('# Coding habits\n', 1);
     expect(out).not.toBeNull();
     expect(out).toContain('capturing this session');
     expect(out).toContain('2 sessions');
   });
 
-  it('uses singular form for exactly one habit', () => {
+  it('uses singular form for exactly one habit', async () => {
     const oneHabit = `<!-- cc-habits format v0.2 -->
 # Coding habits
 
@@ -88,24 +88,24 @@ describe('captureDisabled', () => {
     delete process.env['CC_HABITS_DISABLE'];
   });
 
-  it('is false in a clean directory with no env override', () => {
-    expect(captureDisabled()).toBe(false);
+  it('is false in a clean directory with no env override', async () => {
+    expect(await captureDisabled()).toBe(false);
   });
 
-  it('is true when CC_HABITS_DISABLE is truthy', () => {
+  it('is true when CC_HABITS_DISABLE is truthy', async () => {
     process.env['CC_HABITS_DISABLE'] = '1';
-    expect(captureDisabled()).toBe(true);
+    expect(await captureDisabled()).toBe(true);
   });
 
-  it('treats CC_HABITS_DISABLE=0 / false / off as not disabled', () => {
+  it('treats CC_HABITS_DISABLE=0 / false / off as not disabled', async () => {
     for (const v of ['0', 'false', 'off']) {
       process.env['CC_HABITS_DISABLE'] = v;
-      expect(captureDisabled()).toBe(false);
+      expect(await captureDisabled()).toBe(false);
     }
   });
 
-  it('is true when a .cc-habits-ignore file is present in the cwd', () => {
+  it('is true when a .cc-habits-ignore file is present in the cwd', async () => {
     fs.writeFileSync(path.join(tmpDir, '.cc-habits-ignore'), '');
-    expect(captureDisabled()).toBe(true);
+    expect(await captureDisabled()).toBe(true);
   });
 });

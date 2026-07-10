@@ -35,9 +35,9 @@ describe('L5: consent tracking', () => {
     expect(consentGiven()).toBe(false);
   });
 
-  it('records consent as an ISO timestamp in config.yml', () => {
+  it('records consent as an ISO timestamp in config.yml', async () => {
     const before = Date.now();
-    recordConsent();
+    await recordConsent();
     const after = Date.now();
 
     const raw = getConfigValue('consent_given') ?? '';
@@ -48,24 +48,24 @@ describe('L5: consent tracking', () => {
     expect(ts).toBeLessThanOrEqual(after);
   });
 
-  it('returns true after consent is recorded', () => {
-    recordConsent();
+  it('returns true after consent is recorded', async () => {
+    await recordConsent();
     expect(consentGiven()).toBe(true);
   });
 
-  it('preserves existing config keys when recording consent', () => {
+  it('preserves existing config keys when recording consent', async () => {
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(storagePaths.configFile, 'provider: ollama\nmemories_enabled: true\n');
-    recordConsent();
+    await recordConsent();
     expect(getConfigValue('provider')).toBe('ollama');
     expect(getConfigValue('memories_enabled')).toBe('true');
     expect(consentGiven()).toBe(true);
   });
 
-  it('re-recording consent updates the timestamp, not duplicates the key', () => {
-    recordConsent();
+  it('re-recording consent updates the timestamp, not duplicates the key', async () => {
+    await recordConsent();
     const first = getConfigValue('consent_given') ?? '';
-    recordConsent();
+    await recordConsent();
     const second = getConfigValue('consent_given') ?? '';
 
     // Both parses should be valid timestamps.

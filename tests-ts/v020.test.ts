@@ -58,12 +58,12 @@ afterEach(() => {
 
 // B1: diff ─────────────────────────────────────────────────────────────────
 describe('B1: cc-habits diff', () => {
-  it('returns null with fewer than 2 history entries', () => {
+  it('returns null with fewer than 2 history entries', async () => {
     appendHistory({ ts: '2026-05-19T10:00:00Z', habits_md: '# h' });
     expect(computeDiff()).toBeNull();
   });
 
-  it('detects added habits between two snapshots', () => {
+  it('detects added habits between two snapshots', async () => {
     const before = serialiseHabits({
       TS: [{ rule: 'Use strict mode', confidence: 0.7, reinforcing: 3, contradicting: 0, sessions_seen: 3 }],
     });
@@ -82,7 +82,7 @@ describe('B1: cc-habits diff', () => {
     expect(d.removed).toHaveLength(0);
   });
 
-  it('detects confidence changes', () => {
+  it('detects confidence changes', async () => {
     const before = serialiseHabits({
       TS: [{ rule: 'Use strict mode', confidence: 0.70, reinforcing: 3, contradicting: 0, sessions_seen: 3 }],
     });
@@ -98,7 +98,7 @@ describe('B1: cc-habits diff', () => {
     expect(d.changed[0].to).toBeCloseTo(0.80);
   });
 
-  it('detects removed habits', () => {
+  it('detects removed habits', async () => {
     const before = serialiseHabits({
       TS: [
         { rule: 'Use strict mode', confidence: 0.70, reinforcing: 3, contradicting: 0, sessions_seen: 3 },
@@ -122,7 +122,7 @@ describe('B1: cc-habits diff', () => {
       { file: 'b.ts', old: 'const y = 2 here', nw: 'const y: number = 2' },
       { file: 'c.ts', old: 'const z = 3 here', nw: 'const z: number = 3' },
     ]) {
-      processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: d.file, old_string: d.old, new_string: d.nw } });
+      await processPostToolUse({ tool_name: 'Edit', session_id: 's1', tool_input: { file_path: d.file, old_string: d.old, new_string: d.nw } });
     }
     vi.mocked(extractor.extractRules).mockResolvedValueOnce([
       { category: 'TS', rule: 'Use explicit number types', decision: 'create', matched_habit_id: '', reasoning: '' },
@@ -135,11 +135,11 @@ describe('B1: cc-habits diff', () => {
 
 // B2: explain ──────────────────────────────────────────────────────────────
 describe('B2: cc-habits explain', () => {
-  it('returns null for a habit that does not exist', () => {
+  it('returns null for a habit that does not exist', async () => {
     expect(explainHabit('completely fictional rule')).toBeNull();
   });
 
-  it('finds a habit by exact rule text', () => {
+  it('finds a habit by exact rule text', async () => {
     writeHabitsMd(serialiseHabits({
       TS: [{ rule: 'Use strict mode', confidence: 0.7, reinforcing: 3, contradicting: 0, sessions_seen: 3 }],
     }));
@@ -148,7 +148,7 @@ describe('B2: cc-habits explain', () => {
     expect(exp.category).toBe('TS');
   });
 
-  it('finds a habit by substring (fuzzy)', () => {
+  it('finds a habit by substring (fuzzy)', async () => {
     writeHabitsMd(serialiseHabits({
       TS: [{ rule: 'Use strict mode for new files', confidence: 0.7, reinforcing: 3, contradicting: 0, sessions_seen: 3 }],
     }));
@@ -168,7 +168,7 @@ describe('B2: cc-habits explain', () => {
     expect(exp.refs[0].file).toBe('a.py');
   });
 
-  it('lookupProvenance is case- and period-insensitive', () => {
+  it('lookupProvenance is case- and period-insensitive', async () => {
     appendProvenance('Use type hints', [
       { ts: 't', session_id: 's', file: 'a.py', snippet: '', decision: 'create' },
     ]);
@@ -225,7 +225,7 @@ describe('C3: provider selection', () => {
 
 // C4: export / import ─────────────────────────────────────────────────────
 describe('C4: export and import', () => {
-  it('export returns the current habits.md content', () => {
+  it('export returns the current habits.md content', async () => {
     writeHabitsMd(serialiseHabits({
       TS: [{ rule: 'Use strict mode', confidence: 0.7, reinforcing: 3, contradicting: 0, sessions_seen: 3 }],
     }));
@@ -234,7 +234,7 @@ describe('C4: export and import', () => {
     expect(md).toContain('Use strict mode');
   });
 
-  it.skipIf(process.platform === 'win32')('export to a path writes a 0600 file', () => {
+  it.skipIf(process.platform === 'win32')('export to a path writes a 0600 file', async () => {
     writeHabitsMd(serialiseHabits({
       TS: [{ rule: 'X', confidence: 0.7, reinforcing: 3, contradicting: 0, sessions_seen: 3 }],
     }));
@@ -244,7 +244,7 @@ describe('C4: export and import', () => {
     expect(fs.statSync(outPath).mode & 0o777).toBe(0o600);
   });
 
-  it('import merges new rules', () => {
+  it('import merges new rules', async () => {
     writeHabitsMd(serialiseHabits({
       TS: [{ rule: 'Local rule', confidence: 0.7, reinforcing: 3, contradicting: 0, sessions_seen: 3 }],
     }));
@@ -258,7 +258,7 @@ describe('C4: export and import', () => {
     expect(md).toContain('Incoming rule');
   });
 
-  it('import merges existing rules taking max confidence and summed signals', () => {
+  it('import merges existing rules taking max confidence and summed signals', async () => {
     writeHabitsMd(serialiseHabits({
       TS: [{ rule: 'Use strict mode', confidence: 0.60, reinforcing: 3, contradicting: 0, sessions_seen: 2 }],
     }));

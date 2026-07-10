@@ -172,7 +172,7 @@ describe('storage', () => {
     expect(md).toContain('First learned:');
   });
 
-  it('trims log.jsonl when it exceeds 2 MB, keeping the most recent lines', () => {
+  it('trims log.jsonl when it exceeds 2 MB, keeping the most recent lines', async () => {
     // Write enough data to exceed the 2 MB rotation threshold.
     // Each signal is ~300 bytes; 8000 signals ≈ 2.4 MB which is > LOG_ROTATE_BYTES.
     const base: Omit<ReturnType<typeof readSignals>[0], 'ts'> = {
@@ -186,7 +186,7 @@ describe('storage', () => {
     fs.writeFileSync(storagePaths.logFile, linesToPreWrite.join('\n') + '\n');
 
     // Trigger rotation by appending the 8,000th signal
-    appendSignal({ ...base, ts: '2026-05-22T00:00:59Z' });
+    await appendSignal({ ...base, ts: '2026-05-22T00:00:59Z' });
 
     const stat = fs.statSync(storagePaths.logFile);
     // After rotation the file must be well below the 2 MB trigger.

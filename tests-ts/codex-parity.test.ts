@@ -36,27 +36,27 @@ describe('addSyncTargets: closes the auto-sync loop for non-Claude tools', () =>
     expect(readSyncTargets()).toEqual([]);
   });
 
-  it('persists a registered tool target so processStop auto-sync fires', () => {
-    addSyncTargets(['agents']); // Codex / Kimi channel
+  it('persists a registered tool target so processStop auto-sync fires', async () => {
+    await addSyncTargets(['agents']); // Codex / Kimi channel
     expect(readSyncTargets()).toEqual(['agents']);
   });
 
-  it('unions multiple tools and is idempotent on re-add', () => {
-    addSyncTargets(['agents']);
-    addSyncTargets(['gemini']);
+  it('unions multiple tools and is idempotent on re-add', async () => {
+    await addSyncTargets(['agents']);
+    await addSyncTargets(['gemini']);
     expect(readSyncTargets().sort()).toEqual(['agents', 'gemini']);
-    addSyncTargets(['agents']); // re-running init must not drop gemini
+    await addSyncTargets(['agents']); // re-running init must not drop gemini
     expect(readSyncTargets().sort()).toEqual(['agents', 'gemini']);
   });
 
-  it('preserves a target the user added by hand', () => {
+  it('preserves a target the user added by hand', async () => {
     fs.appendFileSync(storagePaths.configFile, 'sync_targets: cursor\n');
-    addSyncTargets(['agents']);
+    await addSyncTargets(['agents']);
     expect(readSyncTargets().sort()).toEqual(['agents', 'cursor']);
   });
 
-  it('no-ops on an empty target list', () => {
-    addSyncTargets([]);
+  it('no-ops on an empty target list', async () => {
+    await addSyncTargets([]);
     expect(readSyncTargets()).toEqual([]);
   });
 });

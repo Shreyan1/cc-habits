@@ -2,6 +2,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
+import { acquireLock, releaseLock } from "./lock";
+
 
 // Read guard: if a log file somehow exceeds this we skip the read entirely.
 const MAX_LOG_READ_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -29,7 +31,8 @@ export interface Signal {
     | "gemini"
     | "codex"
     | "cline"
-    | "kimi";
+    | "kimi"
+    | "antigravity";
 }
 
 export interface Habit {
@@ -290,13 +293,23 @@ function safeAppend(filePath: string, content: string): void {
     }
   } else {
     // Windows fallback: lstat guard is best-effort (TOCTOU race still possible there).
-    if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink()) {
-      throw new Error(`refusing to append through symlink: ${filePath}`);
+    try {
+      let isSymlink = false;
+      try {
+        isSymlink = fs.lstatSync(filePath).isSymbolicLink();
+      } catch (e: any) {
+        if (e.code !== "ENOENT") throw e;
+      }
+      if (isSymlink) {
+        throw new Error(`refusing to append through symlink: ${filePath}`);
+      }
+      fs.appendFileSync(filePath, content, {
+        encoding: "utf-8",
+        mode: FILE_MODE,
+      });
+    } catch (e) {
+      throw e;
     }
-    fs.appendFileSync(filePath, content, {
-      encoding: "utf-8",
-      mode: FILE_MODE,
-    });
   }
 }
 
@@ -304,38 +317,40 @@ function safeAppend(filePath: string, content: string): void {
 // file exceeds LOG_ROTATE_BYTES. Called after every append so the file never
 // silently grows past the 50 MB read guard. Best-effort: errors are swallowed
 // so a rotation failure never blocks the caller.
-function trimIfNeeded(filePath: string, maxLines: number): void {
+async function trimIfNeeded(filePath: string, maxLines: number): Promise<void> {
+  const lockFile = `${filePath}.lock`;
   try {
-    // Single stat for the size check: the previous existsSync + statSync pair did
-    // two stat syscalls on every append (the common path is "well under the limit,
-    // return"). One statSync covers both: an absent file throws ENOENT, which the
-    // inner catch turns into an early return. Also closes the existsSync/statSync
-    // TOCTOU gap where the file could vanish between the two calls.
-    let size: number;
+    const locked = await acquireLock(lockFile);
+    if (!locked) return;
     try {
-      size = fs.statSync(filePath).size;
-    } catch {
-      return; // absent or unstattable: nothing to trim
+      let size: number;
+      try {
+        size = fs.statSync(filePath).size;
+      } catch {
+        return; // absent or unstattable: nothing to trim
+      }
+      if (size <= LOG_ROTATE_BYTES) return;
+      const all = fs
+        .readFileSync(filePath, "utf-8")
+        .split("\n")
+        .filter((l) => l.trim());
+      // Preserve any leading `//` comment header (the self-describing log preamble)
+      // so rotation trims only signal lines, never the explanation of the file.
+      const header: string[] = [];
+      let i = 0;
+      while (i < all.length && all[i]!.startsWith("//")) {
+        header.push(all[i]!);
+        i++;
+      }
+      const records = all.slice(i);
+      if (records.length <= maxLines) return;
+      safeWrite(
+        filePath,
+        [...header, ...records.slice(-maxLines)].join("\n") + "\n",
+      );
+    } finally {
+      releaseLock(lockFile);
     }
-    if (size <= LOG_ROTATE_BYTES) return;
-    const all = fs
-      .readFileSync(filePath, "utf-8")
-      .split("\n")
-      .filter((l) => l.trim());
-    // Preserve any leading `//` comment header (the self-describing log preamble)
-    // so rotation trims only signal lines, never the explanation of the file.
-    const header: string[] = [];
-    let i = 0;
-    while (i < all.length && all[i]!.startsWith("//")) {
-      header.push(all[i]!);
-      i++;
-    }
-    const records = all.slice(i);
-    if (records.length <= maxLines) return;
-    safeWrite(
-      filePath,
-      [...header, ...records.slice(-maxLines)].join("\n") + "\n",
-    );
   } catch {
     // trim is best-effort; never crash the caller
   }
@@ -402,7 +417,7 @@ export function appendSignal(signal: Signal, ctx?: StorageContext): void {
     session_id: signal.session_id.replace(STORAGE_CONTROL_CHARS, ""),
   };
   safeAppend(paths.logFile, JSON.stringify(safe) + "\n");
-  trimIfNeeded(paths.logFile, LOG_ROTATE_LINES);
+  void trimIfNeeded(paths.logFile, LOG_ROTATE_LINES);
 }
 
 export function readSignals(
@@ -421,17 +436,22 @@ export function readSignals(
     );
     return [];
   }
-  const lines = fs.readFileSync(paths.logFile, "utf-8").split("\n");
+  
   const signals: Signal[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const sig = JSON.parse(trimmed) as Signal;
-      if (!sessionId || sig.session_id === sessionId) signals.push(sig);
-    } catch {
-      // skip malformed line
+  try {
+    const raw = fs.readFileSync(paths.logFile, "utf-8");
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const sig = JSON.parse(trimmed) as Signal;
+        if (!sessionId || sig.session_id === sessionId) signals.push(sig);
+      } catch {
+        // skip malformed line
+      }
     }
+  } catch {
+    // If read fails (e.g. concurrent delete), just return what we have (or empty).
   }
   return signals;
 }
@@ -742,7 +762,7 @@ export function appendHistory(entry: HistoryEntry, ctx?: StorageContext): void {
   ensureDirs(ctx);
   const paths = getPaths(ctx);
   safeAppend(paths.historyFile, JSON.stringify(entry) + "\n");
-  trimIfNeeded(paths.historyFile, HISTORY_ROTATE_LINES);
+  void trimIfNeeded(paths.historyFile, HISTORY_ROTATE_LINES);
 }
 
 export function readHistory(ctx?: StorageContext): HistoryEntry[] {
@@ -1204,7 +1224,7 @@ export function logError(msg: string, ctx?: StorageContext): void {
     ensureDirs(ctx);
     const entry = `[${new Date().toISOString()}] ${msg}\n`;
     safeAppend(getPaths(ctx).errorLog, entry);
-    trimIfNeeded(getPaths(ctx).errorLog, 1_000);
+    void trimIfNeeded(getPaths(ctx).errorLog, 1_000);
   } catch {
     // never crash
   }

@@ -51,8 +51,8 @@ afterEach(() => {
 });
 
 describe('v0.3.0: runMigration', () => {
-  it('does nothing if old directory does not exist', () => {
-    const res = runMigration(true, path.join(tmpDir, 'nonexistent-old-dir'));
+  it('does nothing if old directory does not exist', async () => {
+    const res = await runMigration(true, path.join(tmpDir, 'nonexistent-old-dir'));
     expect(res.migrated).toBe(false);
   });
 });
@@ -90,24 +90,24 @@ describe('v0.3.0: captureFromCli', () => {
 describe('global kill switch gates CLI capture (cch off)', () => {
   const realDiff = '+++ src/add.ts\n+export function add(a: number, b: number): number {\n+  return a + b;\n+}';
 
-  it('cmdCapture writes a signal when enabled', () => {
+  it('cmdCapture writes a signal when enabled', async () => {
     initLog();
-    setGloballyDisabled(false);
+    await setGloballyDisabled(false);
     const code = cmdCapture({ file: 'src/add.ts', diff: realDiff, source: 'cli' });
     expect(code).toBe(0);
     expect(readSignals()).toHaveLength(1);
   });
 
-  it('cmdCapture writes nothing when cc-habits is off', () => {
+  it('cmdCapture writes nothing when cc-habits is off', async () => {
     initLog();
-    setGloballyDisabled(true);
+    await setGloballyDisabled(true);
     const code = cmdCapture({ file: 'src/add.ts', diff: realDiff, source: 'cli' });
     expect(code).toBe(0); // fail-open: never disrupt a wrapping tool
     expect(readSignals()).toHaveLength(0); // but capture nothing while off
   });
 
   it('cmdGitCapture is silent and captures nothing when cc-habits is off', async () => {
-    setGloballyDisabled(true);
+    await setGloballyDisabled(true);
     const writes: string[] = [];
     const spy = vi.spyOn(process.stdout, 'write')
       .mockImplementation(((s: string | Uint8Array): boolean => { writes.push(String(s)); return true; }) as typeof process.stdout.write);

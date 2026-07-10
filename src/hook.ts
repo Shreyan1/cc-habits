@@ -129,7 +129,8 @@ export function buildDiffFromNormalized(input: NormalizedHookInput): string {
     return diff;
   }
   const toolName = input.toolName;
-  const filePath = input.filePath;
+  const filePath = sanitizeFilePath(input.filePath);
+  if (!filePath) return '';
   let diff = '';
   if (toolName === 'Write') {
     const content = input.newContent ?? '';
@@ -165,12 +166,13 @@ export function buildDiffFromNormalized(input: NormalizedHookInput): string {
 //   • the CC_HABITS_DISABLE env var (truthy).
 // When either is set, the PostToolUse and Stop hooks become no-ops: nothing is
 // captured, nothing is sent, no marker is printed.
-export function captureDisabled(): boolean {
+export async function captureDisabled(): Promise<boolean> {
   if (isGloballyDisabled()) return true;
   const v = (process.env['CC_HABITS_DISABLE'] ?? '').toLowerCase();
   if (v && v !== '0' && v !== 'false' && v !== 'off') return true;
   try {
-    if (fs.existsSync(path.join(process.cwd(), '.cc-habits-ignore'))) return true;
+    await fs.promises.access(path.join(process.cwd(), '.cc-habits-ignore'));
+    return true;
   } catch { /* cwd may be unreadable in odd environments, treat as not-disabled */ }
   return false;
 }
@@ -222,8 +224,8 @@ export function autoApplyWarning(count: number): string | null {
 // persisted `memories_enabled` flag in config.yml. See memoriesEnabled() in config.ts.
 
 // Pure logic ───────────────────────────────────────────────────────────────
-export function processPostToolUse(input: Record<string, unknown> | NormalizedHookInput, ctx?: StorageContext): void {
-  if (captureDisabled()) return;
+export async function processPostToolUse(input: Record<string, unknown> | NormalizedHookInput, ctx?: StorageContext): Promise<void> {
+  if (await captureDisabled()) return;
 
   const data = (('filePath' in input) ? input : normalizeInput(input, 'claude-code')) as NormalizedHookInput;
 
@@ -275,7 +277,7 @@ export interface StopResult {
 }
 
 export async function processStop(sessionId: string, ctx?: StorageContext): Promise<StopResult | null> {
-  if (captureDisabled()) return null;
+  if (await captureDisabled()) return null;
 
   // Phase 1 (no lock): read + gate signals, then run the slow LLM extraction. These
   // steps only READ shared state before hitting the provider, which can take 60-180s
@@ -694,7 +696,8 @@ function triggerBoundaryRegex(term: string, cache?: Map<string, RegExp>): RegExp
   if (cached) return cached;
   const escaped = term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
   const startBoundary = /^[a-zA-Z0-9_]/.test(term) ? '\\b' : '';
-  const endBoundary = /[a-zA-Z0-9_]$/.test(term) ? 's?\\b' : '';
+  const endsWithS = /[sS]$/.test(term);
+  const endBoundary = /[a-zA-Z0-9_]$/.test(term) ? (endsWithS ? '\\b' : 's?\\b') : '';
   const re = new RegExp(startBoundary + escaped + endBoundary, 'i');
   cache?.set(term, re);
   return re;
@@ -820,13 +823,17 @@ export function buildMemoryInjectionContext(memories: Memory[]): string | null {
 // Resolve the repo-local store context for injection. Returns null when there
 // is no .cch/ store to layer (no enclosing repo, no store created yet, or the
 // store would coincide with the active global store). Never throws.
-function resolveRepoCtx(ctx?: StorageContext): StorageContext | null {
+async function resolveRepoCtx(ctx?: StorageContext): Promise<StorageContext | null> {
   try {
     const root = findRepoRoot();
     if (!root) return null;
     const repoCtx = repoStorageContext(root);
     if (repoCtx.habitsDir === getPaths(ctx).habitsDir) return null;
-    const hasStore = fs.existsSync(repoCtx.habitsFile) || fs.existsSync(repoCtx.memoriesFile);
+    let hasStore = false;
+    try { await fs.promises.access(repoCtx.habitsFile); hasStore = true; } catch {}
+    if (!hasStore) {
+      try { await fs.promises.access(repoCtx.memoriesFile); hasStore = true; } catch {}
+    }
     return hasStore ? repoCtx : null;
   } catch {
     return null;
@@ -840,18 +847,19 @@ function safeRead(fn: () => string): string {
   try { return fn(); } catch { return ''; }
 }
 
-export function processUserPromptSubmit(data: Record<string, unknown>, ctx?: StorageContext): string | null {
+export async function processUserPromptSubmit(data: Record<string, unknown>, ctx?: StorageContext): Promise<string | null> {
   if (!injectionEnabled()) return null;
   const promptText = typeof data['prompt'] === 'string' ? data['prompt'] : '';
   const sessionId = String(data['session_id'] ?? data['sessionId'] ?? data['session'] ?? '');
 
-  const activeLanguages = getSessionLanguages(sessionId, ctx);
+  const activeLanguages = await getSessionLanguages(sessionId, ctx);
   const langs = activeLanguages.length ? activeLanguages : undefined;
 
   // Resolve a repo-local .cch/ store for the current working directory, if any.
-  // Merged injection layers it over the global store with repo priority. Fully
-  // fail-open: any error here falls back to global-only injection.
-  const repoCtx = resolveRepoCtx(ctx);
+  // Overlapping overlapping global and repo stores isn't useful for CC_HABITS_MEMORIES,
+  // since memories cross repos and there is a 5-memory hard limit. Pick the global store
+  // by default, unless local repo-specific memories exist.
+  const repoCtx = await resolveRepoCtx(ctx);
   const globalMd = readHabitsMd(ctx);
   const habitsContext = repoCtx
     ? buildMergedInjectionContext(globalMd, safeRead(() => readHabitsMd(repoCtx)), langs)
@@ -893,97 +901,80 @@ export function processSessionStart(ctx?: StorageContext): string | null {
 }
 
 // stdin/stdout wrappers ────────────────────────────────────────────────────
-export function handleSessionStart(adapter = 'claude-code'): void {
-  // SessionStart hooks may receive a small JSON payload on stdin, but we only
-  // need local state, so drain and ignore it. Always exit 0 so a session never
-  // fails to start because of cc-habits.
-  let raw = '';
-  let oversized = false;
-  process.stdin.setEncoding('utf-8');
-  process.stdin.on('data', chunk => {
-    raw += chunk;
-    if (raw.length > MAX_STDIN_BYTES && !oversized) {
-      oversized = true;
-      process.stdin.destroy();
-    }
-  });
-  const finish = (): void => {
-    try {
-      const context = processSessionStart();
-      if (context) {
-        // Claude Code injects SessionStart context via a structured field; plain
-        // stdout is silently dropped as of recent versions. Other tools read
-        // plain stdout, so branch on the adapter.
-        if (adapter === 'claude-code') {
-          process.stdout.write(JSON.stringify({
-            hookSpecificOutput: {
-              hookEventName: 'SessionStart',
-              additionalContext: context,
-            },
-          }) + '\n');
-        } else {
-          process.stdout.write(context + '\n');
-        }
-      }
-    } catch (e) {
-      logError(`session-start: ${String(e)}`);
-    }
-    process.exit(0);
-  };
-  process.stdin.on('end', finish);
-  process.stdin.on('error', () => process.exit(0));
-}
-
-export function handlePostToolUse(adapter = 'claude-code'): void {
-  let raw = '';
-  let oversized = false;
-  process.stdin.setEncoding('utf-8');
-  process.stdin.on('data', chunk => {
-    raw += chunk;
-    if (raw.length > MAX_STDIN_BYTES && !oversized) {
-      oversized = true;
-      logError(`post-tool-use: stdin payload exceeded ${MAX_STDIN_BYTES} bytes; discarding`);
-      process.stdin.destroy();
-    }
-  });
-  process.stdin.on('end', () => {
-    if (!oversized) {
-      try {
-        const rawJson = JSON.parse(raw);
-        // T1: non-blocking drift check. PostToolUse is the highest-frequency
-        // hook, a renamed tool_name/tool_input would silently kill all capture,
-        // so log the drift but still proceed (processPostToolUse no-ops safely).
-        const check = validatePayload('post-tool-use', rawJson as Record<string, unknown>, adapter);
-        if (!check.ok) logSchemaWarning('post-tool-use', check.missing);
-        const normalized = normalizeInput(rawJson, adapter);
-        processPostToolUse(normalized);
-      } catch (e) {
-        logError(`post-tool-use (${adapter}): malformed stdin or normalization failed: ${String(e)}`);
-      }
-    }
-    process.exit(0);
-  });
-  process.stdin.on('error', () => process.exit(0));
-}
-
-export async function handleStop(): Promise<void> {
-  const raw = await new Promise<string>(resolve => {
-    let buf = '';
+async function readStdinPayload(eventName: string): Promise<string> {
+  return new Promise<string>(resolve => {
+    let raw = '';
     let oversized = false;
     process.stdin.setEncoding('utf-8');
     process.stdin.on('data', chunk => {
-      buf += chunk;
-      if (buf.length > MAX_STDIN_BYTES && !oversized) {
+      raw += chunk;
+      if (raw.length > MAX_STDIN_BYTES && !oversized) {
         oversized = true;
-        logError(`stop: stdin payload exceeded ${MAX_STDIN_BYTES} bytes; discarding`);
+        logError(`${eventName}: stdin payload exceeded ${MAX_STDIN_BYTES} bytes; discarding`);
         process.stdin.destroy();
         resolve('');
       }
     });
-    process.stdin.on('end', () => resolve(buf));
+    process.stdin.on('end', () => resolve(oversized ? '' : raw));
     process.stdin.on('error', () => resolve(''));
   });
+}
 
+export async function handleSessionStart(adapter = 'claude-code'): Promise<void> {
+  // SessionStart hooks may receive a small JSON payload on stdin, but we only
+  // need local state, so drain and ignore it. Always exit 0 so a session never
+  // fails to start because of cc-habits.
+  await readStdinPayload('session-start');
+  
+  try {
+    const context = processSessionStart();
+    if (context) {
+      // Claude Code injects SessionStart context via a structured field; plain
+      // stdout is silently dropped as of recent versions. Other tools read
+      // plain stdout, so branch on the adapter.
+      if (adapter === 'claude-code') {
+        process.stdout.write(JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: 'SessionStart',
+            additionalContext: context,
+          },
+        }) + '\n');
+      } else {
+        process.stdout.write(context + '\n');
+      }
+    }
+  } catch (e) {
+    logError(`session-start: ${String(e)}`);
+  }
+  process.exit(0);
+}
+
+export async function handlePostToolUse(adapter = 'claude-code'): Promise<void> {
+  const raw = await readStdinPayload('post-tool-use');
+  if (raw) {
+    try {
+      const rawJson = JSON.parse(raw);
+      // T1: non-blocking drift check. PostToolUse is the highest-frequency
+      // hook, a renamed tool_name/tool_input would silently kill all capture,
+      // so log the drift but still proceed (processPostToolUse no-ops safely).
+      const check = validatePayload('post-tool-use', rawJson as Record<string, unknown>, adapter);
+      if (!check.ok) logSchemaWarning('post-tool-use', check.missing);
+      const normalized = normalizeInput(rawJson, adapter);
+      await processPostToolUse(normalized);
+    } catch (e) {
+      logError(`post-tool-use (${adapter}): malformed stdin or normalization failed: ${String(e)}`);
+    }
+  }
+  process.exit(0);
+}
+
+export async function handleStop(): Promise<void> {
+  const raw = await readStdinPayload('stop');
+  if (!raw) {
+    process.exit(0);
+    return;
+  }
+  
   try {
     const data = JSON.parse(raw) as Record<string, unknown>;
     // T1: contract check. A missing session_id would make readSignals fall back
@@ -1023,33 +1014,20 @@ export async function handleStop(): Promise<void> {
   process.exit(0);
 }
 
-export function handleUserPromptSubmit(): void {
-  let raw = '';
-  let oversized = false;
-  process.stdin.setEncoding('utf-8');
-  process.stdin.on('data', chunk => {
-    raw += chunk;
-    if (raw.length > MAX_STDIN_BYTES && !oversized) {
-      oversized = true;
-      logError(`user-prompt-submit: stdin payload exceeded ${MAX_STDIN_BYTES} bytes; discarding`);
-      process.stdin.destroy();
+export async function handleUserPromptSubmit(): Promise<void> {
+  const raw = await readStdinPayload('user-prompt-submit');
+  if (raw) {
+    try {
+      const data = raw.trim() ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      const context = await processUserPromptSubmit(data);
+      // Plain stdout is added to Claude's context for UserPromptSubmit. Exit 0
+      // always, injection must never block or fail a prompt.
+      if (context) process.stdout.write(context + '\n');
+    } catch (e) {
+      logError(`user-prompt-submit: ${String(e)}`);
     }
-  });
-  process.stdin.on('end', () => {
-    if (!oversized) {
-      try {
-        const data = raw.trim() ? (JSON.parse(raw) as Record<string, unknown>) : {};
-        const context = processUserPromptSubmit(data);
-        // Plain stdout is added to Claude's context for UserPromptSubmit. Exit 0
-        // always, injection must never block or fail a prompt.
-        if (context) process.stdout.write(context + '\n');
-      } catch (e) {
-        logError(`user-prompt-submit: ${String(e)}`);
-      }
-    }
-    process.exit(0);
-  });
-  process.stdin.on('error', () => process.exit(0));
+  }
+  process.exit(0);
 }
 
 export function hookMain(): void {
@@ -1070,10 +1048,10 @@ export function hookMain(): void {
 
   const wrap = async (): Promise<void> => {
     try {
-      if (event === 'post-tool-use') handlePostToolUse(adapter);
+      if (event === 'post-tool-use') await handlePostToolUse(adapter);
       else if (event === 'stop') await handleStop();
-      else if (event === 'user-prompt-submit') handleUserPromptSubmit();
-      else if (event === 'session-start') handleSessionStart(adapter);
+      else if (event === 'user-prompt-submit') await handleUserPromptSubmit();
+      else if (event === 'session-start') await handleSessionStart(adapter);
       else if (KNOWN_UNSUPPORTED_EVENTS.has(event)) {
         // Deliberate no-op (e.g. subagent-stop). See hook-schema.ts for why:
         // Claude Code does not fire PostToolUse for subagent tool calls, so there

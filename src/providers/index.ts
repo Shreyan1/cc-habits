@@ -8,6 +8,7 @@ import { OllamaProvider } from "./ollama";
 import { ClaudeCliProvider } from "./claude-cli";
 import { GeminiCliProvider } from "./gemini-cli";
 import { CodexCliProvider } from "./codex-cli";
+import { AntigravityCliProvider } from "./antigravity-cli";
 import { spawnSync } from "child_process";
 import { storagePaths } from "../storage";
 
@@ -36,7 +37,8 @@ export interface ProviderConfig {
     | "ollama"
     | "claude-cli"
     | "gemini-cli"
-    | "codex-cli";
+    | "codex-cli"
+    | "antigravity-cli";
   anthropic_api_key?: string;
   openai_api_key?: string;
   openai_model?: string;
@@ -74,7 +76,22 @@ function readConfig(): ProviderConfig {
         const match = trimmed.match(new RegExp(`^${key}\\s*:\\s*(.*)$`));
         if (match) {
           let val = match[1].trim();
-          const hashIdx = val.indexOf("#");
+          let inQuotes = false;
+          let quoteChar = '';
+          let hashIdx = -1;
+          for (let i = 0; i < val.length; i++) {
+            if ((val[i] === '"' || val[i] === "'") && (i === 0 || val[i-1] !== '\\')) {
+              if (!inQuotes) {
+                inQuotes = true;
+                quoteChar = val[i];
+              } else if (quoteChar === val[i]) {
+                inQuotes = false;
+              }
+            } else if (val[i] === '#' && !inQuotes) {
+              hashIdx = i;
+              break;
+            }
+          }
           if (hashIdx >= 0) {
             val = val.slice(0, hashIdx).trim();
           }
@@ -97,7 +114,8 @@ function readConfig(): ProviderConfig {
       provider === "anthropic" ||
       provider === "claude-cli" ||
       provider === "gemini-cli" ||
-      provider === "codex-cli"
+      provider === "codex-cli" ||
+      provider === "antigravity-cli"
     ) {
       cfg.provider = provider;
     }
@@ -171,6 +189,7 @@ const PARKED_PROVIDERS: readonly string[] = [
   "claude-cli",
   "gemini-cli",
   "codex-cli",
+  "antigravity-cli",
 ];
 
 export function isParkedProvider(provider: string): boolean {
@@ -278,6 +297,9 @@ export function selectProvider(): Provider {
   }
   if (chosen === "codex-cli") {
     return new CodexCliProvider();
+  }
+  if (chosen === "antigravity-cli") {
+    return new AntigravityCliProvider();
   }
   if (chosen === "openai") {
     const key = process.env["OPENAI_API_KEY"] ?? cfg.openai_api_key;
@@ -416,7 +438,7 @@ export async function selectProviderAsync(): Promise<Provider> {
   }
 }
 
-export function probeCliProvider(name: "claude" | "gemini" | "codex"): boolean {
+export function probeCliProvider(name: "claude" | "gemini" | "codex" | "antigravity" | "agy"): boolean {
   try {
     const result = spawnSync(name, ["--version"], {
       timeout: 2000,

@@ -43,46 +43,46 @@ function nonExistentOldDir(): string {
 }
 
 describe('runMigration, CLAUDE.md @import rewrite (Fix 2)', () => {
-  it('rewrites @import <habitsFile> to preferences.md when no legacy dir exists (v0.6.x user)', () => {
+  it('rewrites @import <habitsFile> to preferences.md when no legacy dir exists (v0.6.x user)', async () => {
     // Seed CLAUDE.md with the exact string that would have been written by v0.6.x install.
     const oldImport = `@import ${storagePaths.habitsFile}`;
     fs.writeFileSync(claudeMd, `# My project\n\n${oldImport}\n`);
 
-    const result = runMigration(false, nonExistentOldDir());
+    const result = await runMigration(false, nonExistentOldDir());
 
     expect(result.claudeMdUpdated).toBe(true);
     expect(result.migrated).toBe(false); // no file copy, legacy dir absent
 
     const content = fs.readFileSync(claudeMd, 'utf-8');
-    expect(content).toContain(`@import ${storagePaths.preferencesFile}`);
+    expect(content).toContain(`@import ${storagePaths.preferencesFile.replace(/\\/g, '/')}`);
     expect(content).not.toContain(`@import ${storagePaths.habitsFile}`);
     // Surrounding user content preserved.
     expect(content).toContain('# My project');
   });
 
-  it('is idempotent: second runMigration is a no-op when already pointing at preferences.md', () => {
-    const newImport = `@import ${storagePaths.preferencesFile}`;
+  it('is idempotent: second runMigration is a no-op when already pointing at preferences.md', async () => {
+    const newImport = `@import ${storagePaths.preferencesFile.replace(/\\/g, '/')}`;
     fs.writeFileSync(claudeMd, `${newImport}\n`);
 
-    const result = runMigration(false, nonExistentOldDir());
+    const result = await runMigration(false, nonExistentOldDir());
 
     expect(result.claudeMdUpdated).toBe(false);
     // File must be byte-for-byte identical.
     expect(fs.readFileSync(claudeMd, 'utf-8')).toBe(`${newImport}\n`);
   });
 
-  it('leaves a CLAUDE.md that has no cc-habits @import completely untouched', () => {
+  it('leaves a CLAUDE.md that has no cc-habits @import completely untouched', async () => {
     const original = '# Project\n\nSome user content here.\n';
     fs.writeFileSync(claudeMd, original);
 
-    const result = runMigration(false, nonExistentOldDir());
+    const result = await runMigration(false, nonExistentOldDir());
 
     expect(result.claudeMdUpdated).toBe(false);
     expect(fs.readFileSync(claudeMd, 'utf-8')).toBe(original);
   });
 
-  it('is a no-op when CLAUDE.md does not exist', () => {
+  it('is a no-op when CLAUDE.md does not exist', async () => {
     // Do not create claudeMd.
-    expect(() => runMigration(false, nonExistentOldDir())).not.toThrow();
+    await expect((async () => runMigration(false, nonExistentOldDir()))()).resolves.not.toThrow();
   });
 });

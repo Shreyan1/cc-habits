@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { storagePaths, ensureDirs, logError } from './storage';
 import { writePreferencesFile } from './sync';
+import { acquireLock, releaseLock } from './lock';
 
 const OLD_DIR = path.join(os.homedir(), '.claude', 'habits');
 const OLD_CLAUDE_MD = path.join(os.homedir(), '.claude', 'CLAUDE.md');
@@ -18,11 +19,13 @@ export interface MigrationResult {
 // (storage already at ~/.cc-habits/, no legacy dir) get the fix on first upgrade.
 // Idempotent: no-op when already pointing at preferencesFile or when the file
 // contains no cc-habits @import at all.
-function rewriteClaudeMdImport(
+async function rewriteClaudeMdImport(
   claudeMdPath: string,
   habitsFilePath: string,
   preferencesFilePath: string,
-): boolean {
+): Promise<boolean> {
+  const lockFile = `${claudeMdPath}.lock`;
+  const locked = await acquireLock(lockFile);
   const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
   let fd: number | null = null;
   try {
@@ -46,7 +49,8 @@ function rewriteClaudeMdImport(
       readBytes = fs.readSync(fd, buf, 0, st.size, 0);
     }
     let content = buf.subarray(0, readBytes).toString('utf-8');
-    const newImport = `@import ${preferencesFilePath}`;
+    const normalizedPrefPath = preferencesFilePath.replace(/\\/g, '/');
+    const newImport = `@import ${normalizedPrefPath}`;
     // Already correct, idempotent no-op.
     if (content.includes(newImport)) {
       fs.closeSync(fd);
@@ -55,14 +59,33 @@ function rewriteClaudeMdImport(
     let updated = false;
     // Pattern 1: legacy pre-rename install (~/.claude/habits/habits.md).
     const oldDirImport = `@import ${path.join(OLD_DIR, 'habits.md')}`;
+    const oldDirImportFwd = `@import ${path.join(OLD_DIR, 'habits.md').replace(/\\/g, '/')}`;
+    const oldDirImportEscaped = `@import ${path.join(OLD_DIR, 'habits.md').replace(/\\/g, '\\\\')}`;
+    
     if (content.includes(oldDirImport)) {
       content = content.replace(oldDirImport, newImport);
       updated = true;
+    } else if (content.includes(oldDirImportFwd)) {
+      content = content.replace(oldDirImportFwd, newImport);
+      updated = true;
+    } else if (content.includes(oldDirImportEscaped)) {
+      content = content.replace(oldDirImportEscaped, newImport);
+      updated = true;
     }
+    
     // Pattern 2: v0.6.x install (~/.cc-habits/habits.md, current storage, old import).
     const currentHabitsImport = `@import ${habitsFilePath}`;
+    const currentHabitsImportFwd = `@import ${habitsFilePath.replace(/\\/g, '/')}`;
+    const currentHabitsImportEscaped = `@import ${habitsFilePath.replace(/\\/g, '\\\\')}`;
+    
     if (content.includes(currentHabitsImport)) {
       content = content.replace(currentHabitsImport, newImport);
+      updated = true;
+    } else if (content.includes(currentHabitsImportFwd)) {
+      content = content.replace(currentHabitsImportFwd, newImport);
+      updated = true;
+    } else if (content.includes(currentHabitsImportEscaped)) {
+      content = content.replace(currentHabitsImportEscaped, newImport);
       updated = true;
     }
     if (!updated) {
@@ -82,10 +105,14 @@ function rewriteClaudeMdImport(
     }
     logError(`migration: failed to update CLAUDE.md: ${String(e)}`);
     return false;
+  } finally {
+    if (locked) {
+      releaseLock(lockFile);
+    }
   }
 }
 
-export function runMigration(force = false, oldDirOverride?: string): MigrationResult {
+export async function runMigration(force = false, oldDirOverride?: string): Promise<MigrationResult> {
   const result: MigrationResult = {
     migrated: false,
     copiedFiles: [],
@@ -97,7 +124,7 @@ export function runMigration(force = false, oldDirOverride?: string): MigrationR
 
   // Step 1: Rewrite CLAUDE.md @import unconditionally (catches v0.6.x users who
   // already have ~/.cc-habits/ but still import habits.md instead of preferences.md).
-  if (rewriteClaudeMdImport(oldClaudeMd, storagePaths.habitsFile, storagePaths.preferencesFile)) {
+  if (await rewriteClaudeMdImport(oldClaudeMd, storagePaths.habitsFile, storagePaths.preferencesFile)) {
     result.claudeMdUpdated = true;
   }
 

@@ -85,7 +85,7 @@ export function renderBlockOrNull(minConfidence = DEFAULT_MIN_CONFIDENCE): strin
   const cats = parseHabits(readHabitsMd());
   const active = activeHabits(cats, minConfidence);
   if (Object.keys(active).length === 0) return null;
-  return renderPortableBody(cats, minConfidence);
+  return renderPortableBody(cats, minConfidence, active);
 }
 
 // Insert or replace the cc-habits block in existing content. Everything outside the
@@ -125,8 +125,12 @@ function targetPath(target: SyncTarget, baseDir: string): string {
     case 'gemini': return path.join(baseDir, 'GEMINI.md');
     case 'cline': {
       const dir = path.join(baseDir, '.clinerules');
-      if (fs.existsSync(dir) && fs.lstatSync(dir).isDirectory()) {
-        return path.join(dir, 'cc-habits.md');
+      try {
+        if (fs.existsSync(dir) && fs.lstatSync(dir).isDirectory()) {
+          return path.join(dir, 'cc-habits.md');
+        }
+      } catch {
+        // ignore
       }
       return dir;
     }
@@ -139,13 +143,32 @@ function targetPath(target: SyncTarget, baseDir: string): string {
 
 function safeWriteProjectFile(filePath: string, content: string): void {
   if (fs.existsSync(filePath)) {
-    const stat = fs.lstatSync(filePath);
-    if (stat.isSymbolicLink()) {
-      throw new Error(`refusing to write through symlink: ${filePath}`);
+    try {
+      const stat = fs.lstatSync(filePath);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`refusing to write through symlink: ${filePath}`);
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes('refusing to write through symlink')) {
+        throw e;
+      }
     }
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf-8');
+  const tmpPath = `${filePath}.tmp.${process.pid}.${Math.random().toString(36).slice(2)}`;
+  try {
+    fs.writeFileSync(tmpPath, content, 'utf-8');
+    fs.renameSync(tmpPath, filePath);
+  } catch (e) {
+    try {
+      if (fs.existsSync(tmpPath)) {
+        fs.unlinkSync(tmpPath);
+      }
+    } catch {
+      // ignore
+    }
+    throw e;
+  }
 }
 
 export interface SyncResult {
@@ -185,7 +208,7 @@ export function readSyncTargets(): SyncTarget[] {
   if (!fs.existsSync(storagePaths.configFile)) return [];
   try {
     const text = fs.readFileSync(storagePaths.configFile, 'utf-8');
-    const m = text.match(/sync_targets\s*:\s*\[?([^\]\n#]+)\]?/);
+    const m = text.match(/^sync_targets\s*:\s*\[?([^\]\n#]+)\]?/m);
     if (m) {
       const allowed = new Set(['agents', 'cursor', 'copilot', 'gemini', 'cline', 'aider', 'continue', 'jetbrains', 'windsurf']);
       return m[1]

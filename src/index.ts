@@ -24,6 +24,7 @@ import {
 } from './cli';
 import { cmdFaq } from './faq';
 import { spawnSync } from 'child_process';
+import os from 'os';
 import { runMigration } from './migrate';
 import { suggest, looksLikeEnvVar, nextSteps } from './suggestions';
 import { runInteractiveMenu, runSelectMenu, MENU_ITEMS } from './menu';
@@ -130,24 +131,51 @@ Env (set in your shell, e.g. \`export CC_HABITS_PROVIDER=ollama\`; not cc-habits
 Docs: https://github.com/Shreyan1/cc-habits
 `;
 
+function spawnAndExit(args: string[]): void {
+  if (process.argv[1] === undefined) {
+    process.stderr.write("cc-habits: process.argv[1] is undefined, cannot spawn child command\n");
+    process.exit(1);
+  }
+  const res = spawnSync(process.execPath, [process.argv[1], ...args], { stdio: 'inherit' });
+  let code = 0;
+  if (res.status !== null) {
+    code = res.status;
+  } else if (res.signal) {
+    code = 128 + (os.constants?.signals?.[res.signal as keyof typeof os.constants.signals] ?? 0);
+  }
+  process.exit(code);
+}
+
 async function main(): Promise<void> {
-  // Silent auto-migration on startup
-  try {
-    runMigration();
-  } catch {
-    // ignore
-  }
-
-  // One-time permission hardening: tighten any store file an older version left
-  // group/other-readable (e.g. a pre-0600 log.jsonl). Best-effort, never blocks.
-  try {
-    tightenLegacyModes();
-  } catch {
-    // ignore
-  }
-
   const args = process.argv.slice(2);
   const command = args[0];
+
+  const mutatingCommands = [
+    'init', 'on', 'off', 'migrate', 'uninstall', 'bootstrap', 'git-capture',
+    'learn', 'sync', 'import', 'capture', 'reset', 'tombstone'
+  ];
+  
+  const isMutating = command && (
+    mutatingCommands.includes(command) ||
+    (command === 'memories' && args.some(a => ['--enable', '--disable', '--delete'].includes(a)))
+  );
+
+  if (isMutating) {
+    // Silent auto-migration on startup
+    try {
+      await runMigration();
+    } catch {
+      // ignore
+    }
+
+    // One-time permission hardening: tighten any store file an older version left
+    // group/other-readable (e.g. a pre-0600 log.jsonl). Best-effort, never blocks.
+    try {
+      tightenLegacyModes();
+    } catch {
+      // ignore
+    }
+  }
 
   // `--help`/`-h` always print the static reference. A bare `cch` or `cch help`
   // opens the interactive arrow-key menu when attached to a terminal, falling
@@ -225,8 +253,7 @@ async function main(): Promise<void> {
       return runMainInteractiveMenu();
     }
     const chosenArgs = JSON.parse(selectedHelp.value);
-    const res = spawnSync(process.execPath, [String(process.argv[1]), ...chosenArgs], { stdio: 'inherit' });
-    process.exit(res.status ?? 0);
+    spawnAndExit(chosenArgs);
   }
 
   async function runMainInteractiveMenu(): Promise<void> {
@@ -247,8 +274,7 @@ async function main(): Promise<void> {
       return runFullCommandMenu();
     }
 
-    const res = spawnSync(process.execPath, [String(process.argv[1]), ...item.args], { stdio: 'inherit' });
-    process.exit(res.status ?? 0);
+    spawnAndExit(item.args);
   }
 
   // Bare `cch` opens the folded main menu; `cch help` jumps straight to the full
@@ -311,9 +337,9 @@ async function main(): Promise<void> {
     } else if (args.includes('--tombstones')) {
       code = cmdMemoriesTombstones();
     } else if (args.includes('--enable')) {
-      code = cmdMemoriesToggle(true);
+      code = await cmdMemoriesToggle(true);
     } else if (args.includes('--disable')) {
-      code = cmdMemoriesToggle(false);
+      code = await cmdMemoriesToggle(false);
     } else {
       code = await cmdMemories();
     }
@@ -337,9 +363,9 @@ async function main(): Promise<void> {
   } else if (command === 'tombstones') {
     code = cmdTombstones();
   } else if (command === 'on') {
-    code = cmdOn();
+    code = await cmdOn();
   } else if (command === 'off') {
-    code = cmdOff();
+    code = await cmdOff();
   } else if (command === 'diff') {
     let since: number | undefined;
     const sinceIdx = args.indexOf('--since');
@@ -367,7 +393,7 @@ async function main(): Promise<void> {
   } else if (command === 'status' || command === 'doctor') {
     code = cmdStatus(args.includes('--proof') || args.includes('--verbose'));
   } else if (command === 'migrate') {
-    code = cmdMigrate(args.includes('--force'));
+    code = await cmdMigrate(args.includes('--force'));
   } else if (command === 'capture') {
     const fileIdx = args.indexOf('--file');
     const diffIdx = args.indexOf('--diff');

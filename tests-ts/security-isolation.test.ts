@@ -27,7 +27,7 @@ afterEach(() => {
 
 describe('Layer 5: End-to-End Isolation Tests', () => {
   describe('Cross-Repo Contamination (Risk #3)', () => {
-    it('isolates projects completely and prevents leakage across namespaces', () => {
+    it('isolates projects completely and prevents leakage across namespaces', async () => {
       const repoADir = path.join(tmpDir, 'repoA');
       const repoBDir = path.join(tmpDir, 'repoB');
       fs.mkdirSync(repoADir);
@@ -63,17 +63,17 @@ describe('Layer 5: End-to-End Isolation Tests', () => {
       expect(contentB).not.toContain('Prefer const');
     });
 
-    it('honors .cc-habits-ignore in working directory and disables capture completely', () => {
+    it('honors .cc-habits-ignore in working directory and disables capture completely', async () => {
       const workingDir = path.join(tmpDir, 'work');
       fs.mkdirSync(workingDir);
       fs.writeFileSync(path.join(workingDir, '.cc-habits-ignore'), '');
 
       const spyCwd = vi.spyOn(process, 'cwd').mockReturnValue(workingDir);
 
-      expect(captureDisabled()).toBe(true);
+      expect(await captureDisabled()).toBe(true);
 
       // Verify that processPostToolUse is a no-op under ignore
-      processPostToolUse({
+      await processPostToolUse({
         toolName: 'Write',
         filePath: 'src/main.ts',
         newContent: 'const x = 1;',
@@ -88,7 +88,7 @@ describe('Layer 5: End-to-End Isolation Tests', () => {
   });
 
   describe('Memory Exfiltration & Disclosure (Risk #4)', () => {
-    it('verifies that buildInjectionContext only outputs sanitized category/rule headers without metadata/tombstones', () => {
+    it('verifies that buildInjectionContext only outputs sanitized category/rule headers without metadata/tombstones', async () => {
       const seeded = `<!-- cc-habits format v0.3 -->
 # Coding habits
 
@@ -123,7 +123,7 @@ describe('Layer 5: End-to-End Isolation Tests', () => {
   });
 
   describe('Export Redaction Tests (Added)', () => {
-    it('redacts sensitive API keys, emails, and credentials during profile export', () => {
+    it('redacts sensitive API keys, emails, and credentials during profile export', async () => {
       const habitsWithSecrets = `<!-- cc-habits format v0.3 -->
 # Coding habits
 

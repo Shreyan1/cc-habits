@@ -72,16 +72,16 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function writeSignals(sid = SESSION): void {
+async function writeSignals(sid = SESSION): Promise<void> {
   for (const d of DIFFS) {
-    processPostToolUse({ tool_name: d.tool, session_id: sid, tool_input: { file_path: d.file, old_string: d.old, new_string: d.nw } });
+    await processPostToolUse({ tool_name: d.tool, session_id: sid, tool_input: { file_path: d.file, old_string: d.old, new_string: d.nw } });
   }
 }
 
 // PostToolUse ──────────────────────────────────────────────────────────────
 describe('PostToolUse hook', () => {
-  it('Edit writes a signal', () => {
-    processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 'main.py', old_string: 'def foo(): pass', new_string: 'def foo() -> None: pass' } });
+  it('Edit writes a signal', async () => {
+    await processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 'main.py', old_string: 'def foo(): pass', new_string: 'def foo() -> None: pass' } });
     const sigs = readSignals(SESSION);
     expect(sigs).toHaveLength(1);
     expect(sigs[0].file).toBe('main.py');
@@ -89,30 +89,30 @@ describe('PostToolUse hook', () => {
     expect(sigs[0].diff).toContain('+def foo() -> None: pass');
   });
 
-  it('Write writes a signal', () => {
-    processPostToolUse({ tool_name: 'Write', session_id: SESSION, tool_input: { file_path: 'new.py', content: "def hello() -> None:\n    print('hello')\n" } });
+  it('Write writes a signal', async () => {
+    await processPostToolUse({ tool_name: 'Write', session_id: SESSION, tool_input: { file_path: 'new.py', content: "def hello() -> None:\n    print('hello')\n" } });
     expect(readSignals(SESSION)).toHaveLength(1);
     expect(readSignals(SESSION)[0].diff).toContain('+def hello() -> None:');
   });
 
-  it('MultiEdit writes a signal', () => {
-    processPostToolUse({ tool_name: 'MultiEdit', session_id: SESSION, tool_input: { file_path: 'app.py', edits: [{ old_string: 'x = 1', new_string: 'x: int = 1' }, { old_string: 'y = 2', new_string: 'y: int = 2' }] } });
+  it('MultiEdit writes a signal', async () => {
+    await processPostToolUse({ tool_name: 'MultiEdit', session_id: SESSION, tool_input: { file_path: 'app.py', edits: [{ old_string: 'x = 1', new_string: 'x: int = 1' }, { old_string: 'y = 2', new_string: 'y: int = 2' }] } });
     const sigs = readSignals(SESSION);
     expect(sigs).toHaveLength(1);
     expect(sigs[0].diff).toContain('-x = 1');
     expect(sigs[0].diff).toContain('+x: int = 1');
   });
 
-  it('non-write tools are ignored', () => {
+  it('non-write tools are ignored', async () => {
     for (const t of ['Bash', 'Read', 'WebFetch']) {
-      processPostToolUse({ tool_name: t, session_id: SESSION, tool_input: {} });
+      await processPostToolUse({ tool_name: t, session_id: SESSION, tool_input: {} });
     }
     expect(readSignals(SESSION)).toHaveLength(0);
   });
 
-  it('signals are isolated by session', () => {
-    processPostToolUse({ tool_name: 'Edit', session_id: 'A', tool_input: { file_path: 'a.py', old_string: 'old code here', new_string: 'new code here' } });
-    processPostToolUse({ tool_name: 'Edit', session_id: 'B', tool_input: { file_path: 'b.py', old_string: 'old code here', new_string: 'new code here' } });
+  it('signals are isolated by session', async () => {
+    await processPostToolUse({ tool_name: 'Edit', session_id: 'A', tool_input: { file_path: 'a.py', old_string: 'old code here', new_string: 'new code here' } });
+    await processPostToolUse({ tool_name: 'Edit', session_id: 'B', tool_input: { file_path: 'b.py', old_string: 'old code here', new_string: 'new code here' } });
     expect(readSignals('A')).toHaveLength(1);
     expect(readSignals('B')).toHaveLength(1);
     expect(readSignals()).toHaveLength(2);
@@ -121,23 +121,23 @@ describe('PostToolUse hook', () => {
 
 // PHI redaction ────────────────────────────────────────────────────────────
 describe('PHI redaction', () => {
-  it('redacts email addresses', () => {
-    processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 'c.py', old_string: "EMAIL = 'admin@example.com'", new_string: 'EMAIL = get_email()' } });
+  it('redacts email addresses', async () => {
+    await processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 'c.py', old_string: "EMAIL = 'admin@example.com'", new_string: 'EMAIL = get_email()' } });
     const diff = readSignals(SESSION)[0].diff;
     expect(diff).toContain('<REDACTED:email>');
     expect(diff).not.toContain('admin@example.com');
   });
 
-  it('redacts Indian PAN numbers', () => {
-    processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 't.py', old_string: "pan = 'ABCDE1234F'", new_string: 'pan = get_pan()' } });
+  it('redacts Indian PAN numbers', async () => {
+    await processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 't.py', old_string: "pan = 'ABCDE1234F'", new_string: 'pan = get_pan()' } });
     const diff = readSignals(SESSION)[0].diff;
     expect(diff).toContain('<REDACTED:pan>');
     expect(diff).not.toContain('ABCDE1234F');
   });
 
   it('extractor never receives raw PHI', async () => {
-    writeSignals();
-    processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 'k.py', old_string: "pan = 'PQRST5678U'", new_string: 'pan = fetch_pan()' } });
+    await writeSignals();
+    await processPostToolUse({ tool_name: 'Edit', session_id: SESSION, tool_input: { file_path: 'k.py', old_string: "pan = 'PQRST5678U'", new_string: 'pan = fetch_pan()' } });
     const captured: unknown[] = [];
     vi.mocked(extractor.extractRules).mockImplementationOnce(async (signals) => { captured.push(...signals); return []; });
     await processStop(SESSION);
@@ -149,12 +149,12 @@ describe('PHI redaction', () => {
 
 // Noise gating ─────────────────────────────────────────────────────────────
 describe('noise gating', () => {
-  it('short diff is noise', () => { expect(isNoise('+x')).toBe(true); });
-  it('whitespace-only diff is noise', () => { expect(isNoise('  \n+   \n-  ')).toBe(true); });
-  it('comment-only python diff is noise', () => { expect(isNoise('- # old comment line here\n+ # new comment line here')).toBe(true); });
-  it('comment-only JS diff is noise', () => { expect(isNoise('- // old JS comment\n+ // new JS comment text')).toBe(true); });
-  it('real code is not noise', () => { expect(isNoise('-def foo():\n+def foo() -> None:\n     pass')).toBe(false); });
-  it('mixed comment + code is not noise', () => { expect(isNoise('- # comment\n+ def foo() -> None: pass')).toBe(false); });
+  it('short diff is noise', async () => { expect(isNoise('+x')).toBe(true); });
+  it('whitespace-only diff is noise', async () => { expect(isNoise('  \n+   \n-  ')).toBe(true); });
+  it('comment-only python diff is noise', async () => { expect(isNoise('- # old comment line here\n+ # new comment line here')).toBe(true); });
+  it('comment-only JS diff is noise', async () => { expect(isNoise('- // old JS comment\n+ // new JS comment text')).toBe(true); });
+  it('real code is not noise', async () => { expect(isNoise('-def foo():\n+def foo() -> None:\n     pass')).toBe(false); });
+  it('mixed comment + code is not noise', async () => { expect(isNoise('- # comment\n+ def foo() -> None: pass')).toBe(false); });
 });
 
 // Stop hook gating ─────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ describe('Stop hook gating', () => {
   });
 
   it('skips signals from other sessions', async () => {
-    writeSignals('other-session');
+    await writeSignals('other-session');
     expect(await processStop(SESSION)).toBeNull();
   });
 });
@@ -186,7 +186,7 @@ describe('Stop hook gating', () => {
 // Stop hook full pipeline ──────────────────────────────────────────────────
 describe('Stop hook pipeline', () => {
   it('creates habits.md with correct structure', async () => {
-    writeSignals();
+    await writeSignals();
     vi.mocked(extractor.extractRules).mockResolvedValueOnce(FAKE_UPDATES);
     const result = await processStop(SESSION);
     expect(result).not.toBeNull();
@@ -201,7 +201,7 @@ describe('Stop hook pipeline', () => {
   });
 
   it('new habits start at 0.50 confidence', async () => {
-    writeSignals();
+    await writeSignals();
     vi.mocked(extractor.extractRules).mockResolvedValueOnce(FAKE_UPDATES);
     await processStop(SESSION);
     const cats = parseHabits(readHabitsMd());
@@ -209,7 +209,7 @@ describe('Stop hook pipeline', () => {
   });
 
   it('reinforces habit across sessions and graduates from learning', async () => {
-    writeSignals('s1');
+    await writeSignals('s1');
     vi.mocked(extractor.extractRules).mockResolvedValueOnce([FAKE_UPDATES[0]]);
     await processStop('s1');
     const after1 = parseHabits(readHabitsMd());
@@ -219,7 +219,7 @@ describe('Stop hook pipeline', () => {
     // After 1 session the habit lives in Learning section, not active.
     expect(readHabitsMd()).toContain('## Learning');
 
-    writeSignals('s2');
+    await writeSignals('s2');
     vi.mocked(extractor.extractRules).mockResolvedValueOnce([{
       category: 'Python', rule: 'Use type hints on all function signatures',
       decision: 'reinforce', matched_habit_id: 'Use type hints on all function signatures', reasoning: '',
@@ -233,11 +233,11 @@ describe('Stop hook pipeline', () => {
   });
 
   it('contradicts habit', async () => {
-    writeSignals('s1');
+    await writeSignals('s1');
     vi.mocked(extractor.extractRules).mockResolvedValueOnce([FAKE_UPDATES[0]]);
     await processStop('s1');
 
-    writeSignals('s2');
+    await writeSignals('s2');
     vi.mocked(extractor.extractRules).mockResolvedValueOnce([{
       category: 'Python', rule: 'Use type hints on all function signatures',
       decision: 'contradict', matched_habit_id: 'Use type hints on all function signatures', reasoning: '',
@@ -248,13 +248,13 @@ describe('Stop hook pipeline', () => {
   });
 
   it('prunes habit below threshold', async () => {
-    writeSignals('s1');
+    await writeSignals('s1');
     vi.mocked(extractor.extractRules).mockResolvedValueOnce([FAKE_UPDATES[0]]);
     await processStop('s1');
 
     const contradict = { category: 'Python', rule: 'Use type hints on all function signatures', decision: 'contradict', matched_habit_id: 'Use type hints on all function signatures', reasoning: '' };
     for (let i = 2; i <= 4; i++) {
-      writeSignals(`s${i}`);
+      await writeSignals(`s${i}`);
       vi.mocked(extractor.extractRules).mockResolvedValueOnce([contradict]);
       await processStop(`s${i}`);
     }
@@ -262,7 +262,7 @@ describe('Stop hook pipeline', () => {
   });
 
   it('round-trip: serialised habits parse back without loss', async () => {
-    writeSignals();
+    await writeSignals();
     vi.mocked(extractor.extractRules).mockResolvedValueOnce(FAKE_UPDATES);
     await processStop(SESSION);
     const md = readHabitsMd();
@@ -279,7 +279,7 @@ describe('Stop hook pipeline', () => {
   });
 
   it('no double-period when LLM returns rule with trailing period', async () => {
-    writeSignals();
+    await writeSignals();
     vi.mocked(extractor.extractRules).mockResolvedValueOnce(FAKE_UPDATES.map(u => ({ ...u, rule: u.rule + '.' })));
     await processStop(SESSION);
     expect(readHabitsMd()).not.toContain('..');
@@ -344,7 +344,7 @@ describe('CLI view', () => {
   });
 
   it('shows confidence bar after learning habits', async () => {
-    writeSignals();
+    await writeSignals();
     vi.mocked(extractor.extractRules).mockResolvedValueOnce(FAKE_UPDATES);
     await processStop(SESSION);
     const ret = await cmdView();
@@ -352,7 +352,7 @@ describe('CLI view', () => {
   });
 
   it('shows recent signals', async () => {
-    writeSignals();
+    await writeSignals();
     const ret = await cmdView();
     expect(ret).toBe(0);
   });
@@ -394,7 +394,7 @@ describe('CLI memories', () => {
 
 // CLI: memories --delete ──────────────────────────────────────────────────
 describe('CLI memories --delete', () => {
-  it('deletes and tombstones a memory by text', () => {
+  it('deletes and tombstones a memory by text', async () => {
     writeMemoriesMd(serialiseMemories({
       'Repeated mistakes': [{
         text: 'When editing settings, do not overwrite arrays',
@@ -412,7 +412,7 @@ describe('CLI memories --delete', () => {
     expect(readMemoryTombstones().length).toBeGreaterThanOrEqual(1);
   });
 
-  it('deletes and tombstones a memory by hash', () => {
+  it('deletes and tombstones a memory by hash', async () => {
     writeMemoriesMd(serialiseMemories({
       'Repeated mistakes': [{
         text: 'When editing settings, do not overwrite arrays',
@@ -432,7 +432,7 @@ describe('CLI memories --delete', () => {
     expect(readMemoryTombstones()).toContain('when editing settings, do not overwrite arrays');
   });
 
-  it('deletes by id even when the id is pasted with its surrounding brackets', () => {
+  it('deletes by id even when the id is pasted with its surrounding brackets', async () => {
     writeMemoriesMd(serialiseMemories({
       'Repeated mistakes': [{
         text: 'When editing settings, do not overwrite arrays',
@@ -451,13 +451,13 @@ describe('CLI memories --delete', () => {
     expect(readMemoryTombstones()).toContain('when editing settings, do not overwrite arrays');
   });
 
-  it('still tombstones even if memory text is not found', () => {
+  it('still tombstones even if memory text is not found', async () => {
     const ret = cmdMemoriesDelete('Nonexistent memory text');
     expect(ret).toBe(0);
     expect(readMemoryTombstones().length).toBeGreaterThanOrEqual(1);
   });
 
-  it('strips " (candidate)" suffix when deleting', () => {
+  it('strips " (candidate)" suffix when deleting', async () => {
     writeMemoriesMd(serialiseMemories({
       'Repeated mistakes': [{
         text: 'When editing settings, do not overwrite arrays',
@@ -476,13 +476,13 @@ describe('CLI memories --delete', () => {
     expect(readMemoryTombstones()).toContain('when editing settings, do not overwrite arrays');
   });
 
-  it('returns 1 when no text is provided', () => {
+  it('returns 1 when no text is provided', async () => {
     expect(cmdMemoriesDelete('')).toBe(1);
   });
 });
 
 describe('CLI memories --tombstones', () => {
-  it('shows empty tombstones list', () => {
+  it('shows empty tombstones list', async () => {
     expect(cmdMemoriesTombstones()).toBe(0);
   });
 });
@@ -495,7 +495,7 @@ describe('Stop hook memory extraction', () => {
 
   it('does not write memories when CC_HABITS_MEMORIES is off', async () => {
     process.env['CC_HABITS_MEMORIES'] = '0';
-    writeSignals();
+    await writeSignals();
     vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([{
       section: 'Repeated mistakes',
       text: 'When editing settings, do not overwrite arrays',
@@ -511,7 +511,7 @@ describe('Stop hook memory extraction', () => {
 
   it('extracts and writes memory candidates when CC_HABITS_MEMORIES=1', async () => {
     process.env['CC_HABITS_MEMORIES'] = '1';
-    writeSignals();
+    await writeSignals();
     vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([{
       section: 'Repeated mistakes',
       text: 'When editing settings, do not overwrite existing hook arrays',
@@ -536,12 +536,12 @@ describe('Stop hook memory extraction', () => {
       correction: 'Merge arrays',
     };
     // First session
-    writeSignals();
+    await writeSignals();
     vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([candidate]);
     await processStop(SESSION);
     // Second session with same mistake
     vi.mocked(extractor.extractMemoryCandidates).mockResolvedValue([candidate]);
-    writeSignals('session-2');
+    await writeSignals('session-2');
     const result2 = await processStop('session-2');
     expect(result2!.memoryCandidatesCount).toBe(0); // reinforced, not new
     const { parseMemories, readMemoriesMd } = await import('../src/storage');
@@ -554,7 +554,7 @@ describe('Stop hook memory extraction', () => {
 
   it('handles extractor failure gracefully without crashing stop', async () => {
     process.env['CC_HABITS_MEMORIES'] = '1';
-    writeSignals();
+    await writeSignals();
     vi.mocked(extractor.extractMemoryCandidates).mockRejectedValue(new Error('provider down'));
     const result = await processStop(SESSION);
     expect(result).not.toBeNull(); // habits still extracted normally
@@ -564,9 +564,9 @@ describe('Stop hook memory extraction', () => {
 
 // CLI: reset ──────────────────────────────────────────────────────────────
 describe('CLI reset', () => {
-  it('requires --yes flag', () => { expect(cmdReset(false)).toBe(1); });
-  it('deletes habits and log files', () => {
-    writeSignals();
+  it('requires --yes flag', async () => { expect(cmdReset(false)).toBe(1); });
+  it('deletes habits and log files', async () => {
+    await writeSignals();
     writeMemoriesMd(serialiseMemories({
       'Repeated mistakes': [{
         text: 'Preserve settings arrays',
@@ -581,7 +581,7 @@ describe('CLI reset', () => {
     expect(fs.existsSync(storagePaths.habitsFile)).toBe(false);
     expect(fs.existsSync(storagePaths.memoriesFile)).toBe(false);
   });
-  it('is idempotent, no error if already deleted', () => { expect(cmdReset(true)).toBe(0); });
+  it('is idempotent, no error if already deleted', async () => { expect(cmdReset(true)).toBe(0); });
 });
 
 // Three uncovered scenarios ────────────────────────────────────────────────
@@ -608,9 +608,9 @@ describe('Scenario 2: malformed settings.json', () => {
 });
 
 describe('Scenario 3: large diff capping', () => {
-  it('diffs larger than 4KB are truncated before being logged', () => {
+  it('diffs larger than 4KB are truncated before being logged', async () => {
     const bigContent = 'x'.repeat(10000);
-    processPostToolUse({ tool_name: 'Write', session_id: SESSION, tool_input: { file_path: 'big.py', content: bigContent } });
+    await processPostToolUse({ tool_name: 'Write', session_id: SESSION, tool_input: { file_path: 'big.py', content: bigContent } });
     const sig = readSignals(SESSION)[0];
     expect(sig.diff.length).toBeLessThan(5000);
     expect(sig.diff).toContain('(truncated)');

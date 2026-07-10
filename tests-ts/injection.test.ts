@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 describe('selectInjectionHabits', () => {
-  it('returns active habits sorted by confidence, excluding the learning section', () => {
+  it('returns active habits sorted by confidence, excluding the learning section', async () => {
     const sel = selectInjectionHabits(SEEDED);
     expect(sel.map(h => h.rule)).not.toContain('Prefer named imports');
     expect(sel[0].rule).toContain('camelCase'); // 0.90 first
@@ -98,17 +98,17 @@ describe('selectInjectionHabits', () => {
     expect(sel).toHaveLength(3);
   });
 
-  it('honors the topN cap', () => {
+  it('honors the topN cap', async () => {
     expect(selectInjectionHabits(SEEDED, 2)).toHaveLength(2);
   });
 
-  it('honors minConfidence', () => {
+  it('honors minConfidence', async () => {
     const sel = selectInjectionHabits(SEEDED, 12, 0.85);
     expect(sel).toHaveLength(1);
     expect(sel[0].rule).toContain('camelCase');
   });
 
-  it('activeLanguages=["ts"] includes ts habits + language-agnostic, excludes py-only', () => {
+  it('activeLanguages=["ts"] includes ts habits + language-agnostic, excludes py-only', async () => {
     const sel = selectInjectionHabits(SEEDED_WITH_LANGS, 12, 0.3, ['ts']);
     const rules = sel.map(h => h.rule);
     expect(rules).toContain('Use explicit return types');
@@ -116,24 +116,24 @@ describe('selectInjectionHabits', () => {
     expect(rules).not.toContain('Use type hints on all functions');
   });
 
-  it('activeLanguages=[] returns all habits (no filter)', () => {
+  it('activeLanguages=[] returns all habits (no filter)', async () => {
     const sel = selectInjectionHabits(SEEDED_WITH_LANGS, 12, 0.3, []);
     expect(sel).toHaveLength(3);
   });
 
-  it('activeLanguages=undefined returns all habits (no filter)', () => {
+  it('activeLanguages=undefined returns all habits (no filter)', async () => {
     const sel = selectInjectionHabits(SEEDED_WITH_LANGS, 12, 0.3, undefined);
     expect(sel).toHaveLength(3);
   });
 
-  it('activeLanguages=["ts","py"] includes both ts and py habits', () => {
+  it('activeLanguages=["ts","py"] includes both ts and py habits', async () => {
     const sel = selectInjectionHabits(SEEDED_WITH_LANGS, 12, 0.3, ['ts', 'py']);
     expect(sel).toHaveLength(3);
   });
 });
 
 describe('buildInjectionContext', () => {
-  it('wraps active habits in a <coding-habits> block grouped by category', () => {
+  it('wraps active habits in a <coding-habits> block grouped by category', async () => {
     const ctx = buildInjectionContext(SEEDED);
     expect(ctx).not.toBeNull();
     expect(ctx!).toContain('<coding-habits>');
@@ -145,24 +145,24 @@ describe('buildInjectionContext', () => {
     expect(ctx!).not.toContain('Confidence:');
   });
 
-  it('returns null when there are no active habits', () => {
+  it('returns null when there are no active habits', async () => {
     expect(buildInjectionContext('<!-- cc-habits format v0.2 -->\n# Coding habits\n')).toBeNull();
   });
 });
 
 describe('processUserPromptSubmit', () => {
-  it('returns context by default', () => {
-    expect(processUserPromptSubmit({ prompt: 'x' })).toContain('<coding-habits>');
+  it('returns context by default', async () => {
+    expect(await processUserPromptSubmit({ prompt: 'x' })).toContain('<coding-habits>');
   });
 
-  it('returns null when CC_HABITS_INJECT is disabled', () => {
+  it('returns null when CC_HABITS_INJECT is disabled', async () => {
     for (const v of ['0', 'false', 'off']) {
       process.env['CC_HABITS_INJECT'] = v;
-      expect(processUserPromptSubmit({ prompt: 'x' })).toBeNull();
+      expect(await processUserPromptSubmit({ prompt: 'x' })).toBeNull();
     }
   });
 
-  it('with ts signals in log, injects ts habits but not py-only habits', () => {
+  it('with ts signals in log, injects ts habits but not py-only habits', async () => {
     fs.writeFileSync(storagePaths.habitsFile!, SEEDED_WITH_LANGS);
     const signal = {
       ts: new Date().toISOString(),
@@ -174,7 +174,7 @@ describe('processUserPromptSubmit', () => {
     };
     fs.appendFileSync(storagePaths.logFile!, JSON.stringify(signal) + '\n');
 
-    const ctx = processUserPromptSubmit({ prompt: 'hello', session_id: 'session-ts-1' });
+    const ctx = await processUserPromptSubmit({ prompt: 'hello', session_id: 'session-ts-1' });
     expect(ctx).not.toBeNull();
     expect(ctx!).toContain('TypeScript:');
     expect(ctx!).toContain('- Use explicit return types.');
@@ -184,9 +184,9 @@ describe('processUserPromptSubmit', () => {
     expect(ctx!).not.toContain('Use type hints on all functions');
   });
 
-  it('with no session_id, injects all habits (safe fallback)', () => {
+  it('with no session_id, injects all habits (safe fallback)', async () => {
     fs.writeFileSync(storagePaths.habitsFile!, SEEDED_WITH_LANGS);
-    const ctx = processUserPromptSubmit({ prompt: 'hello' });
+    const ctx = await processUserPromptSubmit({ prompt: 'hello' });
     expect(ctx).not.toBeNull();
     expect(ctx!).toContain('TypeScript:');
     expect(ctx!).toContain('Python:');
@@ -224,19 +224,19 @@ describe('scoreMemoryRelevance', () => {
     sessions_seen: 2,
   };
 
-  it('returns 0 when no trigger terms match the prompt', () => {
+  it('returns 0 when no trigger terms match the prompt', async () => {
     expect(scoreMemoryRelevance(memory, 'refactor the parser module')).toBe(0);
   });
 
-  it('returns positive score when trigger terms appear in prompt', () => {
+  it('returns positive score when trigger terms appear in prompt', async () => {
     expect(scoreMemoryRelevance(memory, 'edit the settings.json hooks array')).toBe(2);
   });
 
-  it('returns 0 for a memory with no trigger terms', () => {
+  it('returns 0 for a memory with no trigger terms', async () => {
     expect(scoreMemoryRelevance({ ...memory, trigger: [] }, 'anything')).toBe(0);
   });
 
-  it('a shared regex cache reused across calls yields stable scores (no lastIndex state)', () => {
+  it('a shared regex cache reused across calls yields stable scores (no lastIndex state)', async () => {
     // The perf optimisation reuses one compiled RegExp across memories via a shared
     // cache. Because the matcher uses only the case-insensitive flag (no global /
     // sticky), .test() is stateless and reuse must never alter results. Score the
@@ -253,7 +253,7 @@ describe('scoreMemoryRelevance', () => {
     expect(scoreMemoryRelevance(mem, hit, undefined, cache)).toBe(scoreMemoryRelevance(mem, hit));
   });
 
-  it('precomputed prompt tokens yield identical scores to the lazy path', () => {
+  it('precomputed prompt tokens yield identical scores to the lazy path', async () => {
     // The perf optimisation passes a shared, prompt-level token set as the 3rd arg.
     // It must never change the score vs. the 2-arg lazy compute, including for the
     // Tier-3 multi-word (>= 2 token) trigger path that actually consumes the set.
@@ -271,62 +271,62 @@ describe('scoreMemoryRelevance', () => {
     }
   });
 
-  it('enforces word boundary matches and allows plural s', () => {
+  it('enforces word boundary matches and allows plural s', async () => {
     const mem1 = { ...memory, trigger: ['hook'] };
     expect(scoreMemoryRelevance(mem1, 'we are hooked')).toBe(0);
     expect(scoreMemoryRelevance(mem1, 'we need to install hooks')).toBe(1);
     expect(scoreMemoryRelevance(mem1, 'we need to install hook')).toBe(1);
   });
 
-  it('ignores generic short verbs', () => {
+  it('ignores generic short verbs', async () => {
     const mem2 = { ...memory, trigger: ['get', 'use', 'install', 'settings.json'] };
     expect(scoreMemoryRelevance(mem2, 'get the settings.json and use it to install')).toBe(2);
   });
 
-  it('synonym: db trigger matches database in prompt', () => {
+  it('synonym: db trigger matches database in prompt', async () => {
     const mem = { ...memory, trigger: ['db'] };
     expect(scoreMemoryRelevance(mem, 'configure the local database')).toBe(1);
   });
 
-  it('synonym: database trigger matches db in prompt', () => {
+  it('synonym: database trigger matches db in prompt', async () => {
     const mem = { ...memory, trigger: ['database'] };
     expect(scoreMemoryRelevance(mem, 'configure the local db')).toBe(1);
   });
 
-  it('synonym: err trigger matches error in prompt', () => {
+  it('synonym: err trigger matches error in prompt', async () => {
     const mem = { ...memory, trigger: ['err'] };
     expect(scoreMemoryRelevance(mem, 'an unexpected error occurred')).toBe(1);
   });
 
-  it('token overlap: "null check" trigger matches "null-checking" in prompt', () => {
+  it('token overlap: "null check" trigger matches "null-checking" in prompt', async () => {
     const mem = { ...memory, trigger: ['null check'] };
     expect(scoreMemoryRelevance(mem, 'ensure proper null-checking in the model')).toBe(1);
   });
 
-  it('token overlap: "null check" trigger matches "null checking" in prompt', () => {
+  it('token overlap: "null check" trigger matches "null checking" in prompt', async () => {
     const mem = { ...memory, trigger: ['null check'] };
     expect(scoreMemoryRelevance(mem, 'ensure proper null checking in the model')).toBe(1);
   });
 
-  it('token overlap: "error handling" trigger matches "error-handling" in prompt', () => {
+  it('token overlap: "error handling" trigger matches "error-handling" in prompt', async () => {
     const mem = { ...memory, trigger: ['error handling'] };
     expect(scoreMemoryRelevance(mem, 'review the error-handling patterns')).toBe(1);
   });
 
-  it('no tier 3 for single-word trigger: "hook" does not match "hooked"', () => {
+  it('no tier 3 for single-word trigger: "hook" does not match "hooked"', async () => {
     const mem = { ...memory, trigger: ['hook'] };
     expect(scoreMemoryRelevance(mem, 'we are hooked on this')).toBe(0);
   });
 });
 
 describe('selectInjectionMemories', () => {
-  it('returns memories whose trigger terms match the prompt', () => {
+  it('returns memories whose trigger terms match the prompt', async () => {
     const memories = selectInjectionMemories(SEEDED_MEMORIES, 'update settings.json hooks');
     expect(memories.length).toBeGreaterThanOrEqual(1);
     expect(memories[0].trigger).toContain('settings.json');
   });
 
-  it('returns at most 3 memories', () => {
+  it('returns at most 3 memories', async () => {
     const many = serialiseMemories({
       'Repeated mistakes': Array.from({ length: 6 }, (_, i) => ({
         text: `Mistake ${i}`,
@@ -341,12 +341,12 @@ describe('selectInjectionMemories', () => {
     expect(result.length).toBeLessThanOrEqual(3);
   });
 
-  it('returns empty array when no trigger terms match', () => {
+  it('returns empty array when no trigger terms match', async () => {
     const memories = selectInjectionMemories(SEEDED_MEMORIES, 'write a new React component');
     expect(memories).toHaveLength(0);
   });
 
-  it('excludes candidate memories (sessions_seen < 2)', () => {
+  it('excludes candidate memories (sessions_seen < 2)', async () => {
     const withCandidate = serialiseMemories({
       'Repeated mistakes': [{
         text: 'Candidate mistake about settings.json',
@@ -363,7 +363,7 @@ describe('selectInjectionMemories', () => {
 });
 
 describe('buildMemoryInjectionContext', () => {
-  it('wraps memories in a <coding-memories> block', () => {
+  it('wraps memories in a <coding-memories> block', async () => {
     const memories = selectInjectionMemories(SEEDED_MEMORIES, 'edit settings.json hooks');
     const ctx = buildMemoryInjectionContext(memories);
     expect(ctx).not.toBeNull();
@@ -372,38 +372,38 @@ describe('buildMemoryInjectionContext', () => {
     expect(ctx!).toContain('Merge new hooks');
   });
 
-  it('returns null when memory list is empty', () => {
+  it('returns null when memory list is empty', async () => {
     expect(buildMemoryInjectionContext([])).toBeNull();
   });
 });
 
 describe('processUserPromptSubmit with memories', () => {
-  it('does not include memories context when CC_HABITS_MEMORIES is off', () => {
+  it('does not include memories context when CC_HABITS_MEMORIES is off', async () => {
     process.env['CC_HABITS_MEMORIES'] = '0';
     fs.writeFileSync(storagePaths.memoriesFile!, SEEDED_MEMORIES);
-    const ctx = processUserPromptSubmit({ prompt: 'edit settings.json hooks' });
+    const ctx = await processUserPromptSubmit({ prompt: 'edit settings.json hooks' });
     expect(ctx).not.toContain('<coding-memories>');
   });
 
-  it('includes relevant memories when CC_HABITS_MEMORIES=1', () => {
+  it('includes relevant memories when CC_HABITS_MEMORIES=1', async () => {
     process.env['CC_HABITS_MEMORIES'] = '1';
     fs.writeFileSync(storagePaths.memoriesFile!, SEEDED_MEMORIES);
-    const ctx = processUserPromptSubmit({ prompt: 'edit settings.json hooks' });
+    const ctx = await processUserPromptSubmit({ prompt: 'edit settings.json hooks' });
     expect(ctx).toContain('<coding-memories>');
     expect(ctx).toContain('overwrite existing hook arrays');
   });
 
-  it('still returns habits context even when no memories match', () => {
+  it('still returns habits context even when no memories match', async () => {
     process.env['CC_HABITS_MEMORIES'] = '1';
     fs.writeFileSync(storagePaths.memoriesFile!, SEEDED_MEMORIES);
-    const ctx = processUserPromptSubmit({ prompt: 'write a new React component' });
+    const ctx = await processUserPromptSubmit({ prompt: 'write a new React component' });
     expect(ctx).toContain('<coding-habits>');
     expect(ctx).not.toContain('<coding-memories>');
   });
 });
 
 describe('registerHooks (UserPromptSubmit)', () => {
-  it('registers the UserPromptSubmit hook and is idempotent', () => {
+  it('registers the UserPromptSubmit hook and is idempotent', async () => {
     installPaths.settingsFile = path.join(tmpDir, 'settings.json');
     installPaths.claudeDir = tmpDir;
 

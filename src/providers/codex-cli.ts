@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -31,71 +31,84 @@ export class CodexCliProvider implements Provider {
   name = 'codex-cli';
 
   async generate(prompt: string, opts: { maxTokens: number; timeoutMs: number }): Promise<string> {
-    // A unique temp file for the final-message capture; always cleaned up.
     const outFile = path.join(
       os.tmpdir(),
       `cc-habits-codex-${process.pid}-${Date.now()}.txt`,
     );
 
     try {
-      const result = spawnSync(
-        'codex',
-        ['exec', '--skip-git-repo-check', '-s', 'read-only', '--color', 'never', '-o', outFile, '-'],
-        {
-          input: prompt,
-          timeout: opts.timeoutMs,
-          encoding: 'utf-8',
-          maxBuffer: 32 * 1024 * 1024,
-        },
-      );
+      const response = await new Promise<string>((resolve, reject) => {
+        const child = spawn(
+          'codex',
+          ['exec', '--skip-git-repo-check', '-s', 'read-only', '--color', 'never', '-o', outFile, '-'],
+          {
+            stdio: ['pipe', 'pipe', 'pipe'],
+          }
+        );
 
-      if (result.error) {
-        if ((result.error as NodeJS.ErrnoException).code === 'ENOENT') {
-          throw new ProviderNotInstalledError(this.name);
-        }
-        if (result.signal === 'SIGTERM' || (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
-          throw new ProviderTimeoutError(this.name, opts.timeoutMs);
-        }
-        throw result.error;
-      }
+        let stdout = '';
+        let stderr = '';
 
-      const stderr = result.stderr || '';
-      const stdout = result.stdout || '';
-      const combined = (stdout + '\n' + stderr).toLowerCase();
+        child.stdout.on('data', (data) => { stdout += data.toString(); });
+        child.stderr.on('data', (data) => { stderr += data.toString(); });
 
-      if (result.status !== 0) {
-        if (combined.includes('quota') || combined.includes('credit') || combined.includes('balance exhausted')) {
-          throw new ProviderQuotaError(this.name, result.stderr || undefined);
-        }
-        if (combined.includes('rate limit') || combined.includes('429') || combined.includes('too many requests')) {
-          throw new ProviderRateLimitError(this.name);
-        }
-        if (
-          combined.includes('not logged in') ||
-          combined.includes('unauthorized') ||
-          combined.includes('authenticate') ||
-          combined.includes('login') ||
-          combined.includes('auth')
-        ) {
-          throw new ProviderAuthError(this.name, result.stderr || undefined);
-        }
-        throw new Error(`codex CLI failed with exit code ${result.status}: ${result.stderr || result.stdout}`);
-      }
+        const timeout = setTimeout(() => {
+          child.kill('SIGTERM');
+          reject(new ProviderTimeoutError(this.name, opts.timeoutMs));
+        }, opts.timeoutMs);
 
-      // Prefer the captured final message; fall back to stdout if the file is
-      // empty or absent (older Codex builds, or -o unsupported).
-      let response = '';
+        child.on('error', (err: any) => {
+          clearTimeout(timeout);
+          if (err.code === 'ENOENT') {
+            reject(new ProviderNotInstalledError(this.name));
+          } else if (err.code === 'ETIMEDOUT') {
+            reject(new ProviderTimeoutError(this.name, opts.timeoutMs));
+          } else {
+            reject(err);
+          }
+        });
+
+        child.on('close', (code) => {
+          clearTimeout(timeout);
+          const combined = (stdout + '\n' + stderr).toLowerCase();
+
+          if (code !== 0) {
+            if (combined.includes('quota') || combined.includes('credit') || combined.includes('balance exhausted')) {
+              return reject(new ProviderQuotaError(this.name, stderr || undefined));
+            }
+            if (combined.includes('rate limit') || combined.includes('429') || combined.includes('too many requests')) {
+              return reject(new ProviderRateLimitError(this.name));
+            }
+            if (
+              combined.includes('not logged in') ||
+              combined.includes('unauthorized') ||
+              combined.includes('authenticate') ||
+              combined.includes('login') ||
+              combined.includes('auth')
+            ) {
+              return reject(new ProviderAuthError(this.name, stderr || undefined));
+            }
+            return reject(new Error(`codex CLI failed with exit code ${code}: ${stderr || stdout}`));
+          }
+          resolve(stdout);
+        });
+
+        child.stdin.write(prompt);
+        child.stdin.end();
+      });
+
+      let finalResponse = '';
       try {
-        if (fs.existsSync(outFile)) response = fs.readFileSync(outFile, 'utf-8').trim();
+        if (fs.existsSync(outFile)) finalResponse = fs.readFileSync(outFile, 'utf-8').trim();
       } catch {
         // fall through to stdout
       }
-      return response || stdout;
+      return finalResponse || response;
     } finally {
       try {
         if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
       } catch {
-        // best-effort cleanup; never fail extraction over a temp file
+        // best-effort cleanup
       }
     }
   }

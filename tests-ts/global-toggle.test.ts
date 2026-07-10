@@ -35,50 +35,50 @@ import { nextSteps } from '../src/suggestions';
 import { addTombstone } from '../src/storage';
 
 describe('Global Enable/Disable Toggle', () => {
-  it('toggles disabled flag in config.yml correctly', () => {
+  it('toggles disabled flag in config.yml correctly', async () => {
     expect(isGloballyDisabled()).toBe(false);
 
-    setGloballyDisabled(true);
+    await setGloballyDisabled(true);
     expect(isGloballyDisabled()).toBe(true);
 
     const configContent = fs.readFileSync(storagePaths.configFile, 'utf-8');
     expect(configContent).toContain('disabled: true');
 
-    setGloballyDisabled(false);
+    await setGloballyDisabled(false);
     expect(isGloballyDisabled()).toBe(false);
   });
 
-  it('runs cmdOn and cmdOff CLI commands successfully', () => {
+  it('runs cmdOn and cmdOff CLI commands successfully', async () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-    const resOff = cmdOff();
+    const resOff = await cmdOff();
     expect(resOff).toBe(0);
     expect(isGloballyDisabled()).toBe(true);
     expect(stdoutSpy.mock.calls.some(args => args[0].toString().includes('disabled'))).toBe(true);
 
     stdoutSpy.mockClear();
-    const resOn = cmdOn();
+    const resOn = await cmdOn();
     expect(resOn).toBe(0);
     expect(isGloballyDisabled()).toBe(false);
     expect(stdoutSpy.mock.calls.some(args => args[0].toString().includes('enabled'))).toBe(true);
   });
 
-  it('respects global disabled state across capture and injection hooks', () => {
+  it('respects global disabled state across capture and injection hooks', async () => {
     // When enabled (default)
-    expect(captureDisabled()).toBe(false);
+    expect(await captureDisabled()).toBe(false);
 
     const fakePromptPayload = { prompt: 'write some code' };
     // Should return habits-context XML tag or null depending on if habits exist
-    const resPromptEnabled = processUserPromptSubmit(fakePromptPayload);
+    const resPromptEnabled = await processUserPromptSubmit(fakePromptPayload);
 
     // Disable globally
-    setGloballyDisabled(true);
+    await setGloballyDisabled(true);
 
     // Capture should be blocked
-    expect(captureDisabled()).toBe(true);
+    expect(await captureDisabled()).toBe(true);
 
     // Prompt injection should be blocked (return null immediately)
-    const resPromptDisabled = processUserPromptSubmit(fakePromptPayload);
+    const resPromptDisabled = await processUserPromptSubmit(fakePromptPayload);
     expect(resPromptDisabled).toBeNull();
 
     // Session Start check should be blocked (return null immediately)
@@ -88,7 +88,7 @@ describe('Global Enable/Disable Toggle', () => {
 });
 
 describe('Simplified cmdTombstone', () => {
-  it('delegates to cmdTombstones to list rules when no arguments are provided', () => {
+  it('delegates to cmdTombstones to list rules when no arguments are provided', async () => {
     addTombstone('Block rule A');
     addTombstone('Block rule B');
 
@@ -103,7 +103,7 @@ describe('Simplified cmdTombstone', () => {
     expect(output).toContain('block rule b');
   });
 
-  it('adds tombstone when rule argument is provided', () => {
+  it('adds tombstone when rule argument is provided', async () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     
     const res = cmdTombstone('Block rule C');
@@ -113,7 +113,7 @@ describe('Simplified cmdTombstone', () => {
     expect(configContent).toContain('block rule c');
   });
 
-  it('adds tombstone by resolving hash if hash argument is provided', () => {
+  it('adds tombstone by resolving hash if hash argument is provided', async () => {
     // Write some habits first
     writeHabitsMd(serialiseHabits({
       TS: [{
@@ -137,14 +137,14 @@ describe('Simplified cmdTombstone', () => {
 });
 
 describe('Smart suggestions', () => {
-  it('suggests cch on for all commands when globally disabled', () => {
-    setGloballyDisabled(true);
+  it('suggests cch on for all commands when globally disabled', async () => {
+    await setGloballyDisabled(true);
     const steps = nextSteps('view', []);
     expect(steps).toEqual(['cch on                enable cc-habits (resume capture and prompt injection)']);
   });
 
-  it('suggests cch sync when globally enabled', () => {
-    setGloballyDisabled(false);
+  it('suggests cch sync when globally enabled', async () => {
+    await setGloballyDisabled(false);
     
     const steps = nextSteps('view', []);
     expect(steps).toContain('cch sync              share habits with your other tools');

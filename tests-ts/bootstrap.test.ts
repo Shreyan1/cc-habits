@@ -84,7 +84,7 @@ afterEach(() => {
 
 // Signal extraction from transcripts ───────────────────────────────────────
 describe('extractSignalsFromTranscript', () => {
-  it('extracts Edit tool calls as signals', () => {
+  it('extracts Edit tool calls as signals', async () => {
     const transcript = path.join(tmpDir, 'session.jsonl');
     const lines = [
       makeLine('permission-mode', null, { permissionMode: 'default' }),
@@ -105,7 +105,7 @@ describe('extractSignalsFromTranscript', () => {
     expect(signals[0].language).toBe('ts');
   });
 
-  it('extracts Write tool calls as signals', () => {
+  it('extracts Write tool calls as signals', async () => {
     const transcript = path.join(tmpDir, 'session.jsonl');
     const content = 'export function hello(): string {\n  return "hello";\n}\n';
     const lines = [
@@ -118,7 +118,7 @@ describe('extractSignalsFromTranscript', () => {
     expect(signals[0].diff).toContain('+export function hello');
   });
 
-  it('skips noise (trivial edits under MIN_DIFF_LEN)', () => {
+  it('skips noise (trivial edits under MIN_DIFF_LEN)', async () => {
     const transcript = path.join(tmpDir, 'session.jsonl');
     const lines = [
       makeLine('assistant', [editBlock('a.ts', 'x', 'y')]),
@@ -130,7 +130,7 @@ describe('extractSignalsFromTranscript', () => {
     expect(signals).toHaveLength(0);
   });
 
-  it('redacts PII in extracted signals', () => {
+  it('redacts PII in extracted signals', async () => {
     const transcript = path.join(tmpDir, 'session.jsonl');
     const lines = [
       makeLine('assistant', [
@@ -145,7 +145,7 @@ describe('extractSignalsFromTranscript', () => {
     expect(signals[0].diff).not.toContain('user@example.com');
   });
 
-  it('ignores non-assistant messages and non-tool blocks', () => {
+  it('ignores non-assistant messages and non-tool blocks', async () => {
     const transcript = path.join(tmpDir, 'session.jsonl');
     const lines = [
       makeLine('user', [{ type: 'text', text: 'do something' }]),
@@ -158,12 +158,12 @@ describe('extractSignalsFromTranscript', () => {
     expect(signals).toHaveLength(0);
   });
 
-  it('returns empty array for missing file', () => {
+  it('returns empty array for missing file', async () => {
     const signals = extractSignalsFromTranscript('/nonexistent/path.jsonl', 'sess-x');
     expect(signals).toHaveLength(0);
   });
 
-  it('extracts tool calls from Gemini CLI transcripts', () => {
+  it('extracts tool calls from Gemini CLI transcripts', async () => {
     const transcript = path.join(tmpDir, 'gemini-session.jsonl');
     const lines = [
       JSON.stringify({
@@ -191,7 +191,7 @@ describe('extractSignalsFromTranscript', () => {
     expect(signals[0].language).toBe('ts');
   });
 
-  it('extracts tool calls from Codex CLI transcripts', () => {
+  it('extracts tool calls from Codex CLI transcripts', async () => {
     const transcript = path.join(tmpDir, 'codex-session.jsonl');
     const lines = [
       JSON.stringify({
@@ -215,7 +215,7 @@ describe('extractSignalsFromTranscript', () => {
     expect(signals[0].language).toBe('ts');
   });
 
-  it('extracts tool calls from Kimi Code CLI transcripts', () => {
+  it('extracts tool calls from Kimi Code CLI transcripts', async () => {
     const transcript = path.join(tmpDir, 'kimi-session.jsonl');
     const lines = [
       JSON.stringify({
@@ -250,7 +250,7 @@ describe('extractSignalsFromTranscript', () => {
 
 // Session discovery ───────────────────────────────────────────────────────
 describe('discoverSessions', () => {
-  it('finds session JSONL files in the project directory', () => {
+  it('finds session JSONL files in the project directory', async () => {
     const projectPath = '/tmp/test-project';
     const encoded = projectPath.replace(/\//g, '-');
     const sessDir = path.join(fakeProjectsDir, encoded);
@@ -266,7 +266,7 @@ describe('discoverSessions', () => {
     expect(encoded).toBe('-tmp-test-project');
   });
 
-  it('discovers Gemini CLI sessions', () => {
+  it('discovers Gemini CLI sessions', async () => {
     const projectPath = path.join(tmpDir, 'my-gemini-project');
     fs.mkdirSync(projectPath, { recursive: true });
 
@@ -290,7 +290,7 @@ describe('discoverSessions', () => {
     }
   });
 
-  it('discovers Codex CLI sessions matching the project directory', () => {
+  it('discovers Codex CLI sessions matching the project directory', async () => {
     const projectPath = path.join(tmpDir, 'my-codex-project');
     fs.mkdirSync(projectPath, { recursive: true });
 
@@ -317,7 +317,7 @@ describe('discoverSessions', () => {
     }
   });
 
-  it('discovers Kimi Code CLI sessions via session_index.jsonl', () => {
+  it('discovers Kimi Code CLI sessions via session_index.jsonl', async () => {
     const projectPath = path.join(tmpDir, 'my-kimi-project');
     fs.mkdirSync(projectPath, { recursive: true });
 
@@ -347,7 +347,7 @@ describe('discoverSessions', () => {
     }
   });
 
-  it('discovers Kimi Code CLI sessions via fallback directory scanning', () => {
+  it('discovers Kimi Code CLI sessions via fallback directory scanning', async () => {
     const projectPath = path.join(tmpDir, 'my-kimi-project-2');
     fs.mkdirSync(projectPath, { recursive: true });
 

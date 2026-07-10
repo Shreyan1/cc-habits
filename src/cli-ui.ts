@@ -1,4 +1,5 @@
 import os from 'os';
+import path from 'path';
 import { type Memory, getRuleHash } from './storage';
 import { shuffledTips, TIP_MARKERS } from './tips';
 
@@ -21,7 +22,19 @@ export function c(code: string, text: string): string {
 // paths. Returns the path unchanged when it is not under the home directory.
 export function tildePath(p: string): string {
   const home = os.homedir();
-  return p === home || p.startsWith(home + '/') ? '~' + p.slice(home.length) : p;
+  const isWindows = process.platform === 'win32';
+  const matches = isWindows
+    ? (p.toLowerCase() === home.toLowerCase() ||
+       p.toLowerCase().startsWith((home + path.sep).toLowerCase()) ||
+       p.toLowerCase().startsWith((home + '/').toLowerCase()) ||
+       p.toLowerCase().startsWith((home + '\\').toLowerCase()))
+    : (p === home ||
+       p.startsWith(home + path.sep) ||
+       p.startsWith(home + '/') ||
+       p.startsWith(home + '\\'));
+  return matches
+    ? '~' + p.slice(home.length).replace(/\\/g, '/') 
+    : p;
 }
 
 // Strip terminal control characters (ESC, BEL, CSI sequences, C0/C1 controls) from

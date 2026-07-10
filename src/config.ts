@@ -1,10 +1,13 @@
 import fs from "fs";
+import path from "path";
 import {
   storagePaths,
   writeConfigFile,
   getPaths,
   type StorageContext,
 } from "./storage";
+import { acquireLock, releaseLock } from "./lock";
+
 
 // Small line-based reader/writer for the YAML-ish config.yml. We deliberately
 // avoid a YAML dependency: the file is flat `key: value` pairs written by
@@ -16,6 +19,9 @@ function readRaw(ctx?: StorageContext): string {
   } catch {
     return "";
   }
+}
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // Read a single config value, or undefined when absent.
@@ -29,10 +35,27 @@ export function getConfigValue(
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith("#") || !trimmed) continue;
-    const match = trimmed.match(new RegExp(`^${key}\\s*:\\s*(.*)$`));
+    const match = trimmed.match(new RegExp(`^${escapeRegExp(key)}\\s*:\\s*(.*)$`));
     if (match) {
       let val = match[1].trim();
-      const hashIdx = val.indexOf("#");
+      let inDoubleQuote = false;
+      let inSingleQuote = false;
+      let hashIdx = -1;
+      for (let i = 0; i < val.length; i++) {
+        const char = val[i];
+        if (char === '\\') {
+          i++; // skip next char
+          continue;
+        }
+        if (char === '"' && !inSingleQuote) {
+          inDoubleQuote = !inDoubleQuote;
+        } else if (char === "'" && !inDoubleQuote) {
+          inSingleQuote = !inSingleQuote;
+        } else if (char === '#' && !inDoubleQuote && !inSingleQuote) {
+          hashIdx = i;
+          break;
+        }
+      }
       if (hashIdx >= 0) {
         val = val.slice(0, hashIdx).trim();
       }
@@ -56,26 +79,36 @@ export function getConfigFlag(key: string, ctx?: StorageContext): boolean {
 
 // Upsert a single key, preserving every other line. Creates the file (0600)
 // and parent dir when missing.
-export function setConfigValue(
+// Upsert a single key, preserving every other line. Creates the file (0600)
+// and parent dir when missing.
+export async function setConfigValue(
   key: string,
   value: string,
   ctx?: StorageContext,
-): void {
-  const text = readRaw(ctx);
-  const line = `${key}: ${value}`;
-  const re = new RegExp(`^${key}\\s*:.*$`, "m");
-  let next: string;
-  if (re.test(text)) {
-    next = text.replace(re, line);
-  } else {
-    next =
-      text.length && !text.endsWith("\n")
-        ? `${text}\n${line}\n`
-        : `${text}${line}\n`;
+): Promise<void> {
+  const lockFile = getPaths(ctx).configFile + ".lock";
+  const locked = await acquireLock(lockFile);
+  try {
+    const text = readRaw(ctx);
+    const line = `${key}: ${value}`;
+    const re = new RegExp(`^${escapeRegExp(key)}\\s*:.*$`, "m");
+    let next: string;
+    if (re.test(text)) {
+      next = text.replace(re, line);
+    } else {
+      next =
+        text.length && !text.endsWith("\n")
+          ? `${text}\n${line}\n`
+          : `${text}${line}\n`;
+    }
+    // Route through writeConfigFile so the write is symlink-guarded and lands at
+    // mode 0600 even if config.yml already exists with looser permissions. F2 fix.
+    writeConfigFile(next, ctx);
+  } finally {
+    if (locked) {
+      releaseLock(lockFile);
+    }
   }
-  // Route through writeConfigFile so the write is symlink-guarded and lands at
-  // mode 0600 even if config.yml already exists with looser permissions. F2 fix.
-  writeConfigFile(next, ctx);
 }
 
 // Persist the set of sync targets that processStop auto-refreshes after each
@@ -86,7 +119,7 @@ export function setConfigValue(
 // is listed here. init records the registered tools' targets so the loop closes
 // automatically for them too, not just for Claude. Union with any existing value
 // and never clobber a target the user added by hand.
-export function addSyncTargets(targets: string[], ctx?: StorageContext): void {
+export async function addSyncTargets(targets: string[], ctx?: StorageContext): Promise<void> {
   const clean = targets.map((t) => t.trim()).filter(Boolean);
   if (clean.length === 0) return;
   // Read the existing list with the SAME comma-tolerant regex readSyncTargets
@@ -106,7 +139,7 @@ export function addSyncTargets(targets: string[], ctx?: StorageContext): void {
     /* no config yet */
   }
   const merged = Array.from(new Set([...existing, ...clean])).sort();
-  setConfigValue("sync_targets", merged.join(", "), ctx);
+  await setConfigValue("sync_targets", merged.join(", "), ctx);
 }
 
 // Memory extraction is ON by default. Precedence: an explicit CC_HABITS_MEMORIES
@@ -122,22 +155,22 @@ export function memoriesEnabled(ctx?: StorageContext): boolean {
   return true;
 }
 
-export function setMemoriesEnabled(
+export async function setMemoriesEnabled(
   enabled: boolean,
   ctx?: StorageContext,
-): void {
-  setConfigValue("memories_enabled", enabled ? "true" : "false", ctx);
+): Promise<void> {
+  await setConfigValue("memories_enabled", enabled ? "true" : "false", ctx);
 }
 
 export function isGloballyDisabled(ctx?: StorageContext): boolean {
   return getConfigFlag("disabled", ctx);
 }
 
-export function setGloballyDisabled(
+export async function setGloballyDisabled(
   disabled: boolean,
   ctx?: StorageContext,
-): void {
-  setConfigValue("disabled", disabled ? "true" : "false", ctx);
+): Promise<void> {
+  await setConfigValue("disabled", disabled ? "true" : "false", ctx);
 }
 
 // Consent tracking (L5) ────────────────────────────────────────────────────
@@ -150,6 +183,6 @@ export function consentGiven(ctx?: StorageContext): boolean {
   return !!v && v.length > 0;
 }
 
-export function recordConsent(ctx?: StorageContext): void {
-  setConfigValue("consent_given", new Date().toISOString(), ctx);
+export async function recordConsent(ctx?: StorageContext): Promise<void> {
+  await setConfigValue("consent_given", new Date().toISOString(), ctx);
 }

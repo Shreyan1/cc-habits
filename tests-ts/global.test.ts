@@ -23,8 +23,8 @@ const FAKE_UPDATES = [{
   reasoning: 'Observed across multiple signals.',
 }];
 
-function makeEdit(file: string, old: string, nw: string, session: string): void {
-  processPostToolUse({ tool_name: 'Edit', session_id: session, tool_input: { file_path: file, old_string: old, new_string: nw } });
+async function makeEdit(file: string, old: string, nw: string, session: string): Promise<void> {
+  await processPostToolUse({ tool_name: 'Edit', session_id: session, tool_input: { file_path: file, old_string: old, new_string: nw } });
 }
 
 beforeEach(() => {
@@ -60,11 +60,11 @@ afterEach(() => {
 });
 
 describe('Cross-project signal accumulation', () => {
-  it('signals from two projects go to the same log', () => {
-    makeEdit('~/project-a/models.py', 'def foo():', 'def foo() -> None:', 'session-proj-a');
-    makeEdit('~/project-a/utils.py', 'x = 1', 'x: int = 1', 'session-proj-a');
-    makeEdit('~/project-b/api.py', 'def bar():', 'def bar() -> str:', 'session-proj-b');
-    makeEdit('~/project-b/views.py', 'y = 2', 'y: int = 2', 'session-proj-b');
+  it('signals from two projects go to the same log', async () => {
+    await makeEdit('~/project-a/models.py', 'def foo():', 'def foo() -> None:', 'session-proj-a');
+    await makeEdit('~/project-a/utils.py', 'x = 1', 'x: int = 1', 'session-proj-a');
+    await makeEdit('~/project-b/api.py', 'def bar():', 'def bar() -> str:', 'session-proj-b');
+    await makeEdit('~/project-b/views.py', 'y = 2', 'y: int = 2', 'session-proj-b');
 
     const all = readSignals();
     expect(all).toHaveLength(4);
@@ -78,7 +78,7 @@ describe('Cross-project signal accumulation', () => {
 
   it('habits from project A are visible when project B session fires', async () => {
     for (const fp of ['a/m.py', 'a/u.py', 'a/h.py']) {
-      makeEdit(fp, 'def f():', 'def f() -> None:', 'session-a');
+      await makeEdit(fp, 'def f():', 'def f() -> None:', 'session-a');
     }
     vi.mocked(extractor.extractRules).mockResolvedValueOnce(FAKE_UPDATES);
     await processStop('session-a');
@@ -90,7 +90,7 @@ describe('Cross-project signal accumulation', () => {
       return [];
     });
     for (const fp of ['b/m.py', 'b/u.py', 'b/h.py']) {
-      makeEdit(fp, 'def g():', 'def g() -> str:', 'session-b');
+      await makeEdit(fp, 'def g():', 'def g() -> str:', 'session-b');
     }
     await processStop('session-b');
     expect(captured).toHaveLength(1);
@@ -99,7 +99,7 @@ describe('Cross-project signal accumulation', () => {
 
   it('confidence accumulates across 5 projects: 0.50 → 0.70', async () => {
     for (const fp of ['p1/a.py', 'p1/b.py', 'p1/c.py']) {
-      makeEdit(fp, 'def f():', 'def f() -> None:', 's1');
+      await makeEdit(fp, 'def f():', 'def f() -> None:', 's1');
     }
     vi.mocked(extractor.extractRules).mockResolvedValueOnce(FAKE_UPDATES);
     await processStop('s1');
@@ -107,7 +107,7 @@ describe('Cross-project signal accumulation', () => {
     const reinforce = [{ category: 'Python', rule: 'Use type hints on all function signatures', decision: 'reinforce', matched_habit_id: 'Use type hints on all function signatures', reasoning: '' }];
     for (let i = 2; i <= 5; i++) {
       for (const fp of [`p${i}/a.py`, `p${i}/b.py`, `p${i}/c.py`]) {
-        makeEdit(fp, 'def f():', 'def f() -> None:', `s${i}`);
+        await makeEdit(fp, 'def f():', 'def f() -> None:', `s${i}`);
       }
       vi.mocked(extractor.extractRules).mockResolvedValueOnce(reinforce);
       await processStop(`s${i}`);
@@ -157,7 +157,7 @@ describe('Signal cap: long sessions do not hit provider 413', () => {
   it('passes at most 50 signals to extractRules when session has more', async () => {
     // Write 60 substantive signals for the same session.
     for (let i = 0; i < 60; i++) {
-      makeEdit(`file${i}.ts`, `const old${i} = 'x'.repeat(30)`, `const new${i} = 'y'.repeat(30)`, 'session-big');
+      await makeEdit(`file${i}.ts`, `const old${i} = 'x'.repeat(30)`, `const new${i} = 'y'.repeat(30)`, 'session-big');
     }
     const captured: unknown[][] = [];
     vi.mocked(extractor.extractRules).mockImplementationOnce(async (signals) => {
@@ -171,7 +171,7 @@ describe('Signal cap: long sessions do not hit provider 413', () => {
 
   it('uses the most recent signals when capping', async () => {
     for (let i = 0; i < 55; i++) {
-      makeEdit(`file${i}.ts`, `const old${i} = 'x'.repeat(30)`, `const new${i} = 'y'.repeat(30)`, 'session-recent');
+      await makeEdit(`file${i}.ts`, `const old${i} = 'x'.repeat(30)`, `const new${i} = 'y'.repeat(30)`, 'session-recent');
     }
     const captured: unknown[][] = [];
     vi.mocked(extractor.extractRules).mockImplementationOnce(async (signals) => {

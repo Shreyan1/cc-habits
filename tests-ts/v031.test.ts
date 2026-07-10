@@ -42,18 +42,18 @@ describe('config helpers', () => {
     expect(getConfigFlag('memories_enabled')).toBe(false);
   });
 
-  it('upserts a key while preserving other lines', () => {
+  it('upserts a key while preserving other lines', async () => {
     fs.writeFileSync(storagePaths.configFile, 'provider: groq\ngroq_api_key: secret\n');
-    setConfigValue('memories_enabled', 'true');
+    await setConfigValue('memories_enabled', 'true');
     const text = fs.readFileSync(storagePaths.configFile, 'utf-8');
     expect(text).toContain('provider: groq');
     expect(text).toContain('groq_api_key: secret');
     expect(text).toContain('memories_enabled: true');
   });
 
-  it('overwrites an existing key in place rather than duplicating it', () => {
-    setConfigValue('memories_enabled', 'true');
-    setConfigValue('memories_enabled', 'false');
+  it('overwrites an existing key in place rather than duplicating it', async () => {
+    await setConfigValue('memories_enabled', 'true');
+    await setConfigValue('memories_enabled', 'false');
     const text = fs.readFileSync(storagePaths.configFile, 'utf-8');
     const occurrences = text.split('\n').filter(l => l.startsWith('memories_enabled:')).length;
     expect(occurrences).toBe(1);
@@ -67,19 +67,19 @@ describe('memoriesEnabled precedence', () => {
     expect(memoriesEnabled()).toBe(true);
   });
 
-  it('reads the persisted config flag when no env var is set', () => {
-    setMemoriesEnabled(true);
+  it('reads the persisted config flag when no env var is set', async () => {
+    await setMemoriesEnabled(true);
     expect(memoriesEnabled()).toBe(true);
-    setMemoriesEnabled(false);
+    await setMemoriesEnabled(false);
     expect(memoriesEnabled()).toBe(false);
   });
 
-  it('lets an explicit env value override the config flag', () => {
-    setMemoriesEnabled(true);
+  it('lets an explicit env value override the config flag', async () => {
+    await setMemoriesEnabled(true);
     process.env['CC_HABITS_MEMORIES'] = '0';
     expect(memoriesEnabled()).toBe(false);
     process.env['CC_HABITS_MEMORIES'] = '1';
-    setMemoriesEnabled(false);
+    await setMemoriesEnabled(false);
     expect(memoriesEnabled()).toBe(true);
   });
 });

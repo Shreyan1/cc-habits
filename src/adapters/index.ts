@@ -3,6 +3,7 @@ import { fromGemini } from './gemini';
 import { fromCodex } from './codex';
 import { fromCline } from './cline';
 import { fromKimi } from './kimi';
+import { fromAntigravity } from './antigravity';
 
 export interface NormalizedHookInput {
   toolName: string;
@@ -11,11 +12,11 @@ export interface NormalizedHookInput {
   newContent?: string;
   diff?: string;
   sessionId: string;
-  source?: 'claude-code' | 'gemini' | 'codex' | 'cline' | 'kimi';
+  source?: 'claude-code' | 'gemini' | 'codex' | 'cline' | 'kimi' | 'antigravity';
   edits?: Array<{ old_string?: string; new_string?: string }>;
 }
 
-export const ALLOWED_ADAPTERS = new Set(['claude-code', 'gemini', 'codex', 'cline', 'kimi']);
+export const ALLOWED_ADAPTERS = new Set(['claude-code', 'gemini', 'codex', 'cline', 'kimi', 'antigravity']);
 
 export function normalizeInput(raw: unknown, adapter: string): NormalizedHookInput {
   if (!ALLOWED_ADAPTERS.has(adapter)) {
@@ -27,6 +28,7 @@ export function normalizeInput(raw: unknown, adapter: string): NormalizedHookInp
     case 'codex':   return fromCodex(r);
     case 'cline':   return fromCline(r);
     case 'kimi':    return fromKimi(r);
+    case 'antigravity': return fromAntigravity(r);
     default:        return fromClaudeCode(r);
   }
 }
