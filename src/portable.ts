@@ -15,22 +15,28 @@ import { redact } from './redact';
 // header followed by marked sections. This lets it be shared as a GitHub Gist,
 // a URL, or a raw file while remaining human-readable.
 //
-// Single-artifact (habits only):
+// Full bundle (the default; memories are omitted when empty or --habits-only):
 //   <!-- cc-habits profile
 //   version: <x.y.z>
 //   exported: <ISO timestamp>
-//   contains: habits
+//   contains: habits,memories
+//   origin: <machine uuid>
 //   -->
+//   <promo line>
 //   <!-- BEGIN habits -->
 //   ...habits.md content...
 //   <!-- END habits -->
-//
-// Full bundle (habits + memories):
-//   contains: habits,memories
-//   ... plus a <!-- BEGIN memories --> section
+//   <!-- BEGIN memories -->
+//   ...memories.md content...
+//   <!-- END memories -->
 
 const PROFILE_OPEN  = '<!-- cc-habits profile';
 const PROFILE_CLOSE = '-->';
+
+// One visible line under the envelope so anyone opening a shared bundle (a
+// gist, a Slack attachment) knows what produced it and where to get their own.
+// It sits outside the BEGIN/END sections, so import ignores it entirely.
+const PROMO_LINE = '> Coding habits learned automatically by [cc-habits](https://github.com/Shreyan1/cc-habits), the tool-agnostic memory layer for AI coding agents. Import with `cch import <this file>`.';
 
 // Import safety limits for URL fetches: a profile is a small markdown file, so
 // anything past these bounds is either a mistake or a hostile endpoint.
@@ -68,17 +74,25 @@ function isProfileBundle(text: string): boolean {
 // ── Export ───────────────────────────────────────────────────────────────────
 
 export interface ExportOpts {
-  includeMemories?: boolean
+  // When true, the memories section is left out. The default is the full
+  // bundle: one complete shareable file is the least surprising `cch export`.
+  habitsOnly?: boolean
   version: string
   outputPath?: string
 }
 
 export function buildProfile(opts: ExportOpts): string {
-  const ts       = new Date().toISOString();
-  const contains = opts.includeMemories ? 'habits,memories' : 'habits';
+  const ts = new Date().toISOString();
 
-  const habitsMd  = redact(readHabitsMd());
-  const memoriesMd = opts.includeMemories ? redact(readMemoriesMd()) : null;
+  const habitsMd = redact(readHabitsMd());
+  // Memories ride along by default, but only when there is at least one to
+  // share; an empty section would just be noise in the bundle.
+  const rawMemories = opts.habitsOnly ? null : redact(readMemoriesMd());
+  const memoriesMd = rawMemories !== null
+    && Object.values(parseMemories(rawMemories)).some(list => list.length > 0)
+    ? rawMemories
+    : null;
+  const contains = memoriesMd !== null ? 'habits,memories' : 'habits';
 
   // The origin id lets the importing side recognise this machine's own bundle
   // and trust its habit history. It is a random UUID, never derived from PII.
@@ -91,6 +105,8 @@ export function buildProfile(opts: ExportOpts): string {
     `contains: ${contains}`,
     ...(origin ? [`origin: ${origin}`] : []),
     PROFILE_CLOSE,
+    '',
+    PROMO_LINE,
     '',
     '<!-- BEGIN habits -->',
     habitsMd.trim(),
@@ -118,9 +134,10 @@ export function exportProfile(opts: ExportOpts): string {
 }
 
 // Legacy single-artifact export kept for backward compat with tests and callers
-// that import exportHabits directly. Internally delegates to exportProfile.
+// that import exportHabits directly. Habits only, as the name promises, even
+// now that exportProfile bundles memories by default.
 export function exportHabits(outputPath?: string, version = 'unknown'): string {
-  return exportProfile({ version, outputPath });
+  return exportProfile({ version, outputPath, habitsOnly: true });
 }
 
 // ── Import ───────────────────────────────────────────────────────────────────
