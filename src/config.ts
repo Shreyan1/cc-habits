@@ -18,12 +18,24 @@ function escapeRegExp(string: string): string {
 }
 
 // Read a single config value, or undefined when absent.
+//
+// Parsing rules (YAML-compatible subset):
+//   - Only lines starting at column 0 are matched. A hand-indented line is
+//     invisible to both getConfigValue and setConfigValue, keeping reads and
+//     writes consistent: a key that can't be read also can't be silently
+//     shadowed on the next set. cc-habits always writes at column 0 anyway.
+//   - '#' begins an inline comment ONLY when preceded by a space or tab,
+//     matching the YAML spec. A bare '#' inside a token (e.g. sk-test#suffix)
+//     is preserved verbatim.
 export function getConfigValue(key: string, ctx?: StorageContext): string | undefined {
   const text = readRaw(ctx);
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('#') || !trimmed) continue;
+    // Strip only trailing whitespace; preserve leading whitespace so the
+    // column-0 anchor below correctly rejects hand-indented lines.
+    const trimmed = line.trimEnd();
+    if (!trimmed || /^\s*#/.test(trimmed)) continue;
+    // Only match keys anchored at column 0, consistent with setConfigValue.
     const match = trimmed.match(new RegExp(`^${escapeRegExp(key)}\\s*:\\s*(.*)$`));
     if (match) {
       let val = match[1].trim();
@@ -41,8 +53,12 @@ export function getConfigValue(key: string, ctx?: StorageContext): string | unde
         } else if (char === "'" && !inDoubleQuote) {
           inSingleQuote = !inSingleQuote;
         } else if (char === '#' && !inDoubleQuote && !inSingleQuote) {
-          hashIdx = i;
-          break;
+          // YAML inline-comment rule: '#' is a comment only when preceded by
+          // a space or tab. An intra-token '#' (e.g. sk-test#suffix) is kept.
+          if (i > 0 && (val[i - 1] === ' ' || val[i - 1] === '\t')) {
+            hashIdx = i;
+            break;
+          }
         }
       }
       if (hashIdx >= 0) {
