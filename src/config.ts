@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { storagePaths, writeConfigFile, getPaths, type StorageContext } from './storage';
+import { writeConfigFile, getPaths, type StorageContext } from './storage';
 
 // Small line-based reader/writer for the YAML-ish config.yml. We deliberately
 // avoid a YAML dependency: the file is flat `key: value` pairs written by
@@ -13,11 +13,51 @@ function readRaw(ctx?: StorageContext): string {
   }
 }
 
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Read a single config value, or undefined when absent.
 export function getConfigValue(key: string, ctx?: StorageContext): string | undefined {
   const text = readRaw(ctx);
-  const m = text.match(new RegExp(`^${key}\\s*:\\s*["']?([^\\s"'\\n]+)["']?`, 'm'));
-  return m ? m[1] : undefined;
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('#') || !trimmed) continue;
+    const match = trimmed.match(new RegExp(`^${escapeRegExp(key)}\\s*:\\s*(.*)$`));
+    if (match) {
+      let val = match[1].trim();
+      let inDoubleQuote = false;
+      let inSingleQuote = false;
+      let hashIdx = -1;
+      for (let i = 0; i < val.length; i++) {
+        const char = val[i];
+        if (char === '\\') {
+          i++; // skip next char
+          continue;
+        }
+        if (char === '"' && !inSingleQuote) {
+          inDoubleQuote = !inDoubleQuote;
+        } else if (char === "'" && !inDoubleQuote) {
+          inSingleQuote = !inSingleQuote;
+        } else if (char === '#' && !inDoubleQuote && !inSingleQuote) {
+          hashIdx = i;
+          break;
+        }
+      }
+      if (hashIdx >= 0) {
+        val = val.slice(0, hashIdx).trim();
+      }
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.slice(1, -1);
+      }
+      return val;
+    }
+  }
+  return undefined;
 }
 
 // Interpret a value as a boolean flag. Accepts 1/true/on (case-insensitive).
@@ -31,7 +71,7 @@ export function getConfigFlag(key: string, ctx?: StorageContext): boolean {
 export function setConfigValue(key: string, value: string, ctx?: StorageContext): void {
   const text = readRaw(ctx);
   const line = `${key}: ${value}`;
-  const re = new RegExp(`^${key}\\s*:.*$`, 'm');
+  const re = new RegExp(`^${escapeRegExp(key)}\\s*:.*$`, 'm');
   let next: string;
   if (re.test(text)) {
     next = text.replace(re, line);
