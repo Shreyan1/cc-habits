@@ -22,12 +22,15 @@ import { isAntigravityMigrated } from '../src/detect';
 // the Gemini setup path from "register capture hooks" to "inject only".
 
 let tmpHome: string;
-let originalHome: string | undefined;
+let homedirSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-antigravity-'));
-  originalHome = process.env.HOME;
-  process.env.HOME = tmpHome;
+  // Mock os.homedir() directly instead of setting process.env.HOME. On Windows
+  // os.homedir() resolves from USERPROFILE, not HOME, so an env override would be
+  // ignored and detection would inspect the real home directory. Spying on the
+  // function keeps these tests deterministic on every platform.
+  homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(tmpHome);
   execFileSyncMock.mockReset();
   execFileSyncMock.mockImplementation(() => {
     throw new Error('not found');
@@ -36,8 +39,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  if (originalHome === undefined) delete process.env.HOME;
-  else process.env.HOME = originalHome;
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 
@@ -62,10 +63,9 @@ describe('Antigravity CLI migration detection', () => {
   });
 
   it('is fail-open: never throws even if homedir resolution fails', () => {
-    const spy = vi.spyOn(os, 'homedir').mockImplementation(() => {
+    homedirSpy.mockImplementation(() => {
       throw new Error('no home');
     });
     expect(() => isAntigravityMigrated()).not.toThrow();
-    spy.mockRestore();
   });
 });
