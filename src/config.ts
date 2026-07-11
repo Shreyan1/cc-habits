@@ -13,11 +13,68 @@ function readRaw(ctx?: StorageContext): string {
   }
 }
 
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Read a single config value, or undefined when absent.
+//
+// Parsing rules (YAML-compatible subset):
+//   - Only lines starting at column 0 are matched. A hand-indented line is
+//     invisible to both getConfigValue and setConfigValue, keeping reads and
+//     writes consistent: a key that can't be read also can't be silently
+//     shadowed on the next set. cc-habits always writes at column 0 anyway.
+//   - '#' begins an inline comment ONLY when preceded by a space or tab,
+//     matching the YAML spec. A bare '#' inside a token (e.g. sk-test#suffix)
+//     is preserved verbatim.
 export function getConfigValue(key: string, ctx?: StorageContext): string | undefined {
   const text = readRaw(ctx);
-  const m = text.match(new RegExp(`^${key}\\s*:\\s*["']?([^\\s"'\\n]+)["']?`, 'm'));
-  return m ? m[1] : undefined;
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    // Skip blank lines and full-line comments (# at column 0 or after leading
+    // whitespace — we still want to ignore comment-only lines regardless of
+    // indentation, just not act on indented key lines).
+    const trimmed = line.trimEnd();
+    if (!trimmed || /^\s*#/.test(trimmed)) continue;
+    // Only match keys anchored at column 0, consistent with setConfigValue.
+    const match = trimmed.match(new RegExp(`^${escapeRegExp(key)}\\s*:\\s*(.*)$`));
+    if (match) {
+      let val = match[1].trim();
+      let inDoubleQuote = false;
+      let inSingleQuote = false;
+      let hashIdx = -1;
+      for (let i = 0; i < val.length; i++) {
+        const char = val[i];
+        if (char === '\\') {
+          i++; // skip escaped character
+          continue;
+        }
+        if (char === '"' && !inSingleQuote) {
+          inDoubleQuote = !inDoubleQuote;
+        } else if (char === "'" && !inDoubleQuote) {
+          inSingleQuote = !inSingleQuote;
+        } else if (char === '#' && !inDoubleQuote && !inSingleQuote) {
+          // YAML inline-comment rule: '#' is a comment only when preceded by
+          // a space or tab. An intra-token '#' (e.g. sk-test#suffix) is kept.
+          if (i > 0 && (val[i - 1] === ' ' || val[i - 1] === '\t')) {
+            hashIdx = i;
+            break;
+          }
+        }
+      }
+      if (hashIdx >= 0) {
+        val = val.slice(0, hashIdx).trim();
+      }
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.slice(1, -1);
+      }
+      return val;
+    }
+  }
+  return undefined;
 }
 
 // Interpret a value as a boolean flag. Accepts 1/true/on (case-insensitive).
