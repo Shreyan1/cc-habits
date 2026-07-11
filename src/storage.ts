@@ -76,6 +76,10 @@ export const storagePaths = {
   // Throttle cache for the npm latest-version check, so we hit the registry at
   // most once per TTL window rather than on every CLI invocation.
   updateCheckFile: path.join(defaultRoot(), '.update-check.json'),
+  // Random per-store id, used to recognise this machine's own exported profile
+  // bundles on import. Carries no PII: it is a random UUID, not derived from
+  // the hostname or username.
+  machineIdFile: path.join(defaultRoot(), '.machine-id'),
   // config.yml lives in the same directory as habits.md so that CC_HABITS_DIR
   // overrides both the data files AND the provider config in one env var.
   configFile: path.join(defaultRoot(), 'config.yml'),
@@ -95,6 +99,7 @@ export interface StorageContext {
   historyFile: string;
   provenanceFile: string;
   updateCheckFile: string;
+  machineIdFile: string;
   configFile: string;
 }
 
@@ -127,8 +132,9 @@ export function repoStorageContext(repoRoot: string): StorageContext {
     historyFile: path.join(dir, '.history.jsonl'),
     provenanceFile: path.join(dir, '.provenance.json'),
     updateCheckFile: path.join(dir, '.update-check.json'),
-    // The repo store reuses the global provider config: extraction credentials
-    // are a machine-level concern, not a per-repo one.
+    // The repo store reuses the global machine id and provider config: both are
+    // machine-level concerns, not per-repo ones.
+    machineIdFile: storagePaths.machineIdFile,
     configFile: storagePaths.configFile,
   };
 }
@@ -550,12 +556,17 @@ export function addTombstone(rule: string, ctx?: StorageContext): void {
   writeTombstones(current, ctx);
 }
 
-export function isTombstoned(rule: string, ctx?: StorageContext): boolean {
+// Match one rule against an already-loaded tombstone list. Fast path: exact
+// normalized match. Fallback: fuzzy near-duplicate match so a lightly reworded
+// variant of a deleted rule is still blocked. Exported so hot paths (per-prompt
+// injection) can read the tombstone file once and match many rules against it.
+export function matchesTombstone(rule: string, tombstones: string[]): boolean {
   const target = normalizeRule(rule);
-  const tombstones = readTombstones(ctx);
-  // Fast path: exact normalized match. Fallback: fuzzy near-duplicate match so a
-  // lightly reworded variant of a deleted rule is still blocked.
   return tombstones.some(t => t === target || isFuzzyMatch(rule, t));
+}
+
+export function isTombstoned(rule: string, ctx?: StorageContext): boolean {
+  return matchesTombstone(rule, readTombstones(ctx));
 }
 
 // Memory tombstones ────────────────────────────────────────────────────────
@@ -584,9 +595,30 @@ export function addMemoryTombstone(text: string, ctx?: StorageContext): void {
 }
 
 export function isMemoryTombstoned(text: string, ctx?: StorageContext): boolean {
-  const target = normalizeRule(text);
-  const tombstones = readMemoryTombstones(ctx);
-  return tombstones.some(t => t === target || isFuzzyMatch(text, t));
+  return matchesTombstone(text, readMemoryTombstones(ctx));
+}
+
+// Machine id (profile export provenance) ────────────────────────────────────
+// A random UUID persisted alongside the store, stamped into exported profile
+// bundles as `origin:`. On import, a matching origin means "this machine's own
+// export", so its habit history (sessions_seen) can be trusted verbatim.
+// Fail-open: any read/write error returns '' which importers treat as
+// "cannot verify origin", never as a crash.
+export function getMachineId(): string {
+  try {
+    const existing = fs.readFileSync(storagePaths.machineIdFile, 'utf-8').trim();
+    if (/^[0-9a-f-]{36}$/.test(existing)) return existing;
+  } catch {
+    // missing or unreadable, fall through to (re)create
+  }
+  try {
+    const id = crypto.randomUUID();
+    fs.mkdirSync(storagePaths.habitsDir, { recursive: true });
+    fs.writeFileSync(storagePaths.machineIdFile, id + '\n', { encoding: 'utf-8', mode: FILE_MODE });
+    return id;
+  } catch {
+    return '';
+  }
 }
 
 // Snapshot (auto-detect manual deletes) ────────────────────────────────────

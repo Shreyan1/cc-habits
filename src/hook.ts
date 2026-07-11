@@ -22,6 +22,7 @@ import {
   addTombstone,
   appendHistory, appendProvenance, readMemoriesMd, applyMemoryUpdates, parseMemories,
   isMemoryTombstoned, getPaths, type StorageContext,
+  readTombstones, matchesTombstone,
   type Memory,
   findRepoRoot, repoStorageContext,
 } from './storage';
@@ -184,9 +185,9 @@ export function captureDisabled(): boolean {
 // TypeScript edit regardless of which habit influenced it, training users to
 // ignore it within a day (cry-wolf). The session-level signal is honest and
 // carries real information density.
-export function buildSessionBanner(md: string, editCount: number): string | null {
+export function buildSessionBanner(md: string, editCount: number, ctx?: StorageContext): string | null {
   if (editCount !== 1) return null;
-  const habits = selectInjectionHabits(md);
+  const habits = selectInjectionHabits(md, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, undefined, ctx);
   if (habits.length === 0) return `cc-habits: capturing this session (habits activate after 2 sessions)`;
   const n = habits.length;
   return `cc-habits: ${n} habit${n === 1 ? '' : 's'} active this session, \`cch view\` to see them`;
@@ -252,7 +253,7 @@ export function processPostToolUse(input: Record<string, unknown> | NormalizedHo
   if (markerEnabled() && (data.source === 'claude-code' || !data.source)) {
     try {
       const count = countSignals(sessionId, ctx);
-      const banner = buildSessionBanner(readHabitsMd(ctx), count);
+      const banner = buildSessionBanner(readHabitsMd(ctx), count, ctx);
       if (banner) process.stderr.write(banner + '\n');
     } catch { /* banner is cosmetic; swallow */ }
   }
@@ -524,19 +525,35 @@ function getSessionLanguages(sessionId: string, ctx?: StorageContext): string[] 
   }
 }
 
-// Pick the strongest active habits (graduated + confident), highest confidence first.
+// Read the tombstone list for a store, fail-open: any error means "no
+// tombstones known" so injection still happens rather than crashing a prompt.
+function safeTombstones(ctx?: StorageContext): string[] {
+  try {
+    return readTombstones(ctx);
+  } catch {
+    return [];
+  }
+}
+
+// Pick the strongest active habits (graduated + confident + not tombstoned),
+// highest confidence first. The tombstone check is defense in depth: applyUpdates
+// already keeps tombstoned rules out of habits.md, but injection must never
+// depend on that file being pre-cleaned (e.g. after a hand edit or an import).
 export function selectInjectionHabits(
   md: string,
   topN: number = INJECT_TOP_N,
   minConfidence: number = INJECT_MIN_CONFIDENCE,
   activeLanguages?: string[],
+  ctx?: StorageContext,
 ): InjectionHabit[] {
   const cats = parseHabits(md);
   const out: InjectionHabit[] = [];
   const activeLangSet = activeLanguages && activeLanguages.length > 0 ? new Set(activeLanguages.map(l => l.toLowerCase())) : null;
+  const tombstones = safeTombstones(ctx);
 
   for (const [category, habits] of Object.entries(cats)) {
     for (const h of habits) {
+      if (tombstones.length > 0 && matchesTombstone(h.rule, tombstones)) continue;
       if ((h.sessions_seen ?? 1) >= 2 && h.confidence >= minConfidence) {
         let matchesLanguage = true;
         if (activeLangSet !== null && h.languages && h.languages.length > 0) {
@@ -556,8 +573,9 @@ export function selectInjectionHabits(
 export function buildInjectionContext(
   md: string,
   activeLanguages?: string[],
+  ctx?: StorageContext,
 ): string | null {
-  const habits = selectInjectionHabits(md, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages);
+  const habits = selectInjectionHabits(md, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages, ctx);
   return renderHabitsInjection(habits);
 }
 
@@ -571,9 +589,11 @@ export function buildMergedInjectionContext(
   globalMd: string,
   repoMd: string,
   activeLanguages?: string[],
+  globalCtx?: StorageContext,
+  repoCtx?: StorageContext,
 ): string | null {
-  const repoHabits = selectInjectionHabits(repoMd, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages);
-  const globalHabits = selectInjectionHabits(globalMd, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages);
+  const repoHabits = selectInjectionHabits(repoMd, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages, repoCtx);
+  const globalHabits = selectInjectionHabits(globalMd, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, activeLanguages, globalCtx);
   const seen = new Set(repoHabits.map(h => h.rule.trim().toLowerCase().replace(/\.$/, '')));
   const merged = [
     ...repoHabits,
@@ -763,7 +783,7 @@ export function scoreMemoryRelevance(memory: Memory, promptText: string, promptT
 }
 
 
-export function selectInjectionMemories(memoriesMd: string, promptText: string): Memory[] {
+export function selectInjectionMemories(memoriesMd: string, promptText: string, ctx?: StorageContext): Memory[] {
   const sections = parseMemories(memoriesMd);
   // Tokenise the prompt once for the whole selection pass. Every memory scored
   // below shares this set instead of re-tokenising the same prompt per memory.
@@ -777,7 +797,7 @@ export function selectInjectionMemories(memoriesMd: string, promptText: string):
     for (const m of memories) {
       if ((m.sessions_seen ?? 1) < 2) continue;
       if (m.confidence < MEMORY_MIN_CONFIDENCE) continue;
-      if (isMemoryTombstoned(m.text)) continue;
+      if (isMemoryTombstoned(m.text, ctx)) continue;
       const score = scoreMemoryRelevance(m, promptText, promptTokens, regexCache);
       if (score > 0) candidates.push({ memory: m, score });
     }
@@ -793,9 +813,11 @@ export function selectMergedInjectionMemories(
   globalMd: string,
   repoMd: string,
   promptText: string,
+  globalCtx?: StorageContext,
+  repoCtx?: StorageContext,
 ): Memory[] {
-  const repoMems = selectInjectionMemories(repoMd, promptText);
-  const globalMems = selectInjectionMemories(globalMd, promptText);
+  const repoMems = selectInjectionMemories(repoMd, promptText, repoCtx);
+  const globalMems = selectInjectionMemories(globalMd, promptText, globalCtx);
   const seen = new Set(repoMems.map(m => m.text.trim().toLowerCase()));
   return [
     ...repoMems,
@@ -854,16 +876,16 @@ export function processUserPromptSubmit(data: Record<string, unknown>, ctx?: Sto
   const repoCtx = resolveRepoCtx(ctx);
   const globalMd = readHabitsMd(ctx);
   const habitsContext = repoCtx
-    ? buildMergedInjectionContext(globalMd, safeRead(() => readHabitsMd(repoCtx)), langs)
-    : buildInjectionContext(globalMd, langs);
+    ? buildMergedInjectionContext(globalMd, safeRead(() => readHabitsMd(repoCtx)), langs, ctx, repoCtx)
+    : buildInjectionContext(globalMd, langs, ctx);
 
   let memoriesContext: string | null = null;
   if (memoriesEnabled(ctx)) {
     try {
       const globalMem = readMemoriesMd(ctx);
       const relevant = repoCtx
-        ? selectMergedInjectionMemories(globalMem, safeRead(() => readMemoriesMd(repoCtx)), promptText)
-        : selectInjectionMemories(globalMem, promptText);
+        ? selectMergedInjectionMemories(globalMem, safeRead(() => readMemoriesMd(repoCtx)), promptText, ctx, repoCtx)
+        : selectInjectionMemories(globalMem, promptText, ctx);
       memoriesContext = buildMemoryInjectionContext(relevant);
     } catch {
       // injection failures must never block a prompt
@@ -883,7 +905,7 @@ export function processSessionStart(ctx?: StorageContext): string | null {
   if (isGloballyDisabled(ctx)) return null;
   try {
     const habitsMd = readHabitsMd(ctx);
-    const habits = selectInjectionHabits(habitsMd);
+    const habits = selectInjectionHabits(habitsMd, INJECT_TOP_N, INJECT_MIN_CONFIDENCE, undefined, ctx);
     if (habits.length === 0) return null;
     const n = habits.length;
     return `cc-habits: ${n} habit${n === 1 ? '' : 's'} active this session`;
