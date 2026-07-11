@@ -51,9 +51,9 @@ describe('Fix 3, bootstrap prompt default is Y', () => {
     expect(bootstrapLine).toBeDefined();
     // askYes wraps promptYesNoDefaultTrue: recommended mode auto-accepts, manual
     // mode falls back to the default-Yes prompt. Either way the default is Yes.
-    expect(src).toMatch(/askYes\([\s\n]+"  Bootstrap habits from past sessions/);
+    expect(src).toMatch(/askYes\([\s\n]*'  Bootstrap habits from past sessions/);
     // ensure it's not using bare promptYesNo
-    expect(src).not.toMatch(/promptYesNo\([\s\n]+"  Bootstrap habits from past sessions/);
+    expect(src).not.toMatch(/promptYesNo\([\s\n]*'  Bootstrap habits from past sessions/);
   });
 
   it('bootstrap prompt text contains [Y/n]', () => {
