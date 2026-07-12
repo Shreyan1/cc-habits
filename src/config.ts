@@ -111,9 +111,10 @@ export function addSyncTargets(targets: string[], ctx?: StorageContext): void {
   const clean = targets.map(t => t.trim()).filter(Boolean);
   if (clean.length === 0) return;
   // Read the existing list with the SAME comma-tolerant regex readSyncTargets
-  // uses. We deliberately do NOT use getConfigValue here: its single-token regex
-  // stops at the first space, so it would read "agents, gemini" back as just
-  // "agents," and silently drop the rest on the next merge.
+  // uses. We deliberately do NOT use getConfigValue here: a bracketed list like
+  // "sync_targets: [agents, gemini]" needs its brackets stripped, which
+  // getConfigValue does not do, so a round-trip through it would corrupt the
+  // list on the next merge.
   let existing: string[] = [];
   try {
     const text = fs.readFileSync(getPaths(ctx).configFile, 'utf-8');

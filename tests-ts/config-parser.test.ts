@@ -11,7 +11,7 @@
  *
  *  2. Read/write agree on column-0 anchoring
  *     setConfigValue always writes keys at column 0. getConfigValue must
- *     therefore also only match keys at column 0 — otherwise a hand-indented
+ *     therefore also only match keys at column 0, otherwise a hand-indented
  *     line is readable but not replaceable, causing `cch memories --enable`
  *     to append a new key while reads keep returning the stale indented value.
  *     With the fix, an indented key is invisible to getConfigValue (returns
