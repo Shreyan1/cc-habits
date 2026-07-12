@@ -32,7 +32,7 @@ import { runSelectMenu } from './menu';
 import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks, areHooksRegistered, hookProofPaths, readRegisteredHooks, installPaths } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
-import { exportProfile, importHabits, fetchProfile } from './portable';
+import { exportProfile, importHabits, fetchProfile, isOwnBundle } from './portable';
 import { lintPath } from './lint';
 import { discoverSessions, bootstrap, type SessionFile } from './bootstrap';
 import { scanRepo, type RepoScanResult } from './repo-scan';
@@ -49,7 +49,7 @@ import { detectInstalledTools, isAntigravityMigrated } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.8.1';
+export const VERSION = '0.9.0';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -391,6 +391,14 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
         }
       } else if (tool.id === 'cursor') {
         process.stdout.write(`  ${dash} Cursor has no hooks; enable Git capture below to learn from its edits.\n`);
+      } else if (tool.id === 'kilo') {
+        // Kilo has no hook API at all (not just an omission we could enable), so
+        // there is no capture prompt here, only honest injection: it reads
+        // AGENTS.md natively, and cc-habits also writes its own rules files.
+        process.stdout.write(`  ${dash} Kilo Code has no hook API; sessions in Kilo are not captured.\n`);
+        process.stdout.write(`    Habits will inject via AGENTS.md and .kilocode/rules/cch.md.\n`);
+        syncTargetsToEnable.add('agents');
+        syncTargetsToEnable.add('kilo');
       }
     }
     // Persist the injection targets for the tools just registered so processStop
@@ -399,7 +407,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     // Gemini/Cline read a synced file and would otherwise need a manual `cch sync`.
     if (syncTargetsToEnable.size > 0) {
       addSyncTargets([...syncTargetsToEnable]);
-      const fileFor: Record<string, string> = { agents: 'AGENTS.md', gemini: 'GEMINI.md', cline: '.clinerules' };
+      const fileFor: Record<string, string> = { agents: 'AGENTS.md', gemini: 'GEMINI.md', cline: '.clinerules', kilo: '.kilocode/rules' };
       const files = [...syncTargetsToEnable].map(t => fileFor[t] ?? t).join(', ');
       process.stdout.write(`  ${tick} Auto-sync enabled: learned habits will refresh ${files} after each session.\n`);
     }
@@ -1351,6 +1359,12 @@ export function cmdStatus(proof = false): number {
           hookRows.push(line(`${git}  ${pad(c(BOLD, 'Cursor'), NAMEW)}  ${desc}`));
           continue;
         }
+        if (tool.id === 'kilo') {
+          // Kilo has no hook API, so "not registered, run `cch init`" would be a
+          // lie, there is nothing to register. State the real, working path.
+          hookRows.push(line(`${git}  ${pad(c(BOLD, 'Kilo Code'), NAMEW)}  ${c(DIM, 'inject-only · AGENTS.md + .kilocode/rules')}`));
+          continue;
+        }
         const files      = hookProofPaths(tool.id, tool.settingsPath);
         const entries    = files.flatMap(f => readRegisteredHooks(f).map(h => ({ ...h, file: f })));
         const registered = tool.id === 'claude-code' ? areHooksRegistered() : entries.length > 0;
@@ -1852,11 +1866,15 @@ export async function cmdBootstrap(): Promise<number> {
 }
 
 // export/import (C4) ───────────────────────────────────────────────────────
-export function cmdExport(outputPath?: string, includeMemories = false): number {
-  const content = exportProfile({ version: VERSION, outputPath, includeMemories });
-  if (outputPath) {
-    const note = includeMemories ? ' (habits + memories)' : '';
-    process.stdout.write(`  exported${note} to ${outputPath}\n`);
+export function cmdExport(outputPath?: string, habitsOnly = false): number {
+  // On a terminal with no path, write a shareable file instead of dumping
+  // markdown into the scrollback; piped output still streams to stdout so
+  // `cch export > f` and gist pipelines keep working.
+  const dest = outputPath ?? (process.stdout.isTTY ? 'cc-habits-profile.md' : undefined);
+  const content = exportProfile({ version: VERSION, outputPath: dest, habitsOnly });
+  if (dest) {
+    const note = content.includes('<!-- BEGIN memories -->') ? 'habits + memories' : 'habits';
+    process.stdout.write(`  exported ${note} to ${dest}\n`);
   } else {
     process.stdout.write(content);
   }
@@ -1891,16 +1909,31 @@ export async function cmdImport(source: string): Promise<number> {
     incoming = fs.readFileSync(source, 'utf-8');
   }
 
-  const result = importHabits(incoming);
+  // Trust decision: this machine's own export keeps its habit history verbatim.
+  // Anything else (another machine, another person, a bare habits.md) is asked
+  // about once; a "no" (or a non-interactive run) means imported habits re-earn
+  // graduation locally before they can inject or sync.
+  let trusted = isOwnBundle(incoming);
+  if (!trusted && process.stdin.isTTY && process.stdout.isTTY) {
+    trusted = await promptYesNo('  Is this an export from your own machine? Trust its habit history? [y/N] ');
+  }
+
+  const result = importHabits(incoming, { trusted });
   const memNote = result.memoriesImported !== undefined && result.memoriesImported > 0
     ? `, ${result.memoriesImported} memories imported`
     : '';
-  process.stdout.write(`  imported: ${result.added} new habit${result.added === 1 ? '' : 's'}, ${result.merged} merged${memNote}\n`);
+  const skipNote = result.skipped > 0
+    ? `, ${result.skipped} skipped (previously deleted by you)`
+    : '';
+  process.stdout.write(`  imported: ${result.added} new habit${result.added === 1 ? '' : 's'}, ${result.merged} merged${memNote}${skipNote}\n`);
+  if (!trusted && result.added > 0) {
+    process.stdout.write(c(DIM, '  imported habits start as learning; they activate after being seen in 2 of your own sessions\n'));
+  }
   return 0;
 }
 
 // sync (Patch 1: portable AGENTS.md / Cursor / Cline emitter) ───────────────
-const VALID_SYNC_TARGETS: SyncTarget[] = ['agents', 'cursor', 'copilot', 'gemini', 'cline', 'aider', 'continue', 'jetbrains', 'windsurf'];
+const VALID_SYNC_TARGETS: SyncTarget[] = ['agents', 'cursor', 'copilot', 'gemini', 'cline', 'aider', 'continue', 'jetbrains', 'windsurf', 'kilo'];
 
 export function cmdSync(rawTargets: string[], dir?: string): number {
   // Default target is AGENTS.md, the cross-tool standard. `all` expands to every target.
@@ -2174,6 +2207,20 @@ export async function cmdLearn(opts: { session?: string; since?: number; interac
   }
   
   if (filtered.length < 3) {
+    // An explicit scope flag (--session or --since) asked to learn from the capture
+    // log specifically. Silently switching to a full repo scan would break least
+    // surprise: it is a bigger, differently scoped job (it writes this repo's .cch/
+    // store) that also spends LLM tokens the user never asked for. Report the
+    // shortfall honestly and stop, pointing at the command that does a repo scan.
+    // The repo-scan fallback stays only for a bare `cch learn`.
+    if (opts.session !== undefined || opts.since !== undefined) {
+      const scope = opts.session !== undefined
+        ? `session ${term(opts.session)}`
+        : `the last ${opts.since ?? 24}h`;
+      process.stdout.write(`  not enough signals for ${scope} in capture log (found ${filtered.length}).\n`);
+      process.stdout.write(c(DIM, '  Run "cch learn --repo" to scan this repository into its .cch/ store instead.\n'));
+      return 0;
+    }
     process.stdout.write(`  not enough signals in capture log (found ${filtered.length}). Falling back to repository scan...\n\n`);
     return cmdLearnRepo({ force: true });
   }

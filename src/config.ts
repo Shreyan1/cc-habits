@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { storagePaths, writeConfigFile, getPaths, type StorageContext } from './storage';
+import { writeConfigFile, getPaths, type StorageContext } from './storage';
 
 // Small line-based reader/writer for the YAML-ish config.yml. We deliberately
 // avoid a YAML dependency: the file is flat `key: value` pairs written by
@@ -31,9 +31,9 @@ export function getConfigValue(key: string, ctx?: StorageContext): string | unde
   const text = readRaw(ctx);
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
-    // Skip blank lines and full-line comments (# at column 0 or after leading
-    // whitespace — we still want to ignore comment-only lines regardless of
-    // indentation, just not act on indented key lines).
+    // Strip only trailing whitespace; preserve leading whitespace so the
+    // column-0 anchor below correctly rejects hand-indented lines.
+    // Also skip blank lines and full-line comments.
     const trimmed = line.trimEnd();
     if (!trimmed || /^\s*#/.test(trimmed)) continue;
     // Only match keys anchored at column 0, consistent with setConfigValue.
@@ -88,7 +88,7 @@ export function getConfigFlag(key: string, ctx?: StorageContext): boolean {
 export function setConfigValue(key: string, value: string, ctx?: StorageContext): void {
   const text = readRaw(ctx);
   const line = `${key}: ${value}`;
-  const re = new RegExp(`^${key}\\s*:.*$`, 'm');
+  const re = new RegExp(`^${escapeRegExp(key)}\\s*:.*$`, 'm');
   let next: string;
   if (re.test(text)) {
     next = text.replace(re, line);
@@ -112,9 +112,10 @@ export function addSyncTargets(targets: string[], ctx?: StorageContext): void {
   const clean = targets.map(t => t.trim()).filter(Boolean);
   if (clean.length === 0) return;
   // Read the existing list with the SAME comma-tolerant regex readSyncTargets
-  // uses. We deliberately do NOT use getConfigValue here: its single-token regex
-  // stops at the first space, so it would read "agents, gemini" back as just
-  // "agents," and silently drop the rest on the next merge.
+  // uses. We deliberately do NOT use getConfigValue here: a bracketed list like
+  // "sync_targets: [agents, gemini]" needs its brackets stripped, which
+  // getConfigValue does not do, so a round-trip through it would corrupt the
+  // list on the next merge.
   let existing: string[] = [];
   try {
     const text = fs.readFileSync(getPaths(ctx).configFile, 'utf-8');

@@ -68,10 +68,10 @@ const HELP = `cc-habits ${VERSION}, A tool-agnostic coding memory layer for deve
 
 Daily flow (the handful you actually use, like core git commands):
   cch init      set up this project once (hooks, provider, habit injection)
-  cch status    check it is healthy and injecting your habits
-  cch view      see what it has learned (habits + memories, no flags needed)
   cch learn     refresh habits now (add --repo to scan this repo's code)
+  cch view      see what it has learned (habits + memories, no flags needed)
   cch sync      share habits with your other tools (AGENTS.md, Cursor, Cline)
+  cch status    check it is healthy and injecting your habits
   Everything below is for when you need it, like the deeper git commands.
 
 Usage:
@@ -100,7 +100,7 @@ Usage:
 
   Sharing & Portability:
     cc-habits sync [targets] [--dir]  Write habits to AGENTS.md / Cursor / Cline (default: agents)
-    cc-habits export [path]           Export habits profile (add --include-memories for full bundle)
+    cc-habits export [path]           Export habits + memories as one shareable file (--habits-only to omit memories)
     cc-habits import <file|url>       Import habits from a file or https:// URL (auto-detects full bundle)
 
   Analysis & Debugging:
@@ -184,7 +184,7 @@ async function main(): Promise<void> {
 
       // Sharing & Portability
       { label: 'sync                    Share habits with other tools', args: ['sync'] },
-      { label: 'export                  Export habits profile', args: ['export'] },
+      { label: 'export                  Export habits + memories to a shareable file', args: ['export'] },
       { label: 'import                  Import habits profile', args: ['import'] },
 
       // Analysis & Debugging
@@ -353,8 +353,10 @@ async function main(): Promise<void> {
     code = await cmdLint(filePath, asJson);
   } else if (command === 'export') {
     const out = args.find((a, i) => i > 0 && !a.startsWith('--'));
-    const includeMemories = args.includes('--include-memories') || args.includes('--full');
-    code = cmdExport(out, includeMemories);
+    // Bundles habits + memories by default; --habits-only slims the file. The
+    // old --include-memories / --full flags now describe the default and are
+    // accepted silently so existing scripts keep working.
+    code = cmdExport(out, args.includes('--habits-only'));
   } else if (command === 'import') {
     code = await cmdImport(args[1] ?? '');
   } else if (command === 'sync') {

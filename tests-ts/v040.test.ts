@@ -161,6 +161,72 @@ describe('v0.3.0: cmdLearn', () => {
     expect(readHabitsMd()).toContain('Prefer const');
     expect(readHistory()).toHaveLength(1);
   });
+
+  // Least surprise: an explicit --session with too few matching signals must NOT
+  // silently escalate to a full repo scan (a bigger, differently scoped job that
+  // spends LLM tokens and writes the repo's .cch/ store). It stops with a hint.
+  it('stops with a hint instead of falling back to repo scan for an explicit --session', async () => {
+    initHabitsMd();
+    initLog();
+    captureFromCli({
+      file: 'src/only.ts',
+      diff: '+++ src/only.ts\n+const a = 1;',
+      session: 'sparse-session',
+      source: 'cli',
+    });
+
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    const exitCode = await cmdLearn({ session: 'sparse-session' });
+    spy.mockRestore();
+
+    expect(exitCode).toBe(0);
+    const out = writes.join('');
+    expect(out).toContain('not enough signals for session sparse-session');
+    expect(out).toContain('cch learn --repo');
+    // The repo-scan path (extractHabitsFromRepo) must not have been reached.
+    expect(vi.mocked(extractor.extractHabitsFromRepo)).not.toHaveBeenCalled();
+  });
+
+  it('stops with a hint instead of falling back to repo scan for an explicit --since', async () => {
+    initHabitsMd();
+    initLog();
+
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    const exitCode = await cmdLearn({ since: 48 });
+    spy.mockRestore();
+
+    expect(exitCode).toBe(0);
+    const out = writes.join('');
+    expect(out).toContain('not enough signals for the last 48h');
+    expect(out).toContain('cch learn --repo');
+    expect(vi.mocked(extractor.extractHabitsFromRepo)).not.toHaveBeenCalled();
+  });
+
+  it('still falls back to repo scan for a bare learn with too few signals', async () => {
+    initHabitsMd();
+    initLog();
+
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    const exitCode = await cmdLearn();
+    spy.mockRestore();
+
+    expect(exitCode).toBe(0);
+    // Bare learn keeps the historical fallback: it announces and enters the
+    // repo scan path (which may then skip on provider checks in this test env).
+    expect(writes.join('')).toContain('Falling back to repository scan');
+  });
 });
 
 describe('v0.4.0: processSessionStart (active habits banner)', () => {
@@ -335,8 +401,8 @@ describe('v0.4.0: interactive menu helpers', () => {
     expect(firstLine).toContain('❯');
   });
 
-  it('contains tools and learn as the first options in MENU_ITEMS', () => {
-    expect(MENU_ITEMS[0].label).toBe('tools');
+  it('contains init and learn as the first options in MENU_ITEMS, mirroring the daily flow', () => {
+    expect(MENU_ITEMS[0].label).toBe('init');
     expect(MENU_ITEMS[1].label).toBe('learn');
   });
 });

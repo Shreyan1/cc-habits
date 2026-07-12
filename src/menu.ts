@@ -11,17 +11,21 @@ export interface MenuItem {
   disabled?: boolean;
 }
 
+// Ordered to mirror the promoted daily flow (init -> learn -> view -> sync ->
+// status), then sharing (export), then supporting/setup entries, then
+// analysis/debugging, then the on/off toggle, then help last.
 export const MENU_ITEMS: MenuItem[] = [
-  { label: 'tools',          args: ['tools'],     hint: 'List supported coding tools' },
+  { label: 'init',           args: ['init'],      hint: 'Install hooks and set up a provider' },
   { label: 'learn',          args: ['learn'],     hint: 'Learn habits from repository scan or signals' },
   { label: 'view',           args: ['view'],      hint: 'Show current habits or coding memories' },
+  { label: 'sync',           args: ['sync'],      hint: 'Share habits with your other tools' },
   { label: 'status',         args: ['status'],    hint: 'Show setup health and current activity' },
+  { label: 'export',         args: ['export'],    hint: 'Export habits + memories to a shareable file' },
+  { label: 'tools',          args: ['tools'],     hint: 'List supported coding tools' },
   { label: 'bootstrap',      args: ['bootstrap'], hint: 'Learn habits from past sessions' },
   { label: 'memories',       args: ['memories'],  hint: 'Show coding memories' },
-  { label: 'sync',           args: ['sync'],      hint: 'Share habits with your other tools' },
   { label: 'log',            args: ['log'],       hint: 'Show the capture log' },
   { label: 'diff',           args: ['diff'],      hint: 'Show changes between the last two writes' },
-  { label: 'init',           args: ['init'],      hint: 'Install hooks and set up a provider' },
   { label: 'on',             args: ['on'],        hint: 'Enable cc-habits' },
   { label: 'off',            args: ['off'],       hint: 'Disable cc-habits' },
   { label: 'faq',            args: ['faq'],       hint: 'Search the FAQ or raise a GitHub issue' },

@@ -5,6 +5,13 @@ import { selectProviderAsync, REQUEST_TIMEOUT_MS, REPO_SCAN_TIMEOUT_MS } from '.
 
 const MAX_SIGNALS = 50; // D17: cap signals to bound prompt size and cost
 
+// Completion cap for every extraction call. It is a ceiling, not a target, so
+// non-reasoning models pay nothing extra. It must be generous because reasoning
+// models (GLM-5.2, o-series, DeepSeek R1) spend the same budget on hidden
+// reasoning before the answer: at 1024 GLM-5.2 burned the whole cap reasoning
+// and returned empty content, silently failing extraction.
+const EXTRACTION_MAX_TOKENS = 4096;
+
 const EXTRACTION_PROMPT = `You are analyzing a developer's coding session to extract their coding habits.
 
 INPUT:
@@ -80,7 +87,7 @@ export async function extractRules(
     },
   );
 
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REQUEST_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REQUEST_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
 
@@ -114,6 +121,17 @@ function coerceUpdate(u: unknown): RuleUpdate {
 }
 
 // Memory candidate extraction ─────────────────────────────────────────────
+// Few-shot examples embedded in MEMORY_EXTRACTION_PROMPT below. Kept as a named
+// constant so the prompt and the echo guard share one source of truth: small
+// local models (observed with Ollama llama3.2:1b) sometimes copy these canned
+// examples out of the prompt and return them verbatim as if they were real
+// memory candidates. isPromptExampleEcho() drops any such echo before it can
+// reach the user's memories.md.
+const MEMORY_PROMPT_EXAMPLES: readonly string[] = [
+  'When fetching user data in api.ts, do not read properties without checking if user is null.',
+  'When calling db.query, do not forget to call client.release() in a finally block.',
+];
+
 const MEMORY_EXTRACTION_PROMPT = `You are analyzing a developer's coding session to identify mistakes made by the AI coding agent that the developer had to correct.
 
 INPUT:
@@ -141,7 +159,7 @@ Each object:
 
 CRITICAL:
 - Return [] if fewer than 2 signals suggest the same mistake.
-- BE EXTREMELY CONCRETE AND MISTAKE-SPECIFIC: Memories must specify the exact mistake context (such as file pattern, API name, or code pattern) and the precise mistake the agent made. Do NOT write generic advice like "Check if values are null" or "Handle errors". Instead, write like: "When fetching user data in api.ts, do not read properties without checking if user is null." or "When calling db.query, do not forget to call client.release() in a finally block."
+- BE EXTREMELY CONCRETE AND MISTAKE-SPECIFIC: Memories must specify the exact mistake context (such as file pattern, API name, or code pattern) and the precise mistake the agent made. Do NOT write generic advice like "Check if values are null" or "Handle errors". Instead, write like: "${MEMORY_PROMPT_EXAMPLES[0]}" or "${MEMORY_PROMPT_EXAMPLES[1]}"
 - NO STYLISTIC PREFERENCES: Never extract formatting, styling, import ordering, naming, type declaration styles, or general lint-like preferences. Those belong exclusively in habits.md.
 - Do NOT record one-off or highly contextual decisions.
 - Never output content marked <REDACTED:...>.
@@ -162,6 +180,54 @@ export interface MemoryCandidate {
   correction: string;
 }
 
+// Normalize for echo comparison: lowercase, collapse every run of non-alphanumeric
+// characters (punctuation, whitespace) to a single space, and trim. This makes the
+// match tolerant of trailing periods, quoting, and spacing drift.
+function normalizeForEcho(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Character-level edit distance (iterative, two-row). Inputs here are short
+// (memory text is capped at 300 chars), so this stays cheap.
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  let prev: number[] = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const curr: number[] = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = curr;
+  }
+  return prev[b.length];
+}
+
+// True when the candidate text is an echo of one of the prompt's own few-shot
+// examples: exact after normalization, embedded verbatim (with min length to avoid
+// swallowing short legitimate memories), or near-exact by edit distance. Fail-open:
+// any unexpected error yields false so a real memory is never silently lost.
+function isPromptExampleEcho(text: string): boolean {
+  try {
+    const norm = normalizeForEcho(text);
+    if (!norm) return false;
+    return MEMORY_PROMPT_EXAMPLES.some(example => {
+      const ex = normalizeForEcho(example);
+      if (norm === ex) return true;
+      // Echo wrapped in extra prose, or a long fragment of the example.
+      const [shorter, longer] = norm.length <= ex.length ? [norm, ex] : [ex, norm];
+      if (shorter.length >= 40 && longer.includes(shorter)) return true;
+      // Near-exact: allow small word drift, scaled to the example length.
+      const threshold = Math.max(4, Math.floor(ex.length * 0.15));
+      return editDistance(norm, ex) <= threshold;
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function extractMemoryCandidates(
   signals: Signal[],
   memoriesMd: string,
@@ -175,13 +241,18 @@ export async function extractMemoryCandidates(
     m => m === '{signals_json}' ? signalsJson : memoriesMd,
   );
 
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REQUEST_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REQUEST_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
 
   try {
     const candidates = JSON.parse(cleaned) as unknown;
-    if (Array.isArray(candidates)) return candidates.filter(isValidCandidate).map(coerceCandidate);
+    if (Array.isArray(candidates)) {
+      return candidates
+        .filter(isValidCandidate)
+        .map(coerceCandidate)
+        .filter(c => !isPromptExampleEcho(c.text));
+    }
   } catch {
     // malformed, treat as no candidates
   }
@@ -268,7 +339,7 @@ export async function lintFile(filePath: string, fileContent: string, habitsMd: 
       return habitsMd;
     },
   );
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REQUEST_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REQUEST_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
   try {
@@ -391,7 +462,7 @@ export async function extractHabitsFromRepo(
     },
   );
 
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REPO_SCAN_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REPO_SCAN_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
   try {
@@ -416,7 +487,7 @@ export async function extractMemoriesFromDocs(
     m => m === '{docs_block}' ? docsBlock : memoriesMd,
   );
 
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REPO_SCAN_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REPO_SCAN_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
   try {

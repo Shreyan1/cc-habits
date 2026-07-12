@@ -182,19 +182,31 @@ const SENSITIVE_KEYS = [
 
 const KEYED_VALUE_RE = new RegExp(
   '\\b(' + SENSITIVE_KEYS.join('|') + ')\\b(\\s*[:=]\\s*)' +
-  '("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|`(?:[^`\\\\]|\\\\.)*`|[^\\s,;)\\]}]+)',
+  '("(?:[^"\\\\]|\\\\.)*"|\'(?:[^\'\\\\]|\\\\.)*\'|`(?:[^`\\\\]|\\\\.)*`|[^\\s,;)\\]}]+(?:[ \\t]+[^\\s,;)\\]}]+)*)',
   'gi',
 );
 
-// Replace the value while preserving the key, separator, and quote style. Skips
-// values that are already redacted so the pass is idempotent and never clobbers
-// an earlier structured replacement (e.g. card="<REDACTED:card>").
+// Replace the value while preserving the key, separator, and quote style.
+// Quoted values are treated as one logical value: if the whole thing is already
+// redacted (e.g. password="<REDACTED:card>") we skip it for idempotency.
+// Unquoted values are redacted TOKEN BY TOKEN: a structured redactor may have
+// already replaced a later token (e.g. an email -> <REDACTED:email>) before this
+// pass runs, and the old whole-value guard would then skip the ENTIRE value and
+// leak the earlier tokens. Redacting per token keeps the already-redacted tokens
+// intact while still masking the remaining PII (patient_name = John john@x.com
+// -> patient_name = <REDACTED:pii> <REDACTED:email>). Whitespace between tokens
+// is left untouched.
 function redactKeyedValues(text: string): string {
   return text.replace(KEYED_VALUE_RE, (_m, key: string, sep: string, value: string) => {
-    if (value.includes('<REDACTED')) return `${key}${sep}${value}`;
     const q = value[0];
-    const wrap = (q === '"' || q === "'" || q === '`') ? q : '';
-    return `${key}${sep}${wrap}<REDACTED:pii>${wrap}`;
+    if (q === '"' || q === "'" || q === '`') {
+      if (value.includes('<REDACTED')) return `${key}${sep}${value}`;
+      return `${key}${sep}${q}<REDACTED:pii>${q}`;
+    }
+    const redacted = value.replace(/[^\s,;)\]}]+/g, (tok) =>
+      tok.includes('<REDACTED') ? tok : '<REDACTED:pii>',
+    );
+    return `${key}${sep}${redacted}`;
   });
 }
 
