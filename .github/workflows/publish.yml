@@ -36,11 +36,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
-      # Trusted Publishing needs npm >= 11.5.1; node 20 ships npm 10.
+      # Trusted Publishing needs npm >= 11.5.1; npm@latest (12.x) needs node >= 22,
+      # hence the node 24 runner above.
       - name: Update npm for OIDC trusted publishing
         run: npm install -g npm@latest
 
