@@ -49,7 +49,7 @@ import { detectInstalledTools, isAntigravityMigrated } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.8.2';
+export const VERSION = '0.9.0';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.

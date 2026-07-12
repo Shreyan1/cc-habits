@@ -378,7 +378,7 @@ cch sync cursor             # just Cursor (.cursor/rules/cc-habits.mdc)
 cch sync gemini windsurf    # pick exactly the targets you want
 ```
 
-Supported targets: `agents`, `cursor`, `copilot`, `gemini`, `cline`, `aider`, `continue`, `jetbrains`, `windsurf`.
+Supported targets: `agents`, `cursor`, `copilot`, `gemini`, `cline`, `aider`, `continue`, `jetbrains`, `windsurf`, `kilo`.
 
 | Target        | File written                        |
 | ------------- | ----------------------------------- |
@@ -391,10 +391,22 @@ Supported targets: `agents`, `cursor`, `copilot`, `gemini`, `cline`, `aider`, `c
 | `continue`  | `.continuerules`                  |
 | `jetbrains` | `.aiassistant/rules/cc-habits.md` |
 | `windsurf`  | `.windsurfrules`                  |
+| `kilo`      | `.kilo/rules/cch.md` (plus legacy `.kilocode/rules/cch.md`) |
 
-It merges a marked block into existing files, so your hand-written content is preserved. Only **active** habits are emitted: the `## Learning` section never leaks out. The same habits you learned in Claude Code now travel to Codex, Cursor, Cline, Windsurf, and anything else that reads these files.
+> **Kilo Code** has no hook mechanism, so it is inject-only: it cannot capture your edits, but it reads your habits through `AGENTS.md` automatically and through its rules files via `cch sync kilo`. **Command Code** and other AGENTS.md-native tools need nothing extra: the standard `cch sync` merge block in `AGENTS.md` is already their memory file.
+
+It merges a marked block into existing files, so your hand-written content is preserved. Only **active** habits are emitted: the `## Learning` section never leaks out. The same habits you learned in Claude Code now travel to Codex, Cursor, Cline, Windsurf, Kilo Code, and anything else that reads these files.
 
 > **Note:** Synced files contain inferences derived from your code. Review them before sharing, especially in team or open-source repos. Best-effort redaction applies to signals, but rule text may reflect patterns from proprietary code.
+
+### Take your whole profile anywhere
+
+`cch export` writes your habits **and** memories into one shareable, redacted file, no flags needed (`--habits-only` if you want habits alone). Drop it on a new machine, or hand it to a teammate, and `cch import` merges it: your own exports restore at full trust, while profiles from another machine re-earn trust locally through the normal two-session graduation, so a shared file can never inject instant "active" rules.
+
+```bash
+cch export                  # ./cc-habits-profile.md, habits + memories
+cch import profile.md       # merge; foreign habits re-earn trust locally
+```
 
 ### Auto-sync on session end
 
