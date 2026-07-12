@@ -306,7 +306,7 @@ The core CLI is pure Node.js and runs anywhere Node 20+ runs. The pieces that ne
 
 ### Ollama Quickstart
 
-Running extraction locally with Ollama is the strongest privacy story: **nothing leaves your machine**.
+Running extraction through Ollama with a **local** model is the strongest privacy story: nothing leaves your machine. (Ollama `-cloud` models run on Ollama's servers, and `cch status` will say so honestly.)
 
 1. **Install Ollama**: `brew install ollama` (macOS) or download from [ollama.com](https://ollama.com/download) (Windows/Linux)
 2. **Pull a small model**: `ollama pull llama3.2:1b` (or your preferred model)

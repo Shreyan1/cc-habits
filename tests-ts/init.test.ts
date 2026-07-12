@@ -58,10 +58,10 @@ describe('Fix 3, bootstrap prompt default is Y', () => {
 
   it('bootstrap prompt text contains [Y/n]', () => {
     const src = readCli();
-    const bootstrapLine = src
-      .split('\n')
-      .find(l => l.includes('Bootstrap habits from past sessions?'));
-    expect(bootstrapLine).toBeDefined();
+    // Multi-line tolerant: assert the prompt string itself carries the
+    // default-Yes marker, wherever the call happens to be formatted.
+    expect(src).toMatch(/Bootstrap habits from past sessions\?[^']*\[Y\/n\]/);
+    expect(src).not.toMatch(/Bootstrap habits from past sessions\?[^']*\[y\/N\]/);
   });
 });
 

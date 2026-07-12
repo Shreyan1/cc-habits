@@ -1412,8 +1412,8 @@ export function cmdStatus(proof = false): number {
     providerVal = c(BOLD, provider) + c(YELLOW, '  configured, no API key found');
   } else {
     providerVal =
-      c(YELLOW, "No provider configured") +
-      c(DIM, "  extraction paused, capture continues. Run `cch init` to add a key, or install Ollama.");
+      c(YELLOW, 'No provider configured') +
+      c(DIM, '  extraction paused, capture continues. Run `cch init` to add a key, or install Ollama.');
   }
   // Honesty flag: an Ollama `-cloud` model is not local. Keep the in-cell marker
   // short (the box truncates) and print the full explanation below the box.
