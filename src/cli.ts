@@ -2172,6 +2172,20 @@ export async function cmdLearn(opts: { session?: string; since?: number; interac
   }
   
   if (filtered.length < 3) {
+    // An explicit scope flag (--session or --since) asked to learn from the capture
+    // log specifically. Silently switching to a full repo scan would break least
+    // surprise: it is a bigger, differently scoped job (it writes this repo's .cch/
+    // store) that also spends LLM tokens the user never asked for. Report the
+    // shortfall honestly and stop, pointing at the command that does a repo scan.
+    // The repo-scan fallback stays only for a bare `cch learn`.
+    if (opts.session !== undefined || opts.since !== undefined) {
+      const scope = opts.session !== undefined
+        ? `session ${term(opts.session)}`
+        : `the last ${opts.since ?? 24}h`;
+      process.stdout.write(`  not enough signals for ${scope} in capture log (found ${filtered.length}).\n`);
+      process.stdout.write(c(DIM, '  Run "cch learn --repo" to scan this repository into its .cch/ store instead.\n'));
+      return 0;
+    }
     process.stdout.write(`  not enough signals in capture log (found ${filtered.length}). Falling back to repository scan...\n\n`);
     return cmdLearnRepo({ force: true });
   }
