@@ -4,9 +4,14 @@ name: publish
 # release event (rather than a raw tag push) keeps publishing a deliberate,
 # reviewable step: draft the release, then publish it to ship the package.
 #
+# Auth is npm Trusted Publishing (OIDC): no NPM_TOKEN secret, nothing to rotate
+# or leak. npm mints a short-lived credential from the GitHub Actions identity.
+#
 # Requirements:
-#   - Repository secret NPM_TOKEN: an npm automation token with publish rights
-#     to the cc-habits package (npmjs.com -> Access Tokens -> Generate -> Automation).
+#   - One-time setup on npmjs.com: package cc-habits -> Settings -> Trusted
+#     Publisher -> GitHub Actions, with owner Shreyan1, repository cc-habits,
+#     workflow filename publish.yml (no environment).
+#   - npm >= 11.5.1 on the runner (the upgrade step below guarantees this).
 #   - The release tag must be v<version> and match package.json (e.g. tag v0.8.0
 #     for "version": "0.8.0"). The guard below fails the run on a mismatch so a
 #     mistagged release never publishes the wrong version.
@@ -35,6 +40,10 @@ jobs:
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
+      # Trusted Publishing needs npm >= 11.5.1; node 20 ships npm 10.
+      - name: Update npm for OIDC trusted publishing
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: npm ci
 
@@ -58,7 +67,8 @@ jobs:
           fi
           echo "Version check passed: $TAG"
 
+      # No token: with a trusted publisher configured on npmjs.com, npm >= 11.5.1
+      # exchanges the workflow's OIDC identity for a short-lived publish credential.
+      # Provenance attestation comes with it for free.
       - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
