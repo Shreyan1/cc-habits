@@ -251,7 +251,7 @@ describe('C4: export and import', () => {
     const incoming = serialiseHabits({
       TS: [{ rule: 'Incoming rule', confidence: 0.8, reinforcing: 5, contradicting: 0, sessions_seen: 4 }],
     });
-    const result = importHabits(incoming);
+    const result = importHabits(incoming, { trusted: true });
     expect(result.added).toBe(1);
     const md = readHabitsMd();
     expect(md).toContain('Local rule');
@@ -265,12 +265,24 @@ describe('C4: export and import', () => {
     const incoming = serialiseHabits({
       TS: [{ rule: 'Use strict mode', confidence: 0.80, reinforcing: 5, contradicting: 1, sessions_seen: 4 }],
     });
-    const result = importHabits(incoming);
+    const result = importHabits(incoming, { trusted: true });
     expect(result.merged).toBe(1);
     expect(result.added).toBe(0);
     const cats = parseHabits(readHabitsMd());
     expect(cats['TS']![0].confidence).toBeCloseTo(0.80);
     expect(cats['TS']![0].reinforcing).toBe(8); // 3 + 5
     expect(cats['TS']![0].sessions_seen).toBe(4);
+  });
+
+  it('an untrusted import clamps incoming session history (graduation is earned locally)', () => {
+    writeHabitsMd(serialiseHabits({
+      TS: [{ rule: 'Use strict mode', confidence: 0.60, reinforcing: 3, contradicting: 0, sessions_seen: 2 }],
+    }));
+    const incoming = serialiseHabits({
+      TS: [{ rule: 'Use strict mode', confidence: 0.80, reinforcing: 5, contradicting: 1, sessions_seen: 4 }],
+    });
+    importHabits(incoming, { trusted: false });
+    const cats = parseHabits(readHabitsMd());
+    expect(cats['TS']![0].sessions_seen).toBe(2); // local value kept, claimed 4 ignored
   });
 });

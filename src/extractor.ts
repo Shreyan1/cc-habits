@@ -5,6 +5,13 @@ import { selectProviderAsync, REQUEST_TIMEOUT_MS, REPO_SCAN_TIMEOUT_MS } from '.
 
 const MAX_SIGNALS = 50; // D17: cap signals to bound prompt size and cost
 
+// Completion cap for every extraction call. It is a ceiling, not a target, so
+// non-reasoning models pay nothing extra. It must be generous because reasoning
+// models (GLM-5.2, o-series, DeepSeek R1) spend the same budget on hidden
+// reasoning before the answer: at 1024 GLM-5.2 burned the whole cap reasoning
+// and returned empty content, silently failing extraction.
+const EXTRACTION_MAX_TOKENS = 4096;
+
 const EXTRACTION_PROMPT = `You are analyzing a developer's coding session to extract their coding habits.
 
 INPUT:
@@ -80,7 +87,7 @@ export async function extractRules(
     },
   );
 
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REQUEST_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REQUEST_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
 
@@ -175,7 +182,7 @@ export async function extractMemoryCandidates(
     m => m === '{signals_json}' ? signalsJson : memoriesMd,
   );
 
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REQUEST_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REQUEST_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
 
@@ -268,7 +275,7 @@ export async function lintFile(filePath: string, fileContent: string, habitsMd: 
       return habitsMd;
     },
   );
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REQUEST_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REQUEST_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
   try {
@@ -391,7 +398,7 @@ export async function extractHabitsFromRepo(
     },
   );
 
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REPO_SCAN_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REPO_SCAN_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
   try {
@@ -416,7 +423,7 @@ export async function extractMemoriesFromDocs(
     m => m === '{docs_block}' ? docsBlock : memoriesMd,
   );
 
-  const raw = await provider.generate(prompt, { maxTokens: 1024, timeoutMs: REPO_SCAN_TIMEOUT_MS });
+  const raw = await provider.generate(prompt, { maxTokens: EXTRACTION_MAX_TOKENS, timeoutMs: REPO_SCAN_TIMEOUT_MS });
   if (!raw) return [];
   const cleaned = stripCodeFences(raw);
   try {

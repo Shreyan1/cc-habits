@@ -251,6 +251,11 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
       return ['cch view              see current habits'];
 
     case 'export':
+      return [
+        'share the exported file with a teammate or your other machine',
+        'cch import <file>     merges it there (habits from others re-earn trust locally)',
+      ];
+
     case 'reset':
       return undefined;
 

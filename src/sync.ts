@@ -11,6 +11,13 @@ import { sanitizeRule, sanitizeCategory } from './confidence';
 export const BEGIN_MARKER = '<!-- BEGIN cc-habits (auto-generated; edit habits via `cc-habits`) -->';
 export const END_MARKER = '<!-- END cc-habits -->';
 
+// One attribution line inside every managed block. It lives in the synced
+// project files only, never in preferences.md (which feeds prompts directly),
+// and as an HTML comment it reads as provenance to a human opening the file
+// while staying near-zero noise for the agents that consume it. Because it
+// sits between the markers, re-syncs replace it rather than accumulate it.
+export const ATTRIBUTION_LINE = '<!-- Learned automatically by cc-habits: https://github.com/Shreyan1/cc-habits -->';
+
 export type SyncTarget = 'agents' | 'cursor' | 'copilot' | 'gemini' | 'cline' | 'aider' | 'continue' | 'jetbrains' | 'windsurf' | 'kilo';
 
 const DEFAULT_MIN_CONFIDENCE = 0.3;
@@ -91,7 +98,7 @@ export function renderBlockOrNull(minConfidence = DEFAULT_MIN_CONFIDENCE): strin
 // Insert or replace the cc-habits block in existing content. Everything outside the
 // markers is preserved verbatim, so a hand-written AGENTS.md keeps its own content.
 export function mergeBlock(existing: string, body: string): string {
-  const block = `${BEGIN_MARKER}\n${body}\n${END_MARKER}`;
+  const block = `${BEGIN_MARKER}\n${body}\n${ATTRIBUTION_LINE}\n${END_MARKER}`;
   const begin = existing.indexOf(BEGIN_MARKER);
   const end = existing.indexOf(END_MARKER);
   if (begin !== -1 && end !== -1 && end > begin) {
@@ -113,6 +120,7 @@ function cursorMdc(body: string): string {
     '---',
     '',
     body,
+    ATTRIBUTION_LINE,
     '',
   ].join('\n');
 }

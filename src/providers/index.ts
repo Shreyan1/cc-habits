@@ -24,6 +24,7 @@ export interface ProviderConfig {
   anthropic_api_key?: string;
   openai_api_key?: string;
   openai_model?: string;
+  openai_base_url?: string;
   groq_api_key?: string;
   groq_model?: string;
   ollama_url?: string;
@@ -60,6 +61,7 @@ function readConfig(): ProviderConfig {
     cfg.anthropic_api_key = read('anthropic_api_key');
     cfg.openai_api_key = read('openai_api_key');
     cfg.openai_model = read('openai_model');
+    cfg.openai_base_url = read('openai_base_url');
     cfg.groq_api_key = read('groq_api_key');
     cfg.groq_model = read('groq_model');
     cfg.ollama_url = read('ollama_url');
@@ -68,6 +70,28 @@ function readConfig(): ProviderConfig {
     // fall through to default
   }
   return cfg;
+}
+
+// Validates an optional openai_base_url read out of config.yml, for OpenAI-
+// compatible endpoints (GLM/Zhipu, OpenRouter, DeepSeek, Together, ...). The
+// API key is sent as a bearer token on every request, so the endpoint must be
+// https:// except for a bare localhost/127.0.0.1 gateway, which has no TLS to
+// offer. Called from selectProvider (not from readConfig itself) so that the
+// many read-only callers of readConfig, e.g. hasUsableProvider,
+// resolveProviderLabel, checkProviderReady, stay fail-open and never crash on
+// a bad config value they do not even use; only the actual openai path that
+// depends on the value throws, mirroring the existing "key not set" error.
+function assertValidOpenAiBaseUrl(rawUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`openai_base_url "${rawUrl}" is not a valid URL. Use an https:// URL, e.g. https://api.z.ai/api/paas/v4.`);
+  }
+  const isLocalHttp = parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1');
+  if (parsed.protocol !== 'https:' && !isLocalHttp) {
+    throw new Error(`openai_base_url must use https:// (http:// is only allowed for localhost/127.0.0.1 gateways). Got "${rawUrl}".`);
+  }
 }
 
 // Human-readable name of the provider extraction will actually use, honoring the
@@ -218,7 +242,11 @@ export function selectProvider(): Provider {
   if (chosen === 'openai') {
     const key = process.env['OPENAI_API_KEY'] ?? cfg.openai_api_key;
     if (!key) throw new Error('OpenAI provider selected but OPENAI_API_KEY/openai_api_key not set.');
-    return new OpenAIProvider(key, cfg.openai_model ?? 'gpt-4o-mini');
+    // The model name is passed through unchanged, no allowlist: a custom
+    // base_url points at an OpenAI-compatible endpoint that may serve models
+    // OpenAI itself never heard of (e.g. glm-4.6, deepseek-chat).
+    if (cfg.openai_base_url) assertValidOpenAiBaseUrl(cfg.openai_base_url);
+    return new OpenAIProvider(key, cfg.openai_model ?? 'gpt-4o-mini', cfg.openai_base_url);
   }
   if (chosen === 'groq') {
     const key = process.env['GROQ_API_KEY'] ?? cfg.groq_api_key;

@@ -155,8 +155,8 @@ describe('Layer 5: End-to-End Isolation Tests', () => {
 `;
       writeMemoriesMd(memoriesWithSecrets);
 
-      // Build exported profile bundle
-      const exported = buildProfile({ version: '1.0.0', includeMemories: true });
+      // Build exported profile bundle (memories are included by default)
+      const exported = buildProfile({ version: '1.0.0' });
 
       // Verifications
       expect(exported).toContain('<!-- cc-habits profile');
