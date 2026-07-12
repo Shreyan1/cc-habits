@@ -67,8 +67,49 @@ export function detectInstalledTools(): ToolInfo[] {
       settingsPath: path.join(home, 'Documents', 'Cline', 'Rules', 'Hooks'),
     });
   }
+  if (isKiloCodeInstalled()) {
+    tools.push({
+      id: 'kilo',
+      name: 'Kilo Code',
+      // Kilo has no hook settings file (it has no hooks at all). Point at the
+      // rules file cc-habits owns, so `cch status --proof` has somewhere honest
+      // to point rather than a made-up hook path.
+      settingsPath: path.join(home, '.kilocode', 'rules', 'cch.md'),
+    });
+  }
 
   return tools;
+}
+
+/**
+ * Detects the Kilo Code VS Code extension (kilocode.ai, a fork of Roo/Cline).
+ * Kilo has no shell-command hook system, their GitHub issue #5827 requesting
+ * hooks was closed as not-planned, so cc-habits cannot capture edits from it.
+ * This detection exists only to offer injection (AGENTS.md + rules-directory
+ * sync), never capture hook registration.
+ *
+ * VS Code extensions install into a per publisher.name-version folder under the
+ * extensions directory, e.g. ~/.vscode/extensions/kilocode.kilo-code-4.68.0.
+ * Checks both the stable and Insiders extension directories. Best-effort and
+ * never throws, a missing or unreadable directory is simply not a match.
+ */
+export function isKiloCodeInstalled(): boolean {
+  try {
+    const home = os.homedir();
+    const extensionDirs = [
+      path.join(home, '.vscode', 'extensions'),
+      path.join(home, '.vscode-insiders', 'extensions'),
+    ];
+    return extensionDirs.some(dir => {
+      try {
+        return fs.readdirSync(dir).some(entry => entry.startsWith('kilocode.kilo-code'));
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
 }
 
 /**

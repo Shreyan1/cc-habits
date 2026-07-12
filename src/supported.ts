@@ -19,6 +19,11 @@ export const SUPPORTED_TOOLS: SupportedTool[] = [
   { id: 'cursor',      name: 'Cursor',      capture: 'Git commits (or VS Code extension)', inject: '.cursor rules sync' },
   { id: 'cline',       name: 'Cline/RooCode', capture: 'hooks (PostToolUse, Stop)', inject: '.clinerules sync' },
   { id: 'windsurf',    name: 'Windsurf',    capture: 'Git commits', inject: 'rules sync' },
+  // Kilo Code has no hook API (its GitHub issue #5827 requesting hooks was
+  // closed as not-planned), so capture is not supported, not "coming soon".
+  // Injection works well: Kilo reads AGENTS.md natively, and cc-habits also
+  // writes .kilo/rules/cch.md and .kilocode/rules/cch.md directly.
+  { id: 'kilo',        name: 'Kilo Code',   capture: 'not supported (no hook API)', inject: 'AGENTS.md @import + .kilo/.kilocode rules sync' },
   { id: 'git',         name: 'Any Git workflow', capture: 'git-capture (commits)', inject: 'AGENTS.md sync' },
 ];
 

@@ -391,6 +391,14 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
         }
       } else if (tool.id === 'cursor') {
         process.stdout.write(`  ${dash} Cursor has no hooks; enable Git capture below to learn from its edits.\n`);
+      } else if (tool.id === 'kilo') {
+        // Kilo has no hook API at all (not just an omission we could enable), so
+        // there is no capture prompt here, only honest injection: it reads
+        // AGENTS.md natively, and cc-habits also writes its own rules files.
+        process.stdout.write(`  ${dash} Kilo Code has no hook API; sessions in Kilo are not captured.\n`);
+        process.stdout.write(`    Habits will inject via AGENTS.md and .kilocode/rules/cch.md.\n`);
+        syncTargetsToEnable.add('agents');
+        syncTargetsToEnable.add('kilo');
       }
     }
     // Persist the injection targets for the tools just registered so processStop
@@ -399,7 +407,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
     // Gemini/Cline read a synced file and would otherwise need a manual `cch sync`.
     if (syncTargetsToEnable.size > 0) {
       addSyncTargets([...syncTargetsToEnable]);
-      const fileFor: Record<string, string> = { agents: 'AGENTS.md', gemini: 'GEMINI.md', cline: '.clinerules' };
+      const fileFor: Record<string, string> = { agents: 'AGENTS.md', gemini: 'GEMINI.md', cline: '.clinerules', kilo: '.kilocode/rules' };
       const files = [...syncTargetsToEnable].map(t => fileFor[t] ?? t).join(', ');
       process.stdout.write(`  ${tick} Auto-sync enabled: learned habits will refresh ${files} after each session.\n`);
     }
@@ -1351,6 +1359,12 @@ export function cmdStatus(proof = false): number {
           hookRows.push(line(`${git}  ${pad(c(BOLD, 'Cursor'), NAMEW)}  ${desc}`));
           continue;
         }
+        if (tool.id === 'kilo') {
+          // Kilo has no hook API, so "not registered, run `cch init`" would be a
+          // lie, there is nothing to register. State the real, working path.
+          hookRows.push(line(`${git}  ${pad(c(BOLD, 'Kilo Code'), NAMEW)}  ${c(DIM, 'inject-only · AGENTS.md + .kilocode/rules')}`));
+          continue;
+        }
         const files      = hookProofPaths(tool.id, tool.settingsPath);
         const entries    = files.flatMap(f => readRegisteredHooks(f).map(h => ({ ...h, file: f })));
         const registered = tool.id === 'claude-code' ? areHooksRegistered() : entries.length > 0;
@@ -1917,7 +1931,7 @@ export async function cmdImport(source: string): Promise<number> {
 }
 
 // sync (Patch 1: portable AGENTS.md / Cursor / Cline emitter) ───────────────
-const VALID_SYNC_TARGETS: SyncTarget[] = ['agents', 'cursor', 'copilot', 'gemini', 'cline', 'aider', 'continue', 'jetbrains', 'windsurf'];
+const VALID_SYNC_TARGETS: SyncTarget[] = ['agents', 'cursor', 'copilot', 'gemini', 'cline', 'aider', 'continue', 'jetbrains', 'windsurf', 'kilo'];
 
 export function cmdSync(rawTargets: string[], dir?: string): number {
   // Default target is AGENTS.md, the cross-tool standard. `all` expands to every target.

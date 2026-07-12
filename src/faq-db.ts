@@ -67,6 +67,13 @@ export const FAQ_DATABASE: FAQEntry[] = [
     answer: 'Yes, your habits still inject. Google retired the consumer Gemini CLI on 2026-06-18 and moved everyone to its new Antigravity CLI (the `agy` binary). cc-habits keeps injecting your learned habits into Antigravity through GEMINI.md, which it still reads, so nothing you have learned is lost. The one piece on hold is automatic edit capture from Antigravity: Google relocated hooks into a new format it has not finalized publicly, so we are deliberately not registering capture hooks that would silently never fire. We are tracking Google\'s migration and will ship Antigravity capture the moment the format is public. In the meantime, `cch bootstrap` and git capture still record your edits.'
   },
   {
+    id: 'kilo-code-support',
+    category: 'Getting Started',
+    question: 'Does cc-habits work with Kilo Code?',
+    keywords: ['kilo', 'kilocode', 'kilo code', 'roo', 'roocode', 'vscode', 'extension', 'inject only', 'no hooks'],
+    answer: 'Yes, inject-only. Kilo Code has no hook API to capture edits from, its own GitHub issue requesting hooks was closed as not-planned, so cc-habits cannot see your Kilo sessions and does not pretend to. What does work is injection: Kilo reads AGENTS.md natively, and `cch sync` also writes your learned habits straight into `.kilo/rules/cch.md` and `.kilocode/rules/cch.md` (both directories are read by current versions of the extension), so habits you learned in Claude Code or another capture-supported tool still reach Kilo. Run `cch init` to detect Kilo Code and wire up injection, or `cch sync kilo` to write the rules file directly.'
+  },
+  {
     id: 'where-is-habits-file',
     category: 'Getting Started',
     question: 'Where are my habits stored?',
