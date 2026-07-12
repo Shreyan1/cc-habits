@@ -187,11 +187,29 @@ export function nextSteps(command: string, args: string[]): string[] | undefined
     case 'view': {
       const steps = [];
       steps.push('cch sync              share habits with your other tools');
+      if (state.hasHabits) {
+        steps.push('cch export            share your habits as a portable file');
+      }
       if (state.memoriesOn && state.hasMemories) {
         steps.push('cch memories          show coding memories');
       }
       steps.push('cch status            check setup health and recent activity');
       return steps.slice(0, 3);
+    }
+
+    // Health check anytime, so the follow-up depends on what state is missing:
+    // no provider -> init, provider but no habits yet -> bootstrap/learn, else
+    // the same daily-flow steps (view, sync) that follow a fresh learn.
+    case 'status': {
+      if (!state.hasProvider) {
+        return ['cch init              configure an AI provider to start extracting habits'];
+      }
+      if (!state.hasHabits) {
+        return [state.hasPastSessions
+          ? 'cch bootstrap         bootstrap habits from past Claude Code transcripts'
+          : 'cch learn             learn this repo or a session to start building habits'];
+      }
+      return ['cch view              see current habits', 'cch sync              share habits with your other tools'];
     }
 
     case 'log':

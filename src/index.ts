@@ -68,10 +68,10 @@ const HELP = `cc-habits ${VERSION}, A tool-agnostic coding memory layer for deve
 
 Daily flow (the handful you actually use, like core git commands):
   cch init      set up this project once (hooks, provider, habit injection)
-  cch status    check it is healthy and injecting your habits
-  cch view      see what it has learned (habits + memories, no flags needed)
   cch learn     refresh habits now (add --repo to scan this repo's code)
+  cch view      see what it has learned (habits + memories, no flags needed)
   cch sync      share habits with your other tools (AGENTS.md, Cursor, Cline)
+  cch status    check it is healthy and injecting your habits
   Everything below is for when you need it, like the deeper git commands.
 
 Usage:

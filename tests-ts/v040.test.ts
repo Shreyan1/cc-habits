@@ -401,8 +401,8 @@ describe('v0.4.0: interactive menu helpers', () => {
     expect(firstLine).toContain('❯');
   });
 
-  it('contains tools and learn as the first options in MENU_ITEMS', () => {
-    expect(MENU_ITEMS[0].label).toBe('tools');
+  it('contains init and learn as the first options in MENU_ITEMS, mirroring the daily flow', () => {
+    expect(MENU_ITEMS[0].label).toBe('init');
     expect(MENU_ITEMS[1].label).toBe('learn');
   });
 });
