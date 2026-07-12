@@ -73,6 +73,22 @@ const URL_RE = /\bhttps?:\/\/\S+/gi;
 // it prevents a poisoned habit from carrying a payload that later confuses an LLM
 // or human reviewer into thinking the command should be run.
 const SHELL_SUBST = /`[^`]*`|\$\([^)]*\)/g;
+// A backtick span whose content is one short benign code identifier (`const`,
+// `let`, `client.release()`) carries the rule's meaning and no shell power: no
+// whitespace, and none of $ \ ; | & < > / ~ ' " * ? { } so it cannot name a
+// path, pipe, chain, glob, or substitute anything. Flattening those to [cmd]
+// destroyed rule text ("Use [cmd] instead of [cmd]"), so replaceShellSubst keeps
+// the bare token instead, with the backticks stripped so nothing that even looks
+// executable survives. $() expansion and every non-matching span still flatten.
+const BENIGN_CODE_TOKEN = /^[A-Za-z_][A-Za-z0-9_.()-]{0,30}$/;
+
+function replaceShellSubst(x: string): string {
+  return x.replace(SHELL_SUBST, (m: string): string => {
+    if (!m.startsWith('`')) return '[cmd]';
+    const inner = m.slice(1, -1);
+    return BENIGN_CODE_TOKEN.test(inner) ? inner : '[cmd]';
+  });
+}
 // C0 controls, DEL, and the C1 range (\x80-\x9f). C1 carries the 8-bit forms of
 // CSI (\x9b) and OSC (\x9d): on terminals that honor 8-bit controls a rule could
 // otherwise smuggle a live ANSI escape into `cch view`/`cch status` output or into
@@ -173,7 +189,7 @@ function rulePass(x: string): string {
   x = x.replace(INJECTION_KEYWORDS, '[redacted]');
   x = x.replace(TAG_TOKEN, '[redacted]');
   x = x.replace(URL_RE, '[url]');
-  x = x.replace(SHELL_SUBST, '[cmd]');
+  x = replaceShellSubst(x);
   x = x.replace(/\s+/g, ' ').trim();
   return x;
 }
