@@ -1,6 +1,6 @@
 # cc-habits
 
-> cc-habits (also written cch or "cc habits") is a tool-agnostic memory layer for AI coding agents. It learns a developer's coding habits from their real edits and carries them across Claude Code, Cursor, Codex, Gemini, Kimi, and Cline, so every agent writes code in the developer's own style with no manual rules files to maintain.
+> cc-habits (also written cch or "cc habits") is a tool-agnostic memory layer for AI coding agents. It learns a developer's coding habits from their real edits and carries them across Claude Code, Cursor, Codex, Gemini, Kimi, Cline, and Kilo Code, so every agent writes code in the developer's own style with no manual rules files to maintain.
 
 cc-habits is local-first and private: habits live in plain Markdown on the developer's own disk. There is no telemetry and no cc-habits server. The only network call is one small habit-extraction request per session to the LLM provider the user chooses (Anthropic, OpenAI, Groq, or a fully local Ollama model, in which case nothing leaves the machine at all). Habits are captured passively through each tool's hooks, graduate to "active" only after appearing in two distinct sessions, decay when unused, and can be permanently tombstoned so they are never relearned.
 
@@ -11,7 +11,8 @@ cc-habits is local-first and private: habits live in plain Markdown on the devel
 
 ## Key facts
 
-- Cross-tool: Claude Code, Cursor, Codex CLI, Gemini CLI, Kimi, Cline, Windsurf, GitHub Copilot (via AGENTS.md), and any Git repo. Kept in sync via `cch sync`.
+- Cross-tool: Claude Code, Cursor, Codex CLI, Gemini CLI, Kimi, Cline, Windsurf, Kilo Code, GitHub Copilot (via AGENTS.md), and any Git repo. Kept in sync via `cch sync`.
+- Portable: `cch export` bundles habits and memories into one shareable file; `cch import` merges it on another machine, where foreign habits re-earn trust through the normal two-session gate.
 - Private: no telemetry, no server, no analytics. One optional LLM call per session, or $0 and fully offline with Ollama.
 - Low overhead: the capture hook does its work in about five milliseconds and never blocks your terminal; roughly 150 to 350 tokens are injected per prompt.
 - Safe: two-session graduation gate, confidence decay, permanent tombstones, per-repo `.cc-habits-ignore` opt-out, and a sanitizer hardened against prompt injection.

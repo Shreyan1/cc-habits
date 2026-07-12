@@ -120,16 +120,17 @@
           "operatingSystem": "macOS, Linux, Windows (Node.js 20+)",
           "url": "https://shreyan1.github.io/cc-habits/",
           "downloadUrl": "https://www.npmjs.com/package/cc-habits",
-          "softwareVersion": "0.8.0",
-          "description": "cc-habits (cch) is a tool-agnostic, local-first memory layer for AI coding agents. It passively learns a developer's coding habits from their real edits and carries them across Claude Code, Cursor, Codex, Gemini, Kimi, Cline, and any Git workflow, so every agent writes code in the developer's own style, with no manual rules files to maintain. No telemetry, no server, no analytics.",
+          "softwareVersion": "0.9.0",
+          "description": "cc-habits (cch) is a tool-agnostic, local-first memory layer for AI coding agents. It passively learns a developer's coding habits from their real edits and carries them across Claude Code, Cursor, Codex, Gemini, Kimi, Cline, Kilo Code, and any Git workflow, so every agent writes code in the developer's own style, with no manual rules files to maintain. No telemetry, no server, no analytics.",
           "featureList": [
             "Learns coding habits automatically from your real edits",
-            "Syncs one memory profile across Claude Code, Cursor, Codex, Gemini, Kimi, Cline, and any Git repo",
+            "Syncs one memory profile across Claude Code, Cursor, Codex, Gemini, Kimi, Cline, Kilo Code, and any Git repo",
+            "Portable profile: cch export bundles habits and memories into one shareable file; imports from other machines re-earn trust locally",
             "Local-first and private: no telemetry, no server, no analytics",
             "Runs free and fully offline with Ollama, or one small extraction call to a provider you choose",
             "Two-session graduation gate, confidence decay, and permanent tombstones keep your context clean"
           ],
-          "keywords": "cc-habits, cch, coding habits, AI coding memory, memory layer, Claude Code, Cursor, Codex, Gemini, Cline, AGENTS.md",
+          "keywords": "cc-habits, cch, coding habits, AI coding memory, memory layer, Claude Code, Cursor, Codex, Gemini, Cline, Kilo Code, AGENTS.md",
           "license": "https://github.com/Shreyan1/cc-habits/blob/main/LICENSE",
           "author": { "@id": "https://shreyan1.github.io/cc-habits/#person" },
           "offers": {
@@ -195,7 +196,7 @@
 
     <!-- App: single pre-built, minified bundle (React compiled in, no runtime
          transpile, no third-party CDN). Built from *.jsx via `npm run build`. -->
-    <link rel="preload" href="app.js?v=7" as="script" />
+    <link rel="preload" href="app.js?v=8" as="script" />
   </head>
   <body>
     <!-- Interactive app mounts here (JS visitors). -->
@@ -240,8 +241,8 @@ cch init</code></pre>
       <h2>Works with your whole toolchain</h2>
       <p>
         One memory profile, synced everywhere: Claude Code, Cursor, Codex CLI,
-        Gemini CLI, Kimi, Cline, Windsurf, GitHub Copilot (via AGENTS.md), and
-        any Git repository. Run <code>cch sync</code> to write your active habits
+        Gemini CLI, Kimi, Cline, Windsurf, Kilo Code, GitHub Copilot (via AGENTS.md),
+        and any Git repository. Run <code>cch sync</code> to write your active habits
         into <code>AGENTS.md</code>, <code>.cursor/rules</code>, and
         <code>.clinerules</code>.
       </p>
@@ -298,6 +299,6 @@ cch init</code></pre>
       </footer>
     </main>
 
-    <script src="app.js?v=7" defer></script>
+    <script src="app.js?v=8" defer></script>
   </body>
 </html>
