@@ -32,7 +32,7 @@ import { runSelectMenu } from './menu';
 import { registerHooks, addImportToClaudeMd, installLocalGitHook, installGlobalGitTemplateHook, registerJsonHooks, registerCodexHooks, registerKimiHooks, registerClineHooks, resolveHookBinaryPath, deregisterHooks, removeImportFromClaudeMd, uninstallLocalGitHook, uninstallGlobalGitTemplateHook, deregisterJsonHooks, deregisterKimiHooks, deregisterClineHooks, areHooksRegistered, hookProofPaths, readRegisteredHooks, installPaths } from './install';
 import { computeDiff } from './diff';
 import { explainHabit } from './explain';
-import { exportProfile, importHabits, fetchProfile } from './portable';
+import { exportProfile, importHabits, fetchProfile, isOwnBundle } from './portable';
 import { lintPath } from './lint';
 import { discoverSessions, bootstrap, type SessionFile } from './bootstrap';
 import { scanRepo, type RepoScanResult } from './repo-scan';
@@ -49,7 +49,7 @@ import { detectInstalledTools, isAntigravityMigrated } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.8.1';
+export const VERSION = '0.8.2';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -1889,11 +1889,26 @@ export async function cmdImport(source: string): Promise<number> {
     incoming = fs.readFileSync(source, 'utf-8');
   }
 
-  const result = importHabits(incoming);
+  // Trust decision: this machine's own export keeps its habit history verbatim.
+  // Anything else (another machine, another person, a bare habits.md) is asked
+  // about once; a "no" (or a non-interactive run) means imported habits re-earn
+  // graduation locally before they can inject or sync.
+  let trusted = isOwnBundle(incoming);
+  if (!trusted && process.stdin.isTTY && process.stdout.isTTY) {
+    trusted = await promptYesNo('  Is this an export from your own machine? Trust its habit history? [y/N] ');
+  }
+
+  const result = importHabits(incoming, { trusted });
   const memNote = result.memoriesImported !== undefined && result.memoriesImported > 0
     ? `, ${result.memoriesImported} memories imported`
     : '';
-  process.stdout.write(`  imported: ${result.added} new habit${result.added === 1 ? '' : 's'}, ${result.merged} merged${memNote}\n`);
+  const skipNote = result.skipped > 0
+    ? `, ${result.skipped} skipped (previously deleted by you)`
+    : '';
+  process.stdout.write(`  imported: ${result.added} new habit${result.added === 1 ? '' : 's'}, ${result.merged} merged${memNote}${skipNote}\n`);
+  if (!trusted && result.added > 0) {
+    process.stdout.write(c(DIM, '  imported habits start as learning; they activate after being seen in 2 of your own sessions\n'));
+  }
   return 0;
 }
 
