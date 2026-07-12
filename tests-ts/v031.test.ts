@@ -134,8 +134,11 @@ describe('nextSteps mapping', () => {
     expect(nextSteps('capture', [])?.some(s => s.includes('learn'))).toBe(true);
   });
 
+  it('suggests import on the other side after export', () => {
+    expect(nextSteps('export', [])?.some(s => s.includes('cch import'))).toBe(true);
+  });
+
   it('returns nothing for commands without a follow-up', () => {
-    expect(nextSteps('export', [])).toBeUndefined();
     expect(nextSteps('reset', [])).toBeUndefined();
   });
 });

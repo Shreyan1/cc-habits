@@ -1850,11 +1850,15 @@ export async function cmdBootstrap(): Promise<number> {
 }
 
 // export/import (C4) ───────────────────────────────────────────────────────
-export function cmdExport(outputPath?: string, includeMemories = false): number {
-  const content = exportProfile({ version: VERSION, outputPath, includeMemories });
-  if (outputPath) {
-    const note = includeMemories ? ' (habits + memories)' : '';
-    process.stdout.write(`  exported${note} to ${outputPath}\n`);
+export function cmdExport(outputPath?: string, habitsOnly = false): number {
+  // On a terminal with no path, write a shareable file instead of dumping
+  // markdown into the scrollback; piped output still streams to stdout so
+  // `cch export > f` and gist pipelines keep working.
+  const dest = outputPath ?? (process.stdout.isTTY ? 'cc-habits-profile.md' : undefined);
+  const content = exportProfile({ version: VERSION, outputPath: dest, habitsOnly });
+  if (dest) {
+    const note = content.includes('<!-- BEGIN memories -->') ? 'habits + memories' : 'habits';
+    process.stdout.write(`  exported ${note} to ${dest}\n`);
   } else {
     process.stdout.write(content);
   }

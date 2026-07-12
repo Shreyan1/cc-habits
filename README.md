@@ -677,8 +677,8 @@ cc-habits log [--limit N]             # show capture log, audit trail of what wa
 cc-habits diff [--since N]            # changes since the last write (or N writes ago)
 cc-habits explain "<rule>"            # show the signals that produced a habit
 cc-habits lint <file> [--json]        # check a source file against your habits
-cc-habits export [path]               # print habits.md (or write to path)
-cc-habits import <file>               # merge a portable habits file
+cc-habits export [path]               # write habits + memories as one shareable file (--habits-only to omit memories)
+cc-habits import <file>               # merge an exported profile; habits from other machines re-earn trust locally
 cc-habits sync [targets] [--dir P]    # write habits to AGENTS.md / Cursor / Cline / … (default: agents)
 cc-habits capture --file <p> --diff <d>  # append an edit signal from any tool (CLI capture adapter)
 cc-habits git-capture [--range r]     # learn from Git commits (HEAD~1..HEAD by default)
