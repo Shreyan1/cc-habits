@@ -33,6 +33,7 @@ export function getConfigValue(key: string, ctx?: StorageContext): string | unde
   for (const line of lines) {
     // Strip only trailing whitespace; preserve leading whitespace so the
     // column-0 anchor below correctly rejects hand-indented lines.
+    // Also skip blank lines and full-line comments.
     const trimmed = line.trimEnd();
     if (!trimmed || /^\s*#/.test(trimmed)) continue;
     // Only match keys anchored at column 0, consistent with setConfigValue.
@@ -45,7 +46,7 @@ export function getConfigValue(key: string, ctx?: StorageContext): string | unde
       for (let i = 0; i < val.length; i++) {
         const char = val[i];
         if (char === '\\') {
-          i++; // skip next char
+          i++; // skip escaped character
           continue;
         }
         if (char === '"' && !inSingleQuote) {

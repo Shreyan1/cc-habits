@@ -51,17 +51,17 @@ describe('Fix 3, bootstrap prompt default is Y', () => {
     expect(bootstrapLine).toBeDefined();
     // askYes wraps promptYesNoDefaultTrue: recommended mode auto-accepts, manual
     // mode falls back to the default-Yes prompt. Either way the default is Yes.
-    expect(bootstrapLine).toContain('askYes');
-    expect(bootstrapLine).not.toContain('promptYesNo('); // bare promptYesNo, not the DefaultTrue variant
+    expect(src).toMatch(/askYes\([\s\n]*'  Bootstrap habits from past sessions/);
+    // ensure it's not using bare promptYesNo
+    expect(src).not.toMatch(/promptYesNo\([\s\n]*'  Bootstrap habits from past sessions/);
   });
 
   it('bootstrap prompt text contains [Y/n]', () => {
     const src = readCli();
-    const bootstrapLine = src
-      .split('\n')
-      .find(l => l.includes('Bootstrap habits from past sessions?'));
-    expect(bootstrapLine).toContain('[Y/n]');
-    expect(bootstrapLine).not.toContain('[y/N]');
+    // Multi-line tolerant: assert the prompt string itself carries the
+    // default-Yes marker, wherever the call happens to be formatted.
+    expect(src).toMatch(/Bootstrap habits from past sessions\?[^']*\[Y\/n\]/);
+    expect(src).not.toMatch(/Bootstrap habits from past sessions\?[^']*\[y\/N\]/);
   });
 });
 

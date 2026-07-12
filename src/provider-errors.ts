@@ -17,9 +17,9 @@ export interface ExplainedError {
 export function explainProviderError(e: unknown): ExplainedError {
   if (e instanceof ProviderAuthError) {
     return {
-      what: 'Authentication failed.',
+      what: 'The provider rejected your API key as invalid or missing.',
       side: 'user-auth',
-      nextStep: 'Check your API key in ~/.cc-habits/config.yml. For CLI providers, re-run `cch init --provider <name>`.',
+      nextStep: 'Run `cch init` to set a valid key, or check your local CLI configuration.',
     };
   }
 

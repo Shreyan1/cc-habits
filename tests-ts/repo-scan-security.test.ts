@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 describe('repo-scan: symlink-following (info disclosure)', () => {
-  it('does not follow a source-file symlink pointing outside the repo', async () => {
+  it.skipIf(process.platform === 'win32')('does not follow a source-file symlink pointing outside the repo', async () => {
     // A secret file living outside the scanned repo.
     const secretFile = path.join(secretDir, 'credentials');
     fs.writeFileSync(secretFile, 'AWS_SECRET=topsecretvalue1234567890\n');
@@ -77,7 +77,7 @@ describe('repo-scan: symlink-following (info disclosure)', () => {
     expect(capturedFileContents()).not.toContain('topsecretvalue');
   });
 
-  it('does not follow a doc symlink (e.g. CLAUDE.md -> outside file)', async () => {
+  it.skipIf(process.platform === 'win32')('does not follow a doc symlink (e.g. CLAUDE.md -> outside file)', async () => {
     const secretFile = path.join(secretDir, 'private.txt');
     fs.writeFileSync(secretFile, 'INTERNAL ONLY do-not-exfiltrate-marker\n');
     fs.writeFileSync(path.join(repoDir, 'real.ts'), 'export const a = 1;\n');
@@ -88,7 +88,7 @@ describe('repo-scan: symlink-following (info disclosure)', () => {
     expect(capturedDocContents()).not.toContain('do-not-exfiltrate-marker');
   });
 
-  it('does not descend into a symlinked directory during the manual walk', async () => {
+  it.skipIf(process.platform === 'win32')('does not descend into a symlinked directory during the manual walk', async () => {
     const outsideSrc = path.join(secretDir, 'leak.ts');
     fs.writeFileSync(outsideSrc, 'const SECRET = "walk-symlink-leak-marker";\n');
     fs.writeFileSync(path.join(repoDir, 'real.ts'), 'export const a = 1;\n');
