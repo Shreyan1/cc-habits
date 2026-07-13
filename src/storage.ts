@@ -452,6 +452,80 @@ export function countSignals(sessionId?: string, ctx?: StorageContext): number {
   return count;
 }
 
+// Injection events (events.jsonl) ──────────────────────────────────────────
+// Proof-of-injection audit trail, separate from log.jsonl on purpose: every
+// log.jsonl consumer (extraction gating, liveness, banners) assumes one line
+// equals one captured edit, so injection events get their own file rather than
+// changing what "signal" means. Each line records that the prompt hook returned
+// learned context to a tool: metadata only (counts, tool, session), never the
+// injected text itself, which is already visible in preferences.md/habits.md.
+
+export interface InjectEvent {
+  ts: string;
+  type: 'inject';
+  session_id: string;
+  source: string;
+  habits: number;
+  memories: number;
+  scope: 'global' | 'merged';
+}
+
+const EVENTS_HEADER =
+  '// cc-habits injection log (events.jsonl): append-only proof of when learned\n' +
+  '// context was actually handed to a tool. One line per prompt where the\n' +
+  '// UserPromptSubmit hook returned habits or memories: timestamp, tool, session,\n' +
+  '// and how many rules went in. Metadata only, the injected text itself is your\n' +
+  '// own preferences.md/habits.md content. `cch view` renders this as the\n' +
+  '// activity graph. Empty? No injection has happened yet: habits must graduate\n' +
+  '// (2+ sessions) before anything is injected.\n';
+
+export function eventsFilePath(ctx?: StorageContext): string {
+  return path.join(getPaths(ctx).habitsDir, 'events.jsonl');
+}
+
+export function appendInjectEvent(event: InjectEvent, ctx?: StorageContext): void {
+  ensureDirs(ctx);
+  const file = eventsFilePath(ctx);
+  try {
+    if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
+      safeWrite(file, EVENTS_HEADER);
+    }
+  } catch { /* header seeding is best-effort; never block a prompt */ }
+  const safe: InjectEvent = {
+    ...event,
+    session_id: String(event.session_id).replace(STORAGE_CONTROL_CHARS, '').slice(0, 128),
+    source: String(event.source).replace(STORAGE_CONTROL_CHARS, '').slice(0, 32),
+  };
+  safeAppend(file, JSON.stringify(safe) + '\n');
+  trimIfNeeded(file, LOG_ROTATE_LINES);
+}
+
+export function readInjectEvents(ctx?: StorageContext): InjectEvent[] {
+  const file = eventsFilePath(ctx);
+  let raw: string;
+  try {
+    if (fs.statSync(file).size > MAX_LOG_READ_BYTES) {
+      logError(`readInjectEvents: events.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
+      return [];
+    }
+    raw = fs.readFileSync(file, 'utf-8');
+  } catch {
+    return []; // absent or unreadable: no events yet
+  }
+  const events: InjectEvent[] = [];
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const ev = JSON.parse(trimmed) as InjectEvent;
+      if (ev && ev.type === 'inject' && typeof ev.ts === 'string') events.push(ev);
+    } catch {
+      // header comment or malformed line: skip
+    }
+  }
+  return events;
+}
+
 export function readHabitsMd(ctx?: StorageContext): string {
   const paths = getPaths(ctx);
   if (!fs.existsSync(paths.habitsFile)) return HABITS_HEADER;

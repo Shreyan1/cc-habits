@@ -160,3 +160,36 @@ describe('extractMemoryCandidates', () => {
     expect(result[0].text).toContain('overwrite existing hook arrays');
   });
 });
+
+describe('extractRules prompt-instruction echo guard', () => {
+  beforeEach(() => {
+    process.env['CC_HABITS_PROVIDER'] = 'anthropic';
+    process.env['ANTHROPIC_API_KEY'] = 'test-key';
+  });
+
+  afterEach(() => {
+    delete process.env['CC_HABITS_PROVIDER'];
+    delete process.env['ANTHROPIC_API_KEY'];
+  });
+
+  it('drops rules that quote the prompt instruction text, keeps real ones', async () => {
+    const payload = [
+      { category: 'Exercises|Guidelines', rule: "Always follow the 'Single Declarative Sentence' rule in coding. This means stating a preference clearly", decision: 'create', matched_habit_id: '', reasoning: '' },
+      { category: 'Style', rule: 'CONSOLIDATE RELATED PREFERENCES into broad rules', decision: 'create', matched_habit_id: '', reasoning: '' },
+      { category: 'TypeScript', rule: 'Use explicit type annotations for function signatures', decision: 'create', matched_habit_id: '', reasoning: '' },
+    ];
+    mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: JSON.stringify(payload) }] });
+    const result = await extractRules([], '# Coding habits\n');
+    expect(result).toHaveLength(1);
+    expect(result[0].rule).toBe('Use explicit type annotations for function signatures');
+  });
+
+  it('does not drop ordinary documentation habits', async () => {
+    const payload = [
+      { category: 'Documentation', rule: 'Use sentence case for headings and second-person voice', decision: 'create', matched_habit_id: '', reasoning: '' },
+    ];
+    mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: JSON.stringify(payload) }] });
+    const result = await extractRules([], '');
+    expect(result).toHaveLength(1);
+  });
+});
