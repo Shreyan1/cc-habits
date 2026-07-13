@@ -502,15 +502,26 @@ export function appendInjectEvent(event: InjectEvent, ctx?: StorageContext): voi
 
 export function readInjectEvents(ctx?: StorageContext): InjectEvent[] {
   const file = eventsFilePath(ctx);
+  // fd-based open -> fstat -> read, mirroring countSignals: stat'ing the path and
+  // then reading it separately is a TOCTOU race (the file could be swapped for a
+  // symlink or grow between the calls), so size-check and read the same open fd.
   let raw: string;
+  let fd: number | null = null;
   try {
-    if (fs.statSync(file).size > MAX_LOG_READ_BYTES) {
+    const oNoFollow: number = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
+    fd = fs.openSync(file, fs.constants.O_RDONLY | oNoFollow);
+    if (fs.fstatSync(fd).size > MAX_LOG_READ_BYTES) {
       logError(`readInjectEvents: events.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
+      fs.closeSync(fd);
       return [];
     }
-    raw = fs.readFileSync(file, 'utf-8');
+    raw = fs.readFileSync(fd, 'utf-8');
+    fs.closeSync(fd);
   } catch {
-    return []; // absent or unreadable: no events yet
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* already closed */ }
+    }
+    return []; // absent, symlinked, or unreadable: no events yet
   }
   const events: InjectEvent[] = [];
   for (const line of raw.split('\n')) {
