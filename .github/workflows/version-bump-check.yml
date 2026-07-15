@@ -1,0 +1,50 @@
+name: version-bump-check
+
+# Enforces the PR checklist rule in CLAUDE.md: "Bump VERSION and package.json
+# together on any user-facing change." A prior PR shipped a real feature set
+# (new adapter, new provider, Windows fixes) with no version bump, and nothing
+# caught it. This job fails a PR that touches product source (src/**, minus
+# tests) without moving package.json's "version" field.
+#
+# Escape hatch: apply the `no-version-bump` label for changes that touch
+# src/** but are not user-facing (pure internal refactors, CI/test-only
+# helpers living under src/ for import reasons, etc).
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  check-version-bump:
+    name: user-facing src/ changes bump package.json version
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-version-bump') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Diff src/ and package.json against the base branch
+        run: |
+          BASE="origin/${{ github.event.pull_request.base.ref }}"
+          git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=1 >/dev/null 2>&1 || true
+          CHANGED=$(git diff --name-only "$BASE"...HEAD)
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          if ! echo "$CHANGED" | grep -q '^src/'; then
+            echo "No src/ changes in this PR. Nothing to check."
+            exit 0
+          fi
+
+          if ! echo "$CHANGED" | grep -qx 'package.json'; then
+            echo "::error::src/ changed but package.json was not touched. Bump VERSION (src/cli.ts) and the \"version\" field in package.json together, per the PR checklist in CLAUDE.md. If this change is not user-facing, add the 'no-version-bump' label instead."
+            exit 1
+          fi
+
+          if ! git diff "$BASE"...HEAD -- package.json | grep -qE '^[+-]\s*"version":'; then
+            echo "::error::src/ changed and package.json was touched, but its \"version\" field did not move. Bump VERSION (src/cli.ts) and package.json together, per the PR checklist in CLAUDE.md. If this change is not user-facing, add the 'no-version-bump' label instead."
+            exit 1
+          fi
+
+          echo "package.json version was bumped. OK."

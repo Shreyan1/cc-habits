@@ -13,5 +13,17 @@ export default defineConfig({
     // Run tests serially, storage paths are module-level mutable state
     pool: 'forks',
     maxWorkers: 1,
+    // Shuffle test and file order every run so a test that only passes because
+    // of leftover state from whatever ran before it (a module-level cache, an
+    // unreset mock) fails loudly instead of hiding until CI happens to reorder.
+    // Vitest logs the seed on failure; rerun with `--sequence.seed=<seed>` to
+    // reproduce a specific failing order locally.
+    sequence: {
+      shuffle: true,
+    },
+    // Explicit, not just the default: a test that only passes on retry is
+    // reporting a real bug (usually shared state), not noise to paper over.
+    // Never raise this to make a flaky suite look green.
+    retry: 0,
   },
 });

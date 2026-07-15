@@ -87,6 +87,16 @@ A short map of `src/`:
   spaces.
 - Hooks are fail-open: a failure must never block or crash the user's coding session.
 - Redact before anything is stored or sent.
+- Bound any concurrent fan-out over filesystem- or git-derived arrays (one child process,
+  one file read, per item). A hook or the post-commit path spawning one `git`/`fs` call per
+  file with no cap is a reliability regression, not a style nit, since it runs on every
+  commit and every host. Batch it through a small concurrency limit instead of a bare
+  `Promise.all(array.map(...))`.
+- Module-level mutable caches (anything set once and read across calls, like a memoized
+  disable-check) need an explicit reset path for tests. The suite runs with
+  `sequence.shuffle: true` specifically to catch a cache like this leaking state between
+  tests in the same file; if shuffling makes a test order-dependent, that is the bug, not
+  the shuffle.
 
 ## Invariants, please do not break these
 
@@ -101,8 +111,17 @@ A short map of `src/`:
 1. Add `src/adapters/<tool>.ts` that maps the tool's payload to `NormalizedHookInput`.
 2. Register it in `src/adapters/index.ts` (the `ALLOWED_ADAPTERS` set and the switch).
 3. Add hook registration in `src/install.ts` for that tool's settings format.
-4. Add detection in `src/detect.ts` and an entry in `src/supported.ts`.
+4. Add detection in `src/detect.ts` (a real `id: '<tool>'` `ToolInfo` entry) and a
+   `tool.id === '<tool>'` registration branch in `cli.ts`'s `cmdInstall`, plus an entry in
+   `src/supported.ts`.
 5. Add tests covering the adapter normalization and the registration.
+
+Do not add a tool's id to `HOOK_ADAPTERS` until steps 3 and 4 are real, not just planned.
+`tests-ts/adapter-wiring-parity.test.ts` checks each `HOOK_ADAPTERS` id against the actual
+`detect.ts`/`cli.ts` source, so a plumbing-only adapter (a normalizer with no detection or
+registration wired up) fails CI instead of shipping as dead code. If a tool's hook format
+isn't finalized yet, keep the id out of `HOOK_ADAPTERS`/`ALLOWED_ADAPTERS` entirely until it
+is, don't land it "parked."
 
 ## How to add a new LLM provider
 
@@ -123,10 +142,16 @@ provider for an OpenAI-compatible API may be mostly configuration.
 - `npm run build` is clean.
 - `npm test` is green, and you added or updated tests for your change.
 - `npm run lint` (`tsc --noEmit`) is clean.
-- `VERSION` and `package.json` are bumped if the change is user-facing.
+- `VERSION` and `package.json` are bumped if the change is user-facing. CI enforces this
+  (`version-bump-check.yml` fails a PR that touches `src/**` without a `package.json`
+  version bump); label a PR `no-version-bump` only for genuinely internal-only `src/`
+  changes.
 - No em-dashes were introduced.
 - Capture and hook paths stay fail-open.
 - If you touched injection or sync, the graduation and tombstone invariants still hold.
+- If you added or changed a tool adapter, `tests-ts/adapter-wiring-parity.test.ts` passes,
+  proving the id is really detected and registered, not just added to a Set.
+- Any new fan-out over filesystem/git-derived arrays is bounded, not a bare `Promise.all`.
 
 ## Commit and PR norms
 
