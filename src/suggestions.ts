@@ -68,7 +68,7 @@ interface SystemState {
   hasPastSessions: boolean;
 }
 
-function getSystemState(): SystemState {
+async function getSystemState(): Promise<SystemState> {
   let disabled = false;
   let hasProvider = false;
   let hasHabits = false;
@@ -105,7 +105,7 @@ function getSystemState(): SystemState {
   } catch {}
 
   try {
-    hasPastSessions = discoverSessions().length > 0;
+    hasPastSessions = (await discoverSessions()).length > 0;
   } catch {}
 
   return {
@@ -120,8 +120,8 @@ function getSystemState(): SystemState {
 }
 
 // lines to print after a successful command, or undefined for none.
-export function nextSteps(command: string, args: string[]): string[] | undefined {
-  const state = getSystemState();
+export async function nextSteps(command: string, args: string[]): Promise<string[] | undefined> {
+  const state = await getSystemState();
 
   if (state.disabled && command !== 'on') {
     return ['cch on                enable cc-habits (resume capture and prompt injection)'];
