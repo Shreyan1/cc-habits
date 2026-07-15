@@ -1,4 +1,4 @@
-import { redact, isNoise, detectLanguage } from './hook';
+import { redact, isNoise, detectLanguage, MAX_DIFF_BYTES } from './hook';
 import { sanitizeFilePath, appendSignal, Signal } from './storage';
 
 export interface CaptureOptions {
@@ -13,10 +13,14 @@ export function captureFromCli(opts: CaptureOptions): boolean {
   if (!rawFile) return false;
 
   const file = sanitizeFilePath(rawFile);
-  const diff = redact(opts.diff);
+  let diff = redact(opts.diff);
 
   if (!diff || isNoise(diff)) {
     return false;
+  }
+
+  if (diff.length > MAX_DIFF_BYTES) {
+    diff = diff.slice(0, MAX_DIFF_BYTES) + '\n... (truncated)';
   }
 
   const language = detectLanguage(file);
