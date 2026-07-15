@@ -40,7 +40,7 @@ import { validatePayload, logSchemaWarning, logUnknownEvent, KNOWN_UNSUPPORTED_E
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit']);
 const MIN_SIGNALS = 3;
 const MIN_DIFF_LEN = 20;
-const MAX_DIFF_BYTES = 4096;
+export const MAX_DIFF_BYTES = 4096;
 // Bound stdin reads: a legitimate Claude Code hook payload is always small.
 // 4 MB is generous even for a large Write payload; anything bigger is anomalous.
 const MAX_STDIN_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -95,59 +95,31 @@ export function detectLanguage(filePath: string): string | undefined {
 }
 
 // Diff builder ─────────────────────────────────────────────────────────────
-export function buildDiff(toolName: string, filePath: string, toolInput: Record<string, unknown>): string {
+function formatDiff(
+  toolName: string,
+  rawFilePath: string,
+  newContent?: string,
+  oldContent?: string,
+  edits?: Array<Record<string, unknown>>
+): string {
+  const filePath = sanitizeFilePath(rawFilePath);
   let diff = '';
   if (toolName === 'Write') {
-    const content = String(toolInput['content'] ?? '');
+    const content = newContent ?? '';
     diff = `+++ ${filePath}\n` + content.split('\n').map(ln => `+${ln}`).join('\n');
-  } else if (toolName === 'Edit') {
-    const old = String(toolInput['old_string'] ?? '');
-    const nw = String(toolInput['new_string'] ?? '');
-    if (old === nw) return ''; // D7: zero-info edit
-    diff =
-      `--- ${filePath}\n` +
-      old.split('\n').map(ln => `-${ln}`).join('\n') +
-      '\n' +
-      nw.split('\n').map(ln => `+${ln}`).join('\n');
   } else if (toolName === 'MultiEdit') {
-    const edits = (toolInput['edits'] ?? []) as Array<Record<string, unknown>>;
-    if (edits.length === 0) return ''; // D6: empty edits
-    const parts = edits.map(e => {
+    const arr = edits ?? [];
+    if (arr.length === 0) return '';
+    const parts = arr.map(e => {
       const old = String(e['old_string'] ?? '');
       const nw = String(e['new_string'] ?? '');
       return old.split('\n').map(ln => `-${ln}`).join('\n') + '\n' + nw.split('\n').map(ln => `+${ln}`).join('\n');
     });
     diff = `--- ${filePath}\n` + parts.join('\n---\n');
-  }
-  if (diff.length > MAX_DIFF_BYTES) diff = diff.slice(0, MAX_DIFF_BYTES) + '\n... (truncated)';
-  return diff;
-}
-
-export function buildDiffFromNormalized(input: NormalizedHookInput): string {
-  if (input.diff) {
-    let diff = input.diff;
-    if (diff.length > MAX_DIFF_BYTES) diff = diff.slice(0, MAX_DIFF_BYTES) + '\n... (truncated)';
-    return diff;
-  }
-  const toolName = input.toolName;
-  const filePath = input.filePath;
-  let diff = '';
-  if (toolName === 'Write') {
-    const content = input.newContent ?? '';
-    diff = `+++ ${filePath}\n` + content.split('\n').map(ln => `+${ln}`).join('\n');
-  } else if (toolName === 'MultiEdit') {
-    const edits = input.edits ?? [];
-    if (edits.length === 0) return '';
-    const parts = edits.map(e => {
-      const old = e.old_string ?? '';
-      const nw = e.new_string ?? '';
-      return old.split('\n').map(ln => `-${ln}`).join('\n') + '\n' + nw.split('\n').map(ln => `+${ln}`).join('\n');
-    });
-    diff = `--- ${filePath}\n` + parts.join('\n---\n');
   } else {
     // Edit/default
-    const old = input.oldContent ?? '';
-    const nw = input.newContent ?? '';
+    const old = oldContent ?? '';
+    const nw = newContent ?? '';
     if (old === nw) return '';
     diff =
       `--- ${filePath}\n` +
@@ -159,6 +131,34 @@ export function buildDiffFromNormalized(input: NormalizedHookInput): string {
   return diff;
 }
 
+export function buildDiff(toolName: string, filePath: string, toolInput: Record<string, unknown>): string {
+  if (toolName === 'MultiEdit') {
+    const edits = (toolInput['edits'] ?? []) as Array<Record<string, unknown>>;
+    return formatDiff(toolName, filePath, undefined, undefined, edits);
+  }
+  return formatDiff(
+    toolName,
+    filePath,
+    toolInput['new_string'] !== undefined ? String(toolInput['new_string'] ?? '') : String(toolInput['content'] ?? ''),
+    toolInput['old_string'] !== undefined ? String(toolInput['old_string'] ?? '') : undefined
+  );
+}
+
+export function buildDiffFromNormalized(input: NormalizedHookInput): string {
+  if (input.diff) {
+    let diff = input.diff;
+    if (diff.length > MAX_DIFF_BYTES) diff = diff.slice(0, MAX_DIFF_BYTES) + '\n... (truncated)';
+    return diff;
+  }
+  return formatDiff(
+    input.toolName,
+    input.filePath,
+    input.newContent,
+    input.oldContent,
+    input.edits ? input.edits.map(e => ({ old_string: e.old_string, new_string: e.new_string })) : undefined
+  );
+}
+
 // Per-repo opt-out (Responsible AI) ─────────────────────────────────────────
 // A developer working on code they can't send to a third-party API (employer
 // code, regulated data) needs a way to stop capture for that tree. Two switches:
@@ -166,7 +166,31 @@ export function buildDiffFromNormalized(input: NormalizedHookInput): string {
 //   • the CC_HABITS_DISABLE env var (truthy).
 // When either is set, the PostToolUse and Stop hooks become no-ops: nothing is
 // captured, nothing is sent, no marker is printed.
+let cachedIgnore: boolean | null = null;
+
+export async function checkIgnoreAsync(): Promise<boolean> {
+  if (isGloballyDisabled()) {
+    cachedIgnore = true;
+    return true;
+  }
+  const v = (process.env['CC_HABITS_DISABLE'] ?? '').toLowerCase();
+  if (v && v !== '0' && v !== 'false' && v !== 'off') {
+    cachedIgnore = true;
+    return true;
+  }
+  try {
+    const ignorePath = path.join(process.cwd(), '.cc-habits-ignore');
+    await fs.promises.access(ignorePath);
+    cachedIgnore = true;
+    return true;
+  } catch {
+    cachedIgnore = false;
+    return false;
+  }
+}
+
 export function captureDisabled(): boolean {
+  if (cachedIgnore !== null) return cachedIgnore;
   if (isGloballyDisabled()) return true;
   const v = (process.env['CC_HABITS_DISABLE'] ?? '').toLowerCase();
   if (v && v !== '0' && v !== 'false' && v !== 'off') return true;
@@ -714,7 +738,9 @@ function triggerBoundaryRegex(term: string, cache?: Map<string, RegExp>): RegExp
   if (cached) return cached;
   const escaped = term.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
   const startBoundary = /^[a-zA-Z0-9_]/.test(term) ? '\\b' : '';
-  const endBoundary = /[a-zA-Z0-9_]$/.test(term) ? 's?\\b' : '';
+  const endBoundary = /[a-zA-Z0-9_]$/.test(term)
+    ? (term.toLowerCase().endsWith('s') ? '\\b' : 's?\\b')
+    : '';
   const re = new RegExp(startBoundary + escaped + endBoundary, 'i');
   cache?.set(term, re);
   return re;
@@ -915,7 +941,8 @@ export function processSessionStart(ctx?: StorageContext): string | null {
 }
 
 // stdin/stdout wrappers ────────────────────────────────────────────────────
-export function handleSessionStart(adapter = 'claude-code'): void {
+export async function handleSessionStart(adapter = 'claude-code'): Promise<void> {
+  await checkIgnoreAsync();
   // SessionStart hooks may receive a small JSON payload on stdin, but we only
   // need local state, so drain and ignore it. Always exit 0 so a session never
   // fails to start because of cc-habits.
@@ -956,7 +983,8 @@ export function handleSessionStart(adapter = 'claude-code'): void {
   process.stdin.on('error', () => process.exit(0));
 }
 
-export function handlePostToolUse(adapter = 'claude-code'): void {
+export async function handlePostToolUse(adapter = 'claude-code'): Promise<void> {
+  await checkIgnoreAsync();
   let raw = '';
   let oversized = false;
   process.stdin.setEncoding('utf-8');
@@ -989,6 +1017,7 @@ export function handlePostToolUse(adapter = 'claude-code'): void {
 }
 
 export async function handleStop(): Promise<void> {
+  await checkIgnoreAsync();
   const raw = await new Promise<string>(resolve => {
     let buf = '';
     let oversized = false;
@@ -1045,7 +1074,8 @@ export async function handleStop(): Promise<void> {
   process.exit(0);
 }
 
-export function handleUserPromptSubmit(): void {
+export async function handleUserPromptSubmit(): Promise<void> {
+  await checkIgnoreAsync();
   let raw = '';
   let oversized = false;
   process.stdin.setEncoding('utf-8');
@@ -1092,10 +1122,10 @@ export function hookMain(): void {
 
   const wrap = async (): Promise<void> => {
     try {
-      if (event === 'post-tool-use') handlePostToolUse(adapter);
+      if (event === 'post-tool-use') await handlePostToolUse(adapter);
       else if (event === 'stop') await handleStop();
-      else if (event === 'user-prompt-submit') handleUserPromptSubmit();
-      else if (event === 'session-start') handleSessionStart(adapter);
+      else if (event === 'user-prompt-submit') await handleUserPromptSubmit();
+      else if (event === 'session-start') await handleSessionStart(adapter);
       else if (KNOWN_UNSUPPORTED_EVENTS.has(event)) {
         // Deliberate no-op (e.g. subagent-stop). See hook-schema.ts for why:
         // Claude Code does not fire PostToolUse for subagent tool calls, so there
