@@ -21,7 +21,7 @@ export interface Signal {
   file: string;
   diff: string;
   language?: string;
-  source?: 'claude-code' | 'git' | 'vscode' | 'cli' | 'gemini' | 'codex' | 'cline' | 'kimi';
+  source?: 'claude-code' | 'git' | 'vscode' | 'cli' | 'gemini' | 'codex' | 'cline' | 'kimi' | 'antigravity';
 }
 
 export interface Habit {
@@ -280,8 +280,14 @@ function safeAppend(filePath: string, content: string): void {
     }
   } else {
     // Windows fallback: lstat guard is best-effort (TOCTOU race still possible there).
-    if (fs.existsSync(filePath) && fs.lstatSync(filePath).isSymbolicLink()) {
-      throw new Error(`refusing to append through symlink: ${filePath}`);
+    try {
+      if (fs.lstatSync(filePath).isSymbolicLink()) {
+        throw new Error(`refusing to append through symlink: ${filePath}`);
+      }
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') {
+        throw e;
+      }
     }
     fs.appendFileSync(filePath, content, { encoding: 'utf-8', mode: FILE_MODE });
   }
@@ -293,18 +299,8 @@ function safeAppend(filePath: string, content: string): void {
 // so a rotation failure never blocks the caller.
 function trimIfNeeded(filePath: string, maxLines: number): void {
   try {
-    // Single stat for the size check: the previous existsSync + statSync pair did
-    // two stat syscalls on every append (the common path is "well under the limit,
-    // return"). One statSync covers both: an absent file throws ENOENT, which the
-    // inner catch turns into an early return. Also closes the existsSync/statSync
-    // TOCTOU gap where the file could vanish between the two calls.
-    let size: number;
-    try {
-      size = fs.statSync(filePath).size;
-    } catch {
-      return; // absent or unstattable: nothing to trim
-    }
-    if (size <= LOG_ROTATE_BYTES) return;
+    const st = fs.statSync(filePath);
+    if (st.size <= LOG_ROTATE_BYTES) return;
     const all = fs.readFileSync(filePath, 'utf-8')
       .split('\n')
       .filter(l => l.trim());
@@ -384,16 +380,31 @@ export function readSignals(sessionId?: string, ctx?: StorageContext): Signal[] 
     logError(`readSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
     return [];
   }
-  const lines = fs.readFileSync(paths.logFile, 'utf-8').split('\n');
+  const buf = fs.readFileSync(paths.logFile);
   const signals: Signal[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const sig = JSON.parse(trimmed) as Signal;
-      if (!sessionId || sig.session_id === sessionId) signals.push(sig);
-    } catch {
-      // skip malformed line
+  let start = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 10) { // '\n'
+      const line = buf.toString('utf-8', start, i).trim();
+      start = i + 1;
+      if (!line) continue;
+      try {
+        const sig = JSON.parse(line) as Signal;
+        if (!sessionId || sig.session_id === sessionId) signals.push(sig);
+      } catch {
+        // skip malformed line
+      }
+    }
+  }
+  if (start < buf.length) {
+    const line = buf.toString('utf-8', start, buf.length).trim();
+    if (line) {
+      try {
+        const sig = JSON.parse(line) as Signal;
+        if (!sessionId || sig.session_id === sessionId) signals.push(sig);
+      } catch {
+        // skip malformed line
+      }
     }
   }
   return signals;
@@ -678,12 +689,22 @@ export function readHistory(ctx?: StorageContext): HistoryEntry[] {
     logError(`readHistory: .history.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
     return [];
   }
-  const lines = fs.readFileSync(paths.historyFile, 'utf-8').split('\n');
+  const buf = fs.readFileSync(paths.historyFile);
   const out: HistoryEntry[] = [];
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t) continue;
-    try { out.push(JSON.parse(t) as HistoryEntry); } catch { /* skip */ }
+  let start = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 10) { // '\n'
+      const line = buf.toString('utf-8', start, i).trim();
+      start = i + 1;
+      if (!line) continue;
+      try { out.push(JSON.parse(line) as HistoryEntry); } catch { /* skip */ }
+    }
+  }
+  if (start < buf.length) {
+    const line = buf.toString('utf-8', start, buf.length).trim();
+    if (line) {
+      try { out.push(JSON.parse(line) as HistoryEntry); } catch { /* skip */ }
+    }
   }
   return out;
 }
