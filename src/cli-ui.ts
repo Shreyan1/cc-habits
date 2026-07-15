@@ -21,7 +21,20 @@ export function c(code: string, text: string): string {
 // paths. Returns the path unchanged when it is not under the home directory.
 export function tildePath(p: string): string {
   const home = os.homedir();
-  return p === home || p.startsWith(home + '/') ? '~' + p.slice(home.length) : p;
+  let normalizedP = p;
+  let normalizedHome = home;
+  if (process.platform === 'win32') {
+    normalizedP = p.toLowerCase().replace(/\\/g, '/');
+    normalizedHome = home.toLowerCase().replace(/\\/g, '/');
+    if (normalizedP === normalizedHome || normalizedP.startsWith(normalizedHome + '/')) {
+      return '~' + p.slice(home.length);
+    }
+  } else {
+    if (p === home || p.startsWith(home + '/')) {
+      return '~' + p.slice(home.length);
+    }
+  }
+  return p;
 }
 
 // Strip terminal control characters (ESC, BEL, CSI sequences, C0/C1 controls) from

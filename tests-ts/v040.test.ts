@@ -123,8 +123,8 @@ describe('v0.3.0: runGitCapture and shouldTriggerGitLearn', () => {
     expect(shouldTriggerGitLearn()).toBe(false);
   });
 
-  it('runGitCapture handles non-git directory gracefully', () => {
-    const res = runGitCapture(undefined, tmpDir);
+  it('runGitCapture handles non-git directory gracefully', async () => {
+    const res = await runGitCapture(undefined, tmpDir);
     expect(res.signalsCaptured).toBe(0);
   });
 });
