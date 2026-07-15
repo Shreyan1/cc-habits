@@ -370,17 +370,35 @@ export function appendSignal(signal: Signal, ctx?: StorageContext): void {
   trimIfNeeded(paths.logFile, LOG_ROTATE_LINES);
 }
 
+// Open a file read-only (no symlink follow) and return its raw bytes, size-guarded
+// to MAX_LOG_READ_BYTES. Returns null when the file is absent. Operating on the
+// open fd (rather than re-stat/re-read by path) closes the existsSync -> stat ->
+// read TOCTOU race CodeQL flags, and O_NOFOLLOW refuses to open a symlink.
+function readFileBytesSafe(path: string, ctx?: StorageContext): Buffer | null {
+  let fd: number | null = null;
+  try {
+    const oNoFollow = (fs.constants as Record<string, number>)['O_NOFOLLOW'] ?? 0;
+    fd = fs.openSync(path, fs.constants.O_RDONLY | oNoFollow);
+    const st = fs.fstatSync(fd);
+    if (st.size > MAX_LOG_READ_BYTES) {
+      logError(`readFileBytesSafe: ${path} exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
+      fs.closeSync(fd);
+      return null;
+    }
+    const buf = fs.readFileSync(fd);
+    fs.closeSync(fd);
+    return buf;
+  } catch (e) {
+    if (fd !== null) { try { fs.closeSync(fd); } catch {} }
+    if ((e as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
 export function readSignals(sessionId?: string, ctx?: StorageContext): Signal[] {
   const paths = getPaths(ctx);
-  if (!fs.existsSync(paths.logFile)) return [];
-  // Guard against reading a runaway log file that could exhaust process memory.
-  const stat = fs.statSync(paths.logFile);
-  if (stat.size > MAX_LOG_READ_BYTES) {
-    // Log the oversized-file event and return empty rather than crash.
-    logError(`readSignals: log.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
-    return [];
-  }
-  const buf = fs.readFileSync(paths.logFile);
+  const buf = readFileBytesSafe(paths.logFile, ctx);
+  if (!buf) return [];
   const signals: Signal[] = [];
   let start = 0;
   for (let i = 0; i < buf.length; i++) {
@@ -683,13 +701,8 @@ export function appendHistory(entry: HistoryEntry, ctx?: StorageContext): void {
 
 export function readHistory(ctx?: StorageContext): HistoryEntry[] {
   const paths = getPaths(ctx);
-  if (!fs.existsSync(paths.historyFile)) return [];
-  const stat = fs.statSync(paths.historyFile);
-  if (stat.size > MAX_LOG_READ_BYTES) {
-    logError(`readHistory: .history.jsonl exceeds ${MAX_LOG_READ_BYTES} bytes; skipping read`, ctx);
-    return [];
-  }
-  const buf = fs.readFileSync(paths.historyFile);
+  const buf = readFileBytesSafe(paths.historyFile, ctx);
+  if (!buf) return [];
   const out: HistoryEntry[] = [];
   let start = 0;
   for (let i = 0; i < buf.length; i++) {
