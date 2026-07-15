@@ -21,18 +21,14 @@ export function c(code: string, text: string): string {
 // paths. Returns the path unchanged when it is not under the home directory.
 export function tildePath(p: string): string {
   const home = os.homedir();
-  let normalizedP = p;
-  let normalizedHome = home;
   if (process.platform === 'win32') {
-    normalizedP = p.toLowerCase().replace(/\\/g, '/');
-    normalizedHome = home.toLowerCase().replace(/\\/g, '/');
+    const normalizedP = p.toLowerCase().replace(/\\/g, '/');
+    const normalizedHome = home.toLowerCase().replace(/\\/g, '/');
     if (normalizedP === normalizedHome || normalizedP.startsWith(normalizedHome + '/')) {
       return '~' + p.slice(home.length);
     }
-  } else {
-    if (p === home || p.startsWith(home + '/')) {
-      return '~' + p.slice(home.length);
-    }
+  } else if (p === home || p.startsWith(home + '/')) {
+    return '~' + p.slice(home.length);
   }
   return p;
 }
