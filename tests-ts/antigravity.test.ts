@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { normalizeInput } from '../src/adapters';
+import { selectProvider } from '../src/providers';
 
 // Control the `which agy` / `where agy` lookup so these tests are deterministic
 // on any host, including a developer machine that actually has Antigravity
@@ -67,5 +69,31 @@ describe('Antigravity CLI migration detection', () => {
       throw new Error('no home');
     });
     expect(() => isAntigravityMigrated()).not.toThrow();
+  });
+});
+
+describe('Antigravity adapter and provider registration', () => {
+  it('normalizes antigravity payloads correctly', () => {
+    const raw = {
+      session_id: 'test-antigravity-session',
+      toolCall: {
+        name: 'write_file',
+        arguments: {
+          path: 'src/index.ts',
+          content: 'console.log("hello")',
+        },
+      },
+    };
+    const norm = normalizeInput(raw, 'antigravity');
+    expect(norm.toolName).toBe('write_file');
+    expect(norm.filePath).toBe('src/index.ts');
+    expect(norm.newContent).toBe('console.log("hello")');
+    expect(norm.sessionId).toBe('test-antigravity-session');
+    expect(norm.source).toBe('antigravity');
+  });
+
+  it('registers antigravity-cli in selectProvider', () => {
+    const provider = selectProvider({ provider: 'antigravity-cli' });
+    expect(provider.name).toBe('antigravity-cli');
   });
 });

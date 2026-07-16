@@ -60,7 +60,7 @@ afterEach(() => {
 });
 
 describe('git-collector command-injection hardening', () => {
-  it.skipIf(!GIT)('does not execute a command-substitution file name on capture', () => {
+  it.skipIf(!GIT)('does not execute a command-substitution file name on capture', async () => {
     // A repository file whose name embeds a shell command substitution. Under the
     // old string-interpolated execSync this executed when the file was processed.
     const sentinel = path.join(repoDir, 'PWNED_FILE');
@@ -69,33 +69,33 @@ describe('git-collector command-injection hardening', () => {
     gitIn(repoDir, ['add', '-A']);
     gitIn(repoDir, ['commit', '-m', 'add file with hostile name']);
 
-    runGitCapture(undefined, repoDir);
+    await runGitCapture(undefined, repoDir);
 
     expect(fs.existsSync(sentinel)).toBe(false);
   });
 
-  it.skipIf(!GIT)('does not execute a backtick file name on capture', () => {
+  it.skipIf(!GIT)('does not execute a backtick file name on capture', async () => {
     const sentinel = path.join(repoDir, 'PWNED_BACKTICK');
     const evilName = '`touch PWNED_BACKTICK`.txt';
     fs.writeFileSync(path.join(repoDir, evilName), 'const a = 1\nconst b = 2\n');
     gitIn(repoDir, ['add', '-A']);
     gitIn(repoDir, ['commit', '-m', 'add file with backtick name']);
 
-    runGitCapture(undefined, repoDir);
+    await runGitCapture(undefined, repoDir);
 
     expect(fs.existsSync(sentinel)).toBe(false);
   });
 
-  it.skipIf(!GIT)('rejects a malicious --range and runs nothing', () => {
+  it.skipIf(!GIT)('rejects a malicious --range and runs nothing', async () => {
     const sentinel = path.join(repoDir, 'PWNED_RANGE');
     fs.writeFileSync(path.join(repoDir, 'ok.ts'), 'const a = 1\n');
     gitIn(repoDir, ['add', '-A']);
     gitIn(repoDir, ['commit', '-m', 'init']);
 
     // Range with shell metacharacters and a leading-dash option-injection attempt.
-    const res1 = runGitCapture(`HEAD; touch ${sentinel}`, repoDir);
-    const res2 = runGitCapture('$(touch PWNED_RANGE)', repoDir);
-    const res3 = runGitCapture('--output=/tmp/whatever', repoDir);
+    const res1 = await runGitCapture(`HEAD; touch ${sentinel}`, repoDir);
+    const res2 = await runGitCapture('$(touch PWNED_RANGE)', repoDir);
+    const res3 = await runGitCapture('--output=/tmp/whatever', repoDir);
 
     expect(res1.signalsCaptured).toBe(0);
     expect(res2.signalsCaptured).toBe(0);
@@ -104,12 +104,12 @@ describe('git-collector command-injection hardening', () => {
     expect(fs.existsSync(path.join(repoDir, 'PWNED_RANGE'))).toBe(false);
   });
 
-  it.skipIf(!GIT)('still captures a normally named file', () => {
+  it.skipIf(!GIT)('still captures a normally named file', async () => {
     fs.writeFileSync(path.join(repoDir, 'real.ts'), 'export const value = 42\nexport const other = 7\n');
     gitIn(repoDir, ['add', '-A']);
     gitIn(repoDir, ['commit', '-m', 'add real file']);
 
-    const res = runGitCapture(undefined, repoDir);
+    const res = await runGitCapture(undefined, repoDir);
     // The capture path should run without error and record the legitimate edit.
     expect(res.signalsCaptured).toBeGreaterThanOrEqual(1);
   });
