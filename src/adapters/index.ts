@@ -23,10 +23,10 @@ export function normalizeInput(raw: unknown, adapter: string): NormalizedHookInp
   }
   const r = (raw ?? {}) as any;
   switch (adapter) {
-    case 'gemini':  return fromGemini(r);
-    case 'codex':   return fromCodex(r);
-    case 'cline':   return fromCline(r);
-    case 'kimi':    return fromKimi(r);
-    default:        return fromClaudeCode(r);
+    case 'gemini':      return fromGemini(r);
+    case 'codex':       return fromCodex(r);
+    case 'cline':       return fromCline(r);
+    case 'kimi':        return fromKimi(r);
+    default:            return fromClaudeCode(r);
   }
 }
