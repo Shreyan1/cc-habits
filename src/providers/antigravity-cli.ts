@@ -8,12 +8,12 @@ import {
   ProviderQuotaError,
 } from './types';
 
-export class GeminiCliProvider implements Provider {
-  name = 'gemini-cli';
+export class AntigravityCliProvider implements Provider {
+  name = 'antigravity-cli';
 
   async generate(prompt: string, opts: { maxTokens: number; timeoutMs: number }): Promise<string> {
     return new Promise<string>((resolve, reject) => {
-      const child = spawn('gemini', ['-p', '-'], {
+      const child = spawn('agy', ['-p', '-'], {
         timeout: opts.timeoutMs,
       });
 
@@ -59,7 +59,7 @@ export class GeminiCliProvider implements Provider {
             reject(new ProviderAuthError(this.name, stderr || undefined));
             return;
           }
-          reject(new Error(`gemini CLI failed with exit code ${status}: ${stderr || stdout}`));
+          reject(new Error(`antigravity CLI failed with exit code ${status}: ${stderr || stdout}`));
           return;
         }
 

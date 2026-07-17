@@ -92,7 +92,7 @@ export function renderBlockOrNull(minConfidence = DEFAULT_MIN_CONFIDENCE): strin
   const cats = parseHabits(readHabitsMd());
   const active = activeHabits(cats, minConfidence);
   if (Object.keys(active).length === 0) return null;
-  return renderPortableBody(cats, minConfidence);
+  return renderPortableBody(cats, minConfidence, active);
 }
 
 // Insert or replace the cc-habits block in existing content. Everything outside the
@@ -241,7 +241,7 @@ export function readSyncTargets(): SyncTarget[] {
   if (!fs.existsSync(storagePaths.configFile)) return [];
   try {
     const text = fs.readFileSync(storagePaths.configFile, 'utf-8');
-    const m = text.match(/sync_targets\s*:\s*\[?([^\]\n#]+)\]?/);
+    const m = text.match(/^sync_targets\s*:\s*\[?([^\]\n#]+)\]?/m);
     if (m) {
       const allowed = new Set(['agents', 'cursor', 'copilot', 'gemini', 'cline', 'aider', 'continue', 'jetbrains', 'windsurf', 'kilo']);
       return m[1]

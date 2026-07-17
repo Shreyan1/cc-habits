@@ -33,10 +33,10 @@ import { tightenLegacyModes } from './storage';
 
 // Print follow-up suggestions to stderr so stdout pipes stay clean. Only when
 // the command succeeded and we are attached to an interactive terminal.
-function printNextSteps(command: string, args: string[], code: number): void {
+async function printNextSteps(command: string, args: string[], code: number): Promise<void> {
   if (code !== 0 || !process.stderr.isTTY) return;
   if (args.includes('--json')) return;
-  const steps = nextSteps(command, args);
+  const steps = await nextSteps(command, args);
   if (!steps || steps.length === 0) return;
   process.stderr.write(`\n\n  ${c(BOLD + CYAN, 'Next:')}\n`);
   for (const s of steps) {
@@ -422,7 +422,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  printNextSteps(command, args, code);
+  await printNextSteps(command, args, code);
   await printUpdateNotice(args);
   process.exit(code);
 }

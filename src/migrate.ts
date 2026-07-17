@@ -46,7 +46,11 @@ function rewriteClaudeMdImport(
       readBytes = fs.readSync(fd, buf, 0, st.size, 0);
     }
     let content = buf.subarray(0, readBytes).toString('utf-8');
-    const newImport = `@import ${preferencesFilePath}`;
+    const normPrefs = preferencesFilePath.replace(/\\/g, '/');
+    const normHabits = habitsFilePath.replace(/\\/g, '/');
+    const normOldDir = path.join(OLD_DIR, 'habits.md').replace(/\\/g, '/');
+
+    const newImport = `@import ${normPrefs}`;
     // Already correct, idempotent no-op.
     if (content.includes(newImport)) {
       fs.closeSync(fd);
@@ -54,15 +58,23 @@ function rewriteClaudeMdImport(
     }
     let updated = false;
     // Pattern 1: legacy pre-rename install (~/.claude/habits/habits.md).
-    const oldDirImport = `@import ${path.join(OLD_DIR, 'habits.md')}`;
+    const oldDirImport = `@import ${normOldDir}`;
+    const oldDirImportBackslash = oldDirImport.replace(/\//g, '\\');
     if (content.includes(oldDirImport)) {
       content = content.replace(oldDirImport, newImport);
       updated = true;
+    } else if (content.includes(oldDirImportBackslash)) {
+      content = content.replace(oldDirImportBackslash, newImport);
+      updated = true;
     }
     // Pattern 2: v0.6.x install (~/.cc-habits/habits.md, current storage, old import).
-    const currentHabitsImport = `@import ${habitsFilePath}`;
+    const currentHabitsImport = `@import ${normHabits}`;
+    const currentHabitsImportBackslash = currentHabitsImport.replace(/\//g, '\\');
     if (content.includes(currentHabitsImport)) {
       content = content.replace(currentHabitsImport, newImport);
+      updated = true;
+    } else if (content.includes(currentHabitsImportBackslash)) {
+      content = content.replace(currentHabitsImportBackslash, newImport);
       updated = true;
     }
     if (!updated) {
