@@ -8,7 +8,6 @@ import { OllamaProvider } from './ollama';
 import { ClaudeCliProvider } from './claude-cli';
 import { GeminiCliProvider } from './gemini-cli';
 import { CodexCliProvider } from './codex-cli';
-import { AntigravityCliProvider } from './antigravity-cli';
 import { spawnSync } from 'child_process';
 import { storagePaths } from '../storage';
 
@@ -21,7 +20,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const REPO_SCAN_TIMEOUT_MS = 90_000;
 
 export interface ProviderConfig {
-  provider: 'anthropic' | 'openai' | 'groq' | 'ollama' | 'claude-cli' | 'gemini-cli' | 'codex-cli' | 'antigravity-cli';
+  provider: 'anthropic' | 'openai' | 'groq' | 'ollama' | 'claude-cli' | 'gemini-cli' | 'codex-cli';
   anthropic_api_key?: string;
   openai_api_key?: string;
   openai_model?: string;
@@ -61,7 +60,7 @@ function readConfig(): ProviderConfig {
       return m ? m[1] : undefined;
     };
     const provider = read('provider');
-    if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic' || provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli' || provider === 'antigravity-cli') {
+    if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic' || provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli') {
       cfg.provider = provider;
     }
     cfg.anthropic_api_key = read('anthropic_api_key');
@@ -106,7 +105,7 @@ async function readConfigAsync(): Promise<ProviderConfig> {
       return m ? m[1] : undefined;
     };
     const provider = read('provider');
-    if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic' || provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli' || provider === 'antigravity-cli') {
+    if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic' || provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli') {
       cfg.provider = provider;
     }
     cfg.anthropic_api_key = read('anthropic_api_key');
@@ -195,7 +194,7 @@ export function extractionPrivacyNote(): string {
 // CLI-linking providers are parked for this release (reachable only via an
 // explicit --provider, never the default UX). Treated as not-usable everywhere
 // the front door decides whether to offer or run an extraction.
-const PARKED_PROVIDERS: readonly string[] = ['claude-cli', 'gemini-cli', 'codex-cli', 'antigravity-cli'];
+const PARKED_PROVIDERS: readonly string[] = ['claude-cli', 'gemini-cli', 'codex-cli'];
 
 export function isParkedProvider(provider: string): boolean {
   return PARKED_PROVIDERS.includes(provider);
@@ -289,9 +288,6 @@ export function selectProvider(cfgInput?: ProviderConfig): Provider {
   }
   if (chosen === 'codex-cli') {
     return new CodexCliProvider();
-  }
-  if (chosen === 'antigravity-cli') {
-    return new AntigravityCliProvider();
   }
   if (chosen === 'openai') {
     const key = process.env['OPENAI_API_KEY'] ?? cfg.openai_api_key;

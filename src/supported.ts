@@ -28,4 +28,4 @@ export const SUPPORTED_TOOLS: SupportedTool[] = [
 ];
 
 // Adapter ids that have a dedicated hook adapter (used to assert parity in tests).
-export const HOOK_ADAPTERS = ['claude-code', 'gemini', 'codex', 'cline', 'kimi', 'antigravity'];
+export const HOOK_ADAPTERS = ['claude-code', 'gemini', 'codex', 'cline', 'kimi'];
