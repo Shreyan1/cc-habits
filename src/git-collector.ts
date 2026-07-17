@@ -1,10 +1,14 @@
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { captureFromCli } from './capture';
 import { readHistory, readSignals } from './storage';
+import { mapWithConcurrencyLimit } from './concurrency';
+
+const execFileAsync = promisify(execFile);
 
 // SECURITY: this module runs automatically from the post-commit git hook, so it
 // processes untrusted repository content (commit ranges and file names). Never
-// build shell command strings here. We use execFileSync with an argument array
+// build shell command strings here. We use execFileAsync with an argument array
 // so no shell is involved and metacharacters in file names or refs are passed
 // literally to git, never interpreted. We also validate the user-supplied range
 // to block git option-injection (a ref starting with "-").
@@ -14,12 +18,18 @@ import { readHistory, readSignals } from './storage';
 // contain the usual ref characters plus a single ".." range separator.
 const SAFE_REF = /^[A-Za-z0-9_/][A-Za-z0-9_./~^-]*(\.\.[A-Za-z0-9_./~^-]+)?$/;
 
-function git(args: string[], cwdOverride?: string, ignoreOutput = false): string {
-  return execFileSync('git', args, {
-    encoding: 'utf-8',
+async function git(args: string[], cwdOverride?: string, ignoreOutput = false): Promise<string> {
+  const options = {
+    encoding: 'utf-8' as const,
+    maxBuffer: 10 * 1024 * 1024, // 10MB
     ...(cwdOverride ? { cwd: cwdOverride } : {}),
-    ...(ignoreOutput ? { stdio: 'ignore' as const } : {}),
-  }) as unknown as string;
+  };
+  if (ignoreOutput) {
+    await execFileAsync('git', args, options);
+    return '';
+  }
+  const { stdout } = await execFileAsync('git', args, options);
+  return stdout;
 }
 
 export interface GitCaptureResult {
@@ -29,7 +39,7 @@ export interface GitCaptureResult {
   captured: Array<{ file: string; commit: string }>;
 }
 
-export function runGitCapture(range?: string, cwdOverride?: string): GitCaptureResult {
+export async function runGitCapture(range?: string, cwdOverride?: string): Promise<GitCaptureResult> {
   let signalsCaptured = 0;
   const captured: Array<{ file: string; commit: string }> = [];
 
@@ -37,14 +47,13 @@ export function runGitCapture(range?: string, cwdOverride?: string): GitCaptureR
   let commitRange = range?.trim();
   if (commitRange) {
     // Reject anything that is not a plain ref/range. This blocks both shell
-    // metacharacters (defence in depth, execFileSync already neutralizes them)
-    // and git option-injection via a leading dash.
+    // metacharacters and git option-injection via a leading dash.
     if (!SAFE_REF.test(commitRange)) {
       return { signalsCaptured: 0, captured };
     }
   } else {
     try {
-      git(['rev-parse', '--verify', 'HEAD~1'], cwdOverride, true);
+      await git(['rev-parse', '--verify', 'HEAD~1'], cwdOverride, true);
       commitRange = 'HEAD~1..HEAD';
     } catch {
       commitRange = 'HEAD';
@@ -54,44 +63,57 @@ export function runGitCapture(range?: string, cwdOverride?: string): GitCaptureR
   try {
     let commits: string[] = [];
     if (commitRange.includes('..') || commitRange.includes('~')) {
-      const output = git(['log', '--reverse', '--format=%H', commitRange], cwdOverride);
+      const output = await git(['log', '--reverse', '--format=%H', commitRange], cwdOverride);
       commits = output.split('\n').map(c => c.trim()).filter(Boolean);
     } else {
-      const sha = git(['rev-parse', commitRange], cwdOverride).trim();
+      const sha = (await git(['rev-parse', commitRange], cwdOverride)).trim();
       if (sha) commits = [sha];
     }
 
     for (const sha of commits) {
       let parent = `${sha}~1`;
       try {
-        git(['rev-parse', '--verify', parent], cwdOverride, true);
+        await git(['rev-parse', '--verify', parent], cwdOverride, true);
       } catch {
         // Fallback to the empty-tree SHA when no parent exists (first commit).
         parent = '4b825dc642cb6eb9a0ff12f406d9b61400b5d465';
       }
 
       // "--" separates revisions from pathspecs so a file named like an option
-      // cannot be misread, and execFileSync means the name is never shell-parsed.
-      const filesOutput = git(['diff', '--name-only', parent, sha], cwdOverride);
+      // cannot be misread.
+      const filesOutput = await git(['diff', '--name-only', parent, sha], cwdOverride);
       const files = filesOutput.split('\n').map(f => f.trim()).filter(Boolean);
 
-      for (const file of files) {
-        try {
-          const diff = git(['diff', parent, sha, '--', file], cwdOverride);
-          if (diff.trim()) {
+      // Diff the modified files with a bounded pool. Each file spawns a git
+      // child process, so fanning every file out at once (Promise.all over all
+      // N files) can hit 100+ concurrent processes on a large commit and risk
+      // FD/PID exhaustion on constrained CI. The pool caps in-flight work and,
+      // because mapWithConcurrencyLimit preserves input order, the `captured`
+      // array stays newest-file-last deterministically.
+      const capturedForCommit = await mapWithConcurrencyLimit(
+        files,
+        8,
+        async (file) => {
+          try {
+            const diff = await git(['diff', parent, sha, '--', file], cwdOverride);
+            if (!diff.trim()) return null;
             const didCapture = captureFromCli({
               file,
               diff,
               session: `git-${sha.slice(0, 7)}`,
               source: 'git'
             });
-            if (didCapture) {
-              signalsCaptured++;
-              captured.push({ file, commit: sha.slice(0, 7) });
-            }
+            return didCapture ? ({ file, commit: sha.slice(0, 7) } as const) : null;
+          } catch {
+            // Skip files where git diff fails (binary, deleted, renamed edge cases).
+            return null;
           }
-        } catch {
-          // Skip files where git diff fails (binary, deleted, renamed edge cases).
+        }
+      );
+      for (const entry of capturedForCommit) {
+        if (entry) {
+          signalsCaptured++;
+          captured.push(entry);
         }
       }
     }

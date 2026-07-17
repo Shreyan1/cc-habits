@@ -137,16 +137,16 @@ describe('Simplified cmdTombstone', () => {
 });
 
 describe('Smart suggestions', () => {
-  it('suggests cch on for all commands when globally disabled', () => {
+  it('suggests cch on for all commands when globally disabled', async () => {
     setGloballyDisabled(true);
-    const steps = nextSteps('view', []);
+    const steps = await nextSteps('view', []);
     expect(steps).toEqual(['cch on                enable cc-habits (resume capture and prompt injection)']);
   });
 
-  it('suggests cch sync when globally enabled', () => {
+  it('suggests cch sync when globally enabled', async () => {
     setGloballyDisabled(false);
     
-    const steps = nextSteps('view', []);
+    const steps = await nextSteps('view', []);
     expect(steps).toContain('cch sync              share habits with your other tools');
   });
 });

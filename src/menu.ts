@@ -57,7 +57,11 @@ export function nextIndex(
 
 // Render the menu as a plain string (no cursor control) so tests can assert it.
 export function renderMenu(items: MenuItem[], selected: number): string {
-  const width = Math.max(...items.map(it => it.label.length));
+  let width = 0;
+  for (let i = 0; i < items.length; i++) {
+    const len = items[i]!.label.length;
+    if (len > width) width = len;
+  }
   const lines = items.map((item, i) => {
     const pointer = i === selected ? '❯' : ' ';
     // Pad the raw label first, then colorize, so ANSI codes do not skew width.

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import readline from 'readline';
 import {
   storagePaths, readHabitsMd, parseHabits, writeHabitsMd, serialiseHabits,
   writeSnapshot, appendHistory, ensureDirs, getPaths, type StorageContext
@@ -13,6 +14,7 @@ import type { Signal } from './storage';
 import { fromCodex } from './adapters/codex';
 import { fromGemini } from './adapters/gemini';
 import { writePreferencesFile } from './sync';
+import { mapWithConcurrencyLimit } from './concurrency';
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 const MAX_BOOTSTRAP_SIGNALS = 40;
@@ -33,10 +35,30 @@ export interface SessionFile {
   tool: 'claude-code' | 'codex' | 'gemini' | 'kimi';
 }
 
+async function existsAsync(p: string): Promise<boolean> {
+  try {
+    await fs.promises.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isDirectoryAsync(p: string): Promise<boolean> {
+  try {
+    const stat = await fs.promises.stat(p);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 // Claude Code stores project sessions at ~/.claude/projects/<encoded-path>/
 // where <encoded-path> is the absolute project directory with / replaced by -.
 function encodeProjectPath(absPath: string): string {
-  return absPath.replace(/\//g, '-');
+  let normalized = absPath.replace(/\\/g, '/');
+  normalized = normalized.replace(/^([a-zA-Z]):/, '$1');
+  return normalized.replace(/\//g, '-');
 }
 
 function bootstrappedPath(ctx?: StorageContext): string {
@@ -63,64 +85,89 @@ function writeBootstrapped(ids: string[], ctx?: StorageContext): void {
   });
 }
 
-function readFirstLine(filePath: string): string {
-  const chunkSize = 65536; // 64KB
-  const buffer = Buffer.alloc(chunkSize);
-  let fd: number | null = null;
-  try {
-    fd = fs.openSync(filePath, 'r');
-    const bytesRead = fs.readSync(fd, buffer, 0, chunkSize, 0);
-    const content = buffer.toString('utf-8', 0, bytesRead);
-    const index = content.indexOf('\n');
-    if (index !== -1) {
-      return content.substring(0, index);
-    }
-    return content;
-  } catch {
-    return '';
-  } finally {
-    if (fd !== null) {
-      try {
-        fs.closeSync(fd);
-      } catch { }
-    }
-  }
+async function readFirstLine(filePath: string): Promise<string> {
+  return new Promise<string>((resolve) => {
+    let resolved = false;
+    const stream = fs.createReadStream(filePath, { encoding: 'utf-8' });
+    const rl = readline.createInterface({
+      input: stream,
+      crlfDelay: Infinity,
+    });
+    rl.on('line', (line) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(line);
+        rl.close();
+        stream.destroy();
+      }
+    });
+    rl.on('error', () => {
+      if (!resolved) {
+        resolved = true;
+        resolve('');
+        rl.close();
+        stream.destroy();
+      }
+    });
+    rl.on('close', () => {
+      if (!resolved) {
+        resolved = true;
+        resolve('');
+      }
+    });
+  });
 }
 
-function findJsonlFiles(dir: string): string[] {
+async function findJsonlFiles(dir: string): Promise<string[]> {
   const results: string[] = [];
-  if (!fs.existsSync(dir)) return results;
+  if (!(await existsAsync(dir))) return results;
   try {
-    const list = fs.readdirSync(dir);
-    for (const file of list) {
-      const filePath = path.join(dir, file);
-      const stat = fs.statSync(filePath);
-      if (stat && stat.isDirectory()) {
-        results.push(...findJsonlFiles(filePath));
-      } else if (file.endsWith('.jsonl')) {
-        results.push(filePath);
+    const list = await fs.promises.readdir(dir);
+    // Bounded pool: a deep session tree can contain thousands of entries, and
+    // firing every stat/readdir at once can exhaust FDs on constrained hosts.
+    const subResults = await mapWithConcurrencyLimit(
+      list,
+      16,
+      async (file) => {
+        const filePath = path.join(dir, file);
+        try {
+          if (await isDirectoryAsync(filePath)) {
+            return await findJsonlFiles(filePath);
+          } else if (file.endsWith('.jsonl')) {
+            return [filePath];
+          }
+        } catch { /* ignore */ }
+        return [];
       }
-    }
+    );
+    for (const r of subResults) results.push(...r);
   } catch {
     // ignore
   }
   return results;
 }
 
-function findWireJsonlFiles(dir: string): string[] {
+async function findWireJsonlFiles(dir: string): Promise<string[]> {
   const results: string[] = [];
-  if (!fs.existsSync(dir)) return results;
+  if (!(await existsAsync(dir))) return results;
   try {
-    const list = fs.readdirSync(dir);
-    for (const file of list) {
-      const filePath = path.join(dir, file);
-      const stat = fs.statSync(filePath);
-      if (stat && stat.isDirectory()) {
-        results.push(...findWireJsonlFiles(filePath));
-      } else if (file === 'wire.jsonl') {
-        results.push(filePath);
+    const list = await fs.promises.readdir(dir);
+    const subResults = await mapWithConcurrencyLimit(
+      list,
+      16,
+      async (file) => {
+        const filePath = path.join(dir, file);
+        try {
+          if (await isDirectoryAsync(filePath)) {
+            return await findWireJsonlFiles(filePath);
+          } else if (file === 'wire.jsonl') {
+            return [filePath];
+          }
+        } catch { /* ignore */ }
+        return [];
       }
-    }
+    );
+    for (const r of subResults) results.push(...r);
   } catch {
     // ignore
   }
@@ -129,15 +176,19 @@ function findWireJsonlFiles(dir: string): string[] {
 
 function isProjectSubpath(targetCwd: string, projectDir: string): boolean {
   try {
-    const resolvedCwd = path.resolve(targetCwd);
-    const resolvedProj = path.resolve(projectDir);
+    let resolvedCwd = path.resolve(targetCwd);
+    let resolvedProj = path.resolve(projectDir);
+    if (process.platform === 'win32') {
+      resolvedCwd = resolvedCwd.toLowerCase();
+      resolvedProj = resolvedProj.toLowerCase();
+    }
     return resolvedCwd === resolvedProj || resolvedCwd.startsWith(resolvedProj + path.sep);
   } catch {
     return false;
   }
 }
 
-export function discoverSessions(projectDir?: string): SessionFile[] {
+export async function discoverSessions(projectDir?: string): Promise<SessionFile[]> {
   const cwd = projectDir ?? process.cwd();
   const resolvedProj = path.resolve(cwd);
   const sessions: SessionFile[] = [];
@@ -145,9 +196,9 @@ export function discoverSessions(projectDir?: string): SessionFile[] {
   // 1. Claude Code
   const encoded = encodeProjectPath(resolvedProj);
   const claudeDir = path.join(CLAUDE_PROJECTS_DIR, encoded);
-  if (fs.existsSync(claudeDir) && fs.statSync(claudeDir).isDirectory()) {
+  if (await existsAsync(claudeDir) && await isDirectoryAsync(claudeDir)) {
     try {
-      const files = fs.readdirSync(claudeDir).filter(f => f.endsWith('.jsonl'));
+      const files = (await fs.promises.readdir(claudeDir)).filter(f => f.endsWith('.jsonl'));
       for (const f of files) {
         sessions.push({
           sessionId: f.replace('.jsonl', ''),
@@ -160,55 +211,65 @@ export function discoverSessions(projectDir?: string): SessionFile[] {
 
   // 2. Gemini CLI
   const geminiTmpDir = path.join(os.homedir(), '.gemini', 'tmp');
-  if (fs.existsSync(geminiTmpDir) && fs.statSync(geminiTmpDir).isDirectory()) {
+  if (await existsAsync(geminiTmpDir) && await isDirectoryAsync(geminiTmpDir)) {
     try {
-      const subdirs = fs.readdirSync(geminiTmpDir);
-      for (const dir of subdirs) {
-        const subpath = path.join(geminiTmpDir, dir);
-        if (!fs.statSync(subpath).isDirectory()) continue;
-        const projectRootFile = path.join(subpath, '.project_root');
-        if (!fs.existsSync(projectRootFile)) continue;
-        const content = fs.readFileSync(projectRootFile, 'utf-8').trim();
-        if (content && isProjectSubpath(content, resolvedProj)) {
-          const chatsDir = path.join(subpath, 'chats');
-          if (fs.existsSync(chatsDir) && fs.statSync(chatsDir).isDirectory()) {
-            const files = fs.readdirSync(chatsDir).filter(f => f.endsWith('.jsonl'));
-            for (const f of files) {
-              sessions.push({
+      const subdirs = await fs.promises.readdir(geminiTmpDir);
+      const found = await mapWithConcurrencyLimit(
+        subdirs,
+        16,
+        async (dir) => {
+          const subpath = path.join(geminiTmpDir, dir);
+          if (!(await isDirectoryAsync(subpath))) return [] as SessionFile[];
+          const projectRootFile = path.join(subpath, '.project_root');
+          if (!(await existsAsync(projectRootFile))) return [] as SessionFile[];
+          const content = (await fs.promises.readFile(projectRootFile, 'utf-8')).trim();
+          if (content && isProjectSubpath(content, resolvedProj)) {
+            const chatsDir = path.join(subpath, 'chats');
+            if (await existsAsync(chatsDir) && await isDirectoryAsync(chatsDir)) {
+              const files = (await fs.promises.readdir(chatsDir)).filter(f => f.endsWith('.jsonl'));
+              return files.map(f => ({
                 sessionId: f.replace('.jsonl', ''),
                 filePath: path.join(chatsDir, f),
-                tool: 'gemini',
-              });
+                tool: 'gemini' as const,
+              }));
             }
           }
+          return [] as SessionFile[];
         }
-      }
+      );
+      for (const group of found) sessions.push(...group);
     } catch { /* ignore */ }
   }
 
   // 3. Codex CLI
   const codexSessionsDir = path.join(os.homedir(), '.codex', 'sessions');
-  if (fs.existsSync(codexSessionsDir) && fs.statSync(codexSessionsDir).isDirectory()) {
+  if (await existsAsync(codexSessionsDir) && await isDirectoryAsync(codexSessionsDir)) {
     try {
-      const jsonlFiles = findJsonlFiles(codexSessionsDir);
-      for (const filePath of jsonlFiles) {
-        const firstLine = readFirstLine(filePath);
-        if (!firstLine) continue;
-        try {
-          const obj = JSON.parse(firstLine);
-          if (obj.type === 'session_meta' && obj.payload) {
-            const sessionCwd = obj.payload.cwd;
-            if (sessionCwd && isProjectSubpath(sessionCwd, resolvedProj)) {
-              const baseName = path.basename(filePath);
-              sessions.push({
-                sessionId: baseName.replace('.jsonl', ''),
-                filePath,
-                tool: 'codex',
-              });
+      const jsonlFiles = await findJsonlFiles(codexSessionsDir);
+      const found = await mapWithConcurrencyLimit(
+        jsonlFiles,
+        16,
+        async (filePath) => {
+          const firstLine = await readFirstLine(filePath);
+          if (!firstLine) return null;
+          try {
+            const obj = JSON.parse(firstLine);
+            if (obj.type === 'session_meta' && obj.payload) {
+              const sessionCwd = obj.payload.cwd;
+              if (sessionCwd && isProjectSubpath(sessionCwd, resolvedProj)) {
+                const baseName = path.basename(filePath);
+                return {
+                  sessionId: baseName.replace('.jsonl', ''),
+                  filePath,
+                  tool: 'codex' as const,
+                };
+              }
             }
-          }
-        } catch { /* ignore */ }
-      }
+          } catch { /* ignore */ }
+          return null;
+        }
+      );
+      for (const s of found) if (s) sessions.push(s);
     } catch { /* ignore */ }
   }
 
@@ -219,9 +280,9 @@ export function discoverSessions(projectDir?: string): SessionFile[] {
   ];
   for (const kimiDir of [...new Set(kimiDirs)]) {
     const indexFile = path.join(kimiDir, 'session_index.jsonl');
-    if (fs.existsSync(indexFile)) {
+    if (await existsAsync(indexFile)) {
       try {
-        const content = fs.readFileSync(indexFile, 'utf-8');
+        const content = await fs.promises.readFile(indexFile, 'utf-8');
         for (const line of content.split('\n')) {
           const trimmed = line.trim();
           if (!trimmed) continue;
@@ -234,7 +295,7 @@ export function discoverSessions(projectDir?: string): SessionFile[] {
               if (sessionDir) {
                 const resolvedSessionDir = path.isAbsolute(sessionDir) ? sessionDir : path.resolve(kimiDir, sessionDir);
                 const wirePath = path.join(resolvedSessionDir, 'agents', 'main', 'wire.jsonl');
-                if (fs.existsSync(wirePath)) {
+                if (await existsAsync(wirePath)) {
                   sessions.push({
                     sessionId,
                     filePath: wirePath,
@@ -250,29 +311,30 @@ export function discoverSessions(projectDir?: string): SessionFile[] {
 
     // Fallback: scan sessions/ directories directly if index is missing or doesn't have all entries
     const sessionsDir = path.join(kimiDir, 'sessions');
-    if (fs.existsSync(sessionsDir) && fs.statSync(sessionsDir).isDirectory()) {
+    if (await existsAsync(sessionsDir) && await isDirectoryAsync(sessionsDir)) {
       try {
-        const wireFiles = findWireJsonlFiles(sessionsDir);
-        for (const wirePath of wireFiles) {
-          const sessionDir = path.dirname(path.dirname(path.dirname(wirePath)));
-          const statePath = path.join(sessionDir, 'state.json');
-          if (fs.existsSync(statePath)) {
+        const wireFiles = await findWireJsonlFiles(sessionsDir);
+        const found = await mapWithConcurrencyLimit(
+          wireFiles,
+          16,
+          async (wirePath) => {
+            const sessionDir = path.dirname(path.dirname(path.dirname(wirePath)));
+            const statePath = path.join(sessionDir, 'state.json');
+            if (!(await existsAsync(statePath))) return null;
             try {
-              const stateObj = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+              const stateObj = JSON.parse(await fs.promises.readFile(statePath, 'utf-8'));
               const workDir = stateObj.workDir ?? stateObj.work_dir ?? stateObj.cwd;
               if (workDir && isProjectSubpath(workDir, resolvedProj)) {
                 const sessionId = path.basename(sessionDir);
                 if (!sessions.some(s => s.sessionId === sessionId)) {
-                  sessions.push({
-                    sessionId,
-                    filePath: wirePath,
-                    tool: 'kimi',
-                  });
+                  return { sessionId, filePath: wirePath, tool: 'kimi' as const };
                 }
               }
             } catch { /* ignore */ }
+            return null;
           }
-        }
+        );
+        for (const s of found) if (s) sessions.push(s);
       } catch { /* ignore */ }
     }
   }
@@ -280,135 +342,58 @@ export function discoverSessions(projectDir?: string): SessionFile[] {
   return sessions;
 }
 
-export function extractSignalsFromTranscript(
+export async function extractSignalsFromTranscript(
   transcriptPath: string,
   sessionId: string,
   tool: 'claude-code' | 'codex' | 'gemini' | 'kimi' = 'claude-code'
-): Signal[] {
+): Promise<Signal[]> {
   const signals: Signal[] = [];
-  let content: string;
+  if (!(await existsAsync(transcriptPath))) return [];
+
   try {
-    content = fs.readFileSync(transcriptPath, 'utf-8');
-  } catch {
-    return [];
-  }
+    const fileStream = fs.createReadStream(transcriptPath, { encoding: 'utf-8' });
+    const rl = readline.createInterface({
+      input: fileStream,
+      crlfDelay: Infinity,
+    });
 
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
 
-    let obj: Record<string, unknown>;
-    try {
-      obj = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-
-    if (tool === 'claude-code' || tool === 'kimi') {
-      if (obj['type'] !== 'assistant') continue;
-
-      const msg = obj['message'] as Record<string, unknown> | undefined;
-      if (!msg) continue;
-      const blocks = msg['content'] as unknown[];
-      if (!Array.isArray(blocks)) continue;
-
-      for (const block of blocks) {
-        const b = block as Record<string, unknown>;
-        if (b['type'] !== 'tool_use') continue;
-
-        let toolName = String(b['name'] ?? '');
-        if (toolName === 'WriteFile' || toolName === 'write_file') {
-          toolName = 'Write';
-        } else if (toolName === 'StrReplaceFile' || toolName === 'str_replace' || toolName === 'replace') {
-          toolName = 'Edit';
-        }
-
-        if (toolName !== 'Write' && toolName !== 'Edit' && toolName !== 'MultiEdit') continue;
-
-        const toolInput = (b['input'] ?? {}) as Record<string, unknown>;
-        const rawPath = String(toolInput['file_path'] ?? toolInput['path'] ?? '');
-        const safePath = sanitizeFilePath(rawPath);
-
-        let diff = buildDiff(toolName, safePath, toolInput);
-        if (!diff || isNoise(diff)) continue;
-        diff = redact(diff);
-
-        const language = detectLanguage(safePath);
-        const ts = String(obj['timestamp'] ?? new Date().toISOString());
-
-        signals.push({
-          ts,
-          session_id: sessionId,
-          type: 'edit',
-          file: redact(safePath),
-          diff,
-          ...(language ? { language } : {}),
-        });
+      let obj: Record<string, unknown>;
+      try {
+        obj = JSON.parse(trimmed) as Record<string, unknown>;
+      } catch {
+        continue;
       }
-    } else if (tool === 'gemini') {
-      if (obj['type'] === 'gemini' && Array.isArray(obj['toolCalls'])) {
-        for (const call of obj['toolCalls']) {
-          const toolName = String(call['name'] ?? '');
-          if (toolName !== 'write_file' && toolName !== 'edit_file' && toolName !== 'replace_file_content' && toolName !== 'modify_file') continue;
 
-          const rawInput = {
-            tool_name: toolName,
-            tool_input: call['args'] ?? {},
-            session_id: sessionId,
-          };
+      if (tool === 'claude-code' || tool === 'kimi') {
+        if (obj['type'] !== 'assistant') continue;
 
-          const norm = fromGemini(rawInput);
-          const safePath = sanitizeFilePath(norm.filePath);
-          if (!safePath) continue;
+        const msg = obj['message'] as Record<string, unknown> | undefined;
+        if (!msg) continue;
+        const blocks = msg['content'] as unknown[];
+        if (!Array.isArray(blocks)) continue;
 
-          let diff = buildDiffFromNormalized(norm);
-          if (!diff || isNoise(diff)) continue;
-          diff = redact(diff);
+        for (const block of blocks) {
+          const b = block as Record<string, unknown>;
+          if (b['type'] !== 'tool_use') continue;
 
-          const language = detectLanguage(safePath);
-          const ts = String(obj['timestamp'] ?? new Date().toISOString());
-
-          signals.push({
-            ts,
-            session_id: sessionId,
-            type: 'edit',
-            file: redact(safePath),
-            diff,
-            ...(language ? { language } : {}),
-          });
-        }
-      }
-    } else if (tool === 'codex') {
-      const payload = obj['payload'] as Record<string, unknown> | undefined;
-      const isFunctionCall = obj['type'] === 'function_call' || (obj['type'] === 'response_item' && payload?.['type'] === 'function_call');
-      if (isFunctionCall) {
-        const call = (obj['type'] === 'function_call' ? obj : payload) as Record<string, unknown>;
-        const toolName = String(call['name'] ?? call['tool'] ?? '');
-        if (toolName === 'write_file' || toolName === 'edit_file' || toolName === 'replace_file_content' || toolName === 'modify_file' || toolName === 'create_file') {
-          let args: Record<string, unknown> = {};
-          try {
-            const argsStr = String(call['arguments'] ?? '{}');
-            args = JSON.parse(argsStr) as Record<string, unknown>;
-          } catch {
-            // ignore
+          let toolName = String(b['name'] ?? '');
+          if (toolName === 'WriteFile' || toolName === 'write_file') {
+            toolName = 'Write';
+          } else if (toolName === 'StrReplaceFile' || toolName === 'str_replace' || toolName === 'replace') {
+            toolName = 'Edit';
           }
 
-          const rawInput = {
-            tool: toolName,
-            tool_name: toolName,
-            file_path: args['file_path'] ?? args['path'] ?? args['file'],
-            content: args['content'],
-            old_string: args['old_string'],
-            new_string: args['new_string'],
-            diff: args['diff'],
-            session_id: sessionId
-          };
+          if (toolName !== 'Write' && toolName !== 'Edit' && toolName !== 'MultiEdit') continue;
 
-          const norm = fromCodex(rawInput);
-          const safePath = sanitizeFilePath(norm.filePath);
-          if (!safePath) continue;
+          const toolInput = (b['input'] ?? {}) as Record<string, unknown>;
+          const rawPath = String(toolInput['file_path'] ?? toolInput['path'] ?? '');
+          const safePath = sanitizeFilePath(rawPath);
 
-          let diff = buildDiffFromNormalized(norm);
+          let diff = buildDiff(toolName, safePath, toolInput);
           if (!diff || isNoise(diff)) continue;
           diff = redact(diff);
 
@@ -424,8 +409,90 @@ export function extractSignalsFromTranscript(
             ...(language ? { language } : {}),
           });
         }
+      } else if (tool === 'gemini') {
+        if (obj['type'] === 'gemini' && Array.isArray(obj['toolCalls'])) {
+          for (const call of obj['toolCalls']) {
+            const toolName = String(call['name'] ?? '');
+            if (toolName !== 'write_file' && toolName !== 'edit_file' && toolName !== 'replace_file_content' && toolName !== 'modify_file') continue;
+
+            const rawInput = {
+              tool_name: toolName,
+              tool_input: call['args'] ?? {},
+              session_id: sessionId,
+            };
+
+            const norm = fromGemini(rawInput);
+            const safePath = sanitizeFilePath(norm.filePath);
+            if (!safePath) continue;
+
+            let diff = buildDiffFromNormalized(norm);
+            if (!diff || isNoise(diff)) continue;
+            diff = redact(diff);
+
+            const language = detectLanguage(safePath);
+            const ts = String(obj['timestamp'] ?? new Date().toISOString());
+
+            signals.push({
+              ts,
+              session_id: sessionId,
+              type: 'edit',
+              file: redact(safePath),
+              diff,
+              ...(language ? { language } : {}),
+            });
+          }
+        }
+      } else if (tool === 'codex') {
+        const payload = obj['payload'] as Record<string, unknown> | undefined;
+        const isFunctionCall = obj['type'] === 'function_call' || (obj['type'] === 'response_item' && payload?.['type'] === 'function_call');
+        if (isFunctionCall) {
+          const call = (obj['type'] === 'function_call' ? obj : payload) as Record<string, unknown>;
+          const toolName = String(call['name'] ?? call['tool'] ?? '');
+          if (toolName === 'write_file' || toolName === 'edit_file' || toolName === 'replace_file_content' || toolName === 'modify_file' || toolName === 'create_file') {
+            let args: Record<string, unknown> = {};
+            try {
+              const argsStr = String(call['arguments'] ?? '{}');
+              args = JSON.parse(argsStr) as Record<string, unknown>;
+            } catch {
+              // ignore
+            }
+
+            const rawInput = {
+              tool: toolName,
+              tool_name: toolName,
+              file_path: args['file_path'] ?? args['path'] ?? args['file'],
+              content: args['content'],
+              old_string: args['old_string'],
+              new_string: args['new_string'],
+              diff: args['diff'],
+              session_id: sessionId
+            };
+
+            const norm = fromCodex(rawInput);
+            const safePath = sanitizeFilePath(norm.filePath);
+            if (!safePath) continue;
+
+            let diff = buildDiffFromNormalized(norm);
+            if (!diff || isNoise(diff)) continue;
+            diff = redact(diff);
+
+            const language = detectLanguage(safePath);
+            const ts = String(obj['timestamp'] ?? new Date().toISOString());
+
+            signals.push({
+              ts,
+              session_id: sessionId,
+              type: 'edit',
+              file: redact(safePath),
+              diff,
+              ...(language ? { language } : {}),
+            });
+          }
+        }
       }
     }
+  } catch {
+    return [];
   }
 
   return signals;
@@ -437,7 +504,7 @@ export async function bootstrap(opts?: {
   ctx?: StorageContext;
 }): Promise<BootstrapResult> {
   const ctx = opts?.ctx;
-  const sessions = discoverSessions(opts?.projectDir);
+  const sessions = await discoverSessions(opts?.projectDir);
   const alreadyDone = readBootstrapped(ctx);
   const newSessions = sessions.filter(s => !alreadyDone.has(s.sessionId));
 
@@ -457,7 +524,7 @@ export async function bootstrap(opts?: {
   const processedIds: string[] = [];
 
   for (const session of newSessions) {
-    const sigs = extractSignalsFromTranscript(session.filePath, session.sessionId, session.tool);
+    const sigs = await extractSignalsFromTranscript(session.filePath, session.sessionId, session.tool);
     if (sigs.length > 0) sessionsWithEdits++;
     allSignals.push(...sigs);
     processedIds.push(session.sessionId);

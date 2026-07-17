@@ -128,6 +128,13 @@ export interface HookRegistration {
   sessionStartAdded?: boolean;
 }
 
+export interface HookDeregistration {
+  postRemoved: boolean;
+  stopRemoved: boolean;
+  promptRemoved: boolean;
+  sessionStartRemoved?: boolean;
+}
+
 export function registerHooks(hookBin?: string, ctx?: InstallContext): HookRegistration {
   const bin = hookBin ?? resolveHookBinaryPath();
   const { postToolUse, stop, userPromptSubmit, sessionStart } = makeHooks(bin);
@@ -803,17 +810,17 @@ export function uninstallGlobalGitTemplateHook(): boolean {
   }
 }
 
-export function deregisterJsonHooks(targetFile: string): HookRegistration {
+export function deregisterJsonHooks(targetFile: string): HookDeregistration {
   let settings: Record<string, any> = {};
   if (fs.existsSync(targetFile)) {
     try {
       settings = JSON.parse(fs.readFileSync(targetFile, 'utf-8'));
     } catch {
-      return { postAdded: false, stopAdded: false, promptAdded: false };
+      return { postRemoved: false, stopRemoved: false, promptRemoved: false };
     }
   }
 
-  if (!settings['hooks']) return { postAdded: false, stopAdded: false, promptAdded: false };
+  if (!settings['hooks']) return { postRemoved: false, stopRemoved: false, promptRemoved: false };
   const hooks = settings['hooks'] as Record<string, unknown[]>;
 
   const clean = (event: string): boolean => {
@@ -835,10 +842,10 @@ export function deregisterJsonHooks(targetFile: string): HookRegistration {
   }
 
   return {
-    postAdded: postRemoved,
-    stopAdded: stopRemoved,
-    promptAdded: promptRemoved,
-    sessionStartAdded: sessionStartRemoved,
+    postRemoved,
+    stopRemoved,
+    promptRemoved,
+    sessionStartRemoved,
   };
 }
 
