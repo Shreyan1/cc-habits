@@ -14,6 +14,7 @@ import type { Signal } from './storage';
 import { fromCodex } from './adapters/codex';
 import { fromGemini } from './adapters/gemini';
 import { writePreferencesFile } from './sync';
+import { mapWithConcurrencyLimit } from './concurrency';
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 const MAX_BOOTSTRAP_SIGNALS = 40;
@@ -122,19 +123,24 @@ async function findJsonlFiles(dir: string): Promise<string[]> {
   if (!(await existsAsync(dir))) return results;
   try {
     const list = await fs.promises.readdir(dir);
-    await Promise.all(
-      list.map(async (file) => {
+    // Bounded pool: a deep session tree can contain thousands of entries, and
+    // firing every stat/readdir at once can exhaust FDs on constrained hosts.
+    const subResults = await mapWithConcurrencyLimit(
+      list,
+      16,
+      async (file) => {
         const filePath = path.join(dir, file);
         try {
           if (await isDirectoryAsync(filePath)) {
-            const subResults = await findJsonlFiles(filePath);
-            results.push(...subResults);
+            return await findJsonlFiles(filePath);
           } else if (file.endsWith('.jsonl')) {
-            results.push(filePath);
+            return [filePath];
           }
         } catch { /* ignore */ }
-      })
+        return [];
+      }
     );
+    for (const r of subResults) results.push(...r);
   } catch {
     // ignore
   }
@@ -146,19 +152,22 @@ async function findWireJsonlFiles(dir: string): Promise<string[]> {
   if (!(await existsAsync(dir))) return results;
   try {
     const list = await fs.promises.readdir(dir);
-    await Promise.all(
-      list.map(async (file) => {
+    const subResults = await mapWithConcurrencyLimit(
+      list,
+      16,
+      async (file) => {
         const filePath = path.join(dir, file);
         try {
           if (await isDirectoryAsync(filePath)) {
-            const subResults = await findWireJsonlFiles(filePath);
-            results.push(...subResults);
+            return await findWireJsonlFiles(filePath);
           } else if (file === 'wire.jsonl') {
-            results.push(filePath);
+            return [filePath];
           }
         } catch { /* ignore */ }
-      })
+        return [];
+      }
     );
+    for (const r of subResults) results.push(...r);
   } catch {
     // ignore
   }
@@ -205,28 +214,30 @@ export async function discoverSessions(projectDir?: string): Promise<SessionFile
   if (await existsAsync(geminiTmpDir) && await isDirectoryAsync(geminiTmpDir)) {
     try {
       const subdirs = await fs.promises.readdir(geminiTmpDir);
-      await Promise.all(
-        subdirs.map(async (dir) => {
+      const found = await mapWithConcurrencyLimit(
+        subdirs,
+        16,
+        async (dir) => {
           const subpath = path.join(geminiTmpDir, dir);
-          if (!(await isDirectoryAsync(subpath))) return;
+          if (!(await isDirectoryAsync(subpath))) return [] as SessionFile[];
           const projectRootFile = path.join(subpath, '.project_root');
-          if (!(await existsAsync(projectRootFile))) return;
+          if (!(await existsAsync(projectRootFile))) return [] as SessionFile[];
           const content = (await fs.promises.readFile(projectRootFile, 'utf-8')).trim();
           if (content && isProjectSubpath(content, resolvedProj)) {
             const chatsDir = path.join(subpath, 'chats');
             if (await existsAsync(chatsDir) && await isDirectoryAsync(chatsDir)) {
               const files = (await fs.promises.readdir(chatsDir)).filter(f => f.endsWith('.jsonl'));
-              for (const f of files) {
-                sessions.push({
-                  sessionId: f.replace('.jsonl', ''),
-                  filePath: path.join(chatsDir, f),
-                  tool: 'gemini',
-                });
-              }
+              return files.map(f => ({
+                sessionId: f.replace('.jsonl', ''),
+                filePath: path.join(chatsDir, f),
+                tool: 'gemini' as const,
+              }));
             }
           }
-        })
+          return [] as SessionFile[];
+        }
       );
+      for (const group of found) sessions.push(...group);
     } catch { /* ignore */ }
   }
 
@@ -235,26 +246,30 @@ export async function discoverSessions(projectDir?: string): Promise<SessionFile
   if (await existsAsync(codexSessionsDir) && await isDirectoryAsync(codexSessionsDir)) {
     try {
       const jsonlFiles = await findJsonlFiles(codexSessionsDir);
-      await Promise.all(
-        jsonlFiles.map(async (filePath) => {
+      const found = await mapWithConcurrencyLimit(
+        jsonlFiles,
+        16,
+        async (filePath) => {
           const firstLine = await readFirstLine(filePath);
-          if (!firstLine) return;
+          if (!firstLine) return null;
           try {
             const obj = JSON.parse(firstLine);
             if (obj.type === 'session_meta' && obj.payload) {
               const sessionCwd = obj.payload.cwd;
               if (sessionCwd && isProjectSubpath(sessionCwd, resolvedProj)) {
                 const baseName = path.basename(filePath);
-                sessions.push({
+                return {
                   sessionId: baseName.replace('.jsonl', ''),
                   filePath,
-                  tool: 'codex',
-                });
+                  tool: 'codex' as const,
+                };
               }
             }
           } catch { /* ignore */ }
-        })
+          return null;
+        }
       );
+      for (const s of found) if (s) sessions.push(s);
     } catch { /* ignore */ }
   }
 
@@ -299,28 +314,27 @@ export async function discoverSessions(projectDir?: string): Promise<SessionFile
     if (await existsAsync(sessionsDir) && await isDirectoryAsync(sessionsDir)) {
       try {
         const wireFiles = await findWireJsonlFiles(sessionsDir);
-        await Promise.all(
-          wireFiles.map(async (wirePath) => {
+        const found = await mapWithConcurrencyLimit(
+          wireFiles,
+          16,
+          async (wirePath) => {
             const sessionDir = path.dirname(path.dirname(path.dirname(wirePath)));
             const statePath = path.join(sessionDir, 'state.json');
-            if (await existsAsync(statePath)) {
-              try {
-                const stateObj = JSON.parse(await fs.promises.readFile(statePath, 'utf-8'));
-                const workDir = stateObj.workDir ?? stateObj.work_dir ?? stateObj.cwd;
-                if (workDir && isProjectSubpath(workDir, resolvedProj)) {
-                  const sessionId = path.basename(sessionDir);
-                  if (!sessions.some(s => s.sessionId === sessionId)) {
-                    sessions.push({
-                      sessionId,
-                      filePath: wirePath,
-                      tool: 'kimi',
-                    });
-                  }
+            if (!(await existsAsync(statePath))) return null;
+            try {
+              const stateObj = JSON.parse(await fs.promises.readFile(statePath, 'utf-8'));
+              const workDir = stateObj.workDir ?? stateObj.work_dir ?? stateObj.cwd;
+              if (workDir && isProjectSubpath(workDir, resolvedProj)) {
+                const sessionId = path.basename(sessionDir);
+                if (!sessions.some(s => s.sessionId === sessionId)) {
+                  return { sessionId, filePath: wirePath, tool: 'kimi' as const };
                 }
-              } catch { /* ignore */ }
-            }
-          })
+              }
+            } catch { /* ignore */ }
+            return null;
+          }
         );
+        for (const s of found) if (s) sessions.push(s);
       } catch { /* ignore */ }
     }
   }

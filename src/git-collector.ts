@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { captureFromCli } from './capture';
 import { readHistory, readSignals } from './storage';
+import { mapWithConcurrencyLimit } from './concurrency';
 
 const execFileAsync = promisify(execFile);
 
@@ -33,6 +34,8 @@ async function git(args: string[], cwdOverride?: string, ignoreOutput = false): 
 
 export interface GitCaptureResult {
   signalsCaptured: number;
+  // What was captured, newest-file-last, so the CLI can show the user exactly
+  // what landed in the log without making them open `cch log`.
   captured: Array<{ file: string; commit: string }>;
 }
 
@@ -81,28 +84,38 @@ export async function runGitCapture(range?: string, cwdOverride?: string): Promi
       const filesOutput = await git(['diff', '--name-only', parent, sha], cwdOverride);
       const files = filesOutput.split('\n').map(f => f.trim()).filter(Boolean);
 
-      // Concurrently diff the modified files
-      await Promise.all(
-        files.map(async (file) => {
+      // Diff the modified files with a bounded pool. Each file spawns a git
+      // child process, so fanning every file out at once (Promise.all over all
+      // N files) can hit 100+ concurrent processes on a large commit and risk
+      // FD/PID exhaustion on constrained CI. The pool caps in-flight work and,
+      // because mapWithConcurrencyLimit preserves input order, the `captured`
+      // array stays newest-file-last deterministically.
+      const capturedForCommit = await mapWithConcurrencyLimit(
+        files,
+        8,
+        async (file) => {
           try {
             const diff = await git(['diff', parent, sha, '--', file], cwdOverride);
-            if (diff.trim()) {
-              const didCapture = captureFromCli({
-                file,
-                diff,
-                session: `git-${sha.slice(0, 7)}`,
-                source: 'git'
-              });
-              if (didCapture) {
-                signalsCaptured++;
-                captured.push({ file, commit: sha.slice(0, 7) });
-              }
-            }
+            if (!diff.trim()) return null;
+            const didCapture = captureFromCli({
+              file,
+              diff,
+              session: `git-${sha.slice(0, 7)}`,
+              source: 'git'
+            });
+            return didCapture ? ({ file, commit: sha.slice(0, 7) } as const) : null;
           } catch {
             // Skip files where git diff fails (binary, deleted, renamed edge cases).
+            return null;
           }
-        })
+        }
       );
+      for (const entry of capturedForCommit) {
+        if (entry) {
+          signalsCaptured++;
+          captured.push(entry);
+        }
+      }
     }
   } catch {
     // Silent fail. The post-commit hook must never break a commit.
