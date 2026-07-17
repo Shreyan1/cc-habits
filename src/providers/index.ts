@@ -33,93 +33,64 @@ export interface ProviderConfig {
 
 // Minimal regex-driven YAML reader. The config file path comes from storagePaths
 // so that CC_HABITS_DIR overrides both data files AND the provider config together.
-function readConfig(): ProviderConfig {
+//
+// Parse + file-resolution are split so the (otherwise identical) parse logic is
+// shared by the sync `readConfig` and async `readConfigAsync` paths rather than
+// duplicated with the risk of drifting apart.
+function parseProviderConfig(text: string): ProviderConfig {
   const cfg: ProviderConfig = { provider: 'anthropic' };
-  let configPath = storagePaths.configFile;
-  if (!fs.existsSync(configPath)) {
-    if (!process.env['CC_HABITS_DIR']) {
-      const globalConfig = path.join(os.homedir(), '.cc-habits', 'config.yml');
-      if (fs.existsSync(globalConfig)) {
-        configPath = globalConfig;
-      } else {
-        return cfg;
-      }
-    } else {
-      return cfg;
-    }
+  const lines = text.split('\n').map(line => {
+    const hashIdx = line.indexOf('#');
+    return hashIdx !== -1 ? line.slice(0, hashIdx) : line;
+  });
+  const cleanText = lines.join('\n');
+  const read = (key: string): string | undefined => {
+    const m = cleanText.match(new RegExp(`^${key}\\s*:\\s*["']?([^\\s"'\\n]+)["']?`, 'm'));
+    return m ? m[1] : undefined;
+  };
+  const provider = read('provider');
+  if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic' || provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli') {
+    cfg.provider = provider;
   }
-  try {
-    const text = fs.readFileSync(configPath, 'utf-8');
-    const lines = text.split('\n').map(line => {
-      const hashIdx = line.indexOf('#');
-      return hashIdx !== -1 ? line.slice(0, hashIdx) : line;
-    });
-    const cleanText = lines.join('\n');
-    const read = (key: string): string | undefined => {
-      const m = cleanText.match(new RegExp(`^${key}\\s*:\\s*["']?([^\\s"'\\n]+)["']?`, 'm'));
-      return m ? m[1] : undefined;
-    };
-    const provider = read('provider');
-    if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic' || provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli') {
-      cfg.provider = provider;
-    }
-    cfg.anthropic_api_key = read('anthropic_api_key');
-    cfg.openai_api_key = read('openai_api_key');
-    cfg.openai_model = read('openai_model');
-    cfg.openai_base_url = read('openai_base_url');
-    cfg.groq_api_key = read('groq_api_key');
-    cfg.groq_model = read('groq_model');
-    cfg.ollama_url = read('ollama_url');
-    cfg.ollama_model = read('ollama_model');
-  } catch {
-    // fall through to default
-  }
+  cfg.anthropic_api_key = read('anthropic_api_key');
+  cfg.openai_api_key = read('openai_api_key');
+  cfg.openai_model = read('openai_model');
+  cfg.openai_base_url = read('openai_base_url');
+  cfg.groq_api_key = read('groq_api_key');
+  cfg.groq_model = read('groq_model');
+  cfg.ollama_url = read('ollama_url');
+  cfg.ollama_model = read('ollama_model');
   return cfg;
 }
 
-async function readConfigAsync(): Promise<ProviderConfig> {
-  const cfg: ProviderConfig = { provider: 'anthropic' };
-  let configPath = storagePaths.configFile;
-  if (!fs.existsSync(configPath)) {
-    if (!process.env['CC_HABITS_DIR']) {
-      const globalConfig = path.join(os.homedir(), '.cc-habits', 'config.yml');
-      try {
-        await fs.promises.access(globalConfig);
-        configPath = globalConfig;
-      } catch {
-        return cfg;
-      }
-    } else {
-      return cfg;
-    }
-  }
+// Resolve the config path, honoring CC_HABITS_DIR and the global fallback.
+// Returns null when there is genuinely no config to read (caller uses defaults).
+function resolveConfigPath(): string | null {
+  const local = storagePaths.configFile;
+  if (fs.existsSync(local)) return local;
+  if (process.env['CC_HABITS_DIR']) return null;
+  const globalConfig = path.join(os.homedir(), '.cc-habits', 'config.yml');
+  return fs.existsSync(globalConfig) ? globalConfig : null;
+}
+
+function readConfig(): ProviderConfig {
+  const configPath = resolveConfigPath();
+  if (!configPath) return { provider: 'anthropic' };
   try {
-    const text = await fs.promises.readFile(configPath, 'utf-8');
-    const lines = text.split('\n').map(line => {
-      const hashIdx = line.indexOf('#');
-      return hashIdx !== -1 ? line.slice(0, hashIdx) : line;
-    });
-    const cleanText = lines.join('\n');
-    const read = (key: string): string | undefined => {
-      const m = cleanText.match(new RegExp(`^${key}\\s*:\\s*["']?([^\\s"'\\n]+)["']?`, 'm'));
-      return m ? m[1] : undefined;
-    };
-    const provider = read('provider');
-    if (provider === 'openai' || provider === 'groq' || provider === 'ollama' || provider === 'anthropic' || provider === 'claude-cli' || provider === 'gemini-cli' || provider === 'codex-cli') {
-      cfg.provider = provider;
-    }
-    cfg.anthropic_api_key = read('anthropic_api_key');
-    cfg.openai_api_key = read('openai_api_key');
-    cfg.openai_model = read('openai_model');
-    cfg.openai_base_url = read('openai_base_url');
-    cfg.groq_api_key = read('groq_api_key');
-    cfg.groq_model = read('groq_model');
-    cfg.ollama_url = read('ollama_url');
-    cfg.ollama_model = read('ollama_model');
+    return parseProviderConfig(fs.readFileSync(configPath, 'utf-8'));
   } catch {
-    // fall through to default
+    return { provider: 'anthropic' };
   }
-  return cfg;
+}
+
+async function readConfigAsync(): Promise<ProviderConfig> {
+  const configPath = resolveConfigPath();
+  if (!configPath) return { provider: 'anthropic' };
+  try {
+    return parseProviderConfig(await fs.promises.readFile(configPath, 'utf-8'));
+  } catch {
+    return { provider: 'anthropic' };
+  }
 }
 
 // Validates an optional openai_base_url read out of config.yml, for OpenAI-
