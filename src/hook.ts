@@ -166,31 +166,32 @@ export function buildDiffFromNormalized(input: NormalizedHookInput): string {
 //   • the CC_HABITS_DISABLE env var (truthy).
 // When either is set, the PostToolUse and Stop hooks become no-ops: nothing is
 // captured, nothing is sent, no marker is printed.
-let cachedIgnore: boolean | null = null;
-
+//
+// IMPORTANT (lifetime of the ignore decision): the env var and cwd are read
+// fresh on every call. There is deliberately NO module-global cache here. A
+// previous version cached the result on first call, which silently poisoned
+// captureDisabled() for every later call in the same process (e.g. across tests
+// sharing a vitest worker), so a test that set CC_HABITS_DISABLE once made
+// captureDisabled() return true forever after, regardless of later env changes.
+// Hooks are short-lived processes in production, so recomputing per call is free
+// and correct. If a caller wants to avoid recomputing within a single
+// invocation, pass the value it got from checkIgnoreAsync() explicitly via the
+// optional `cached` argument.
 export async function checkIgnoreAsync(): Promise<boolean> {
-  if (isGloballyDisabled()) {
-    cachedIgnore = true;
-    return true;
-  }
+  if (isGloballyDisabled()) return true;
   const v = (process.env['CC_HABITS_DISABLE'] ?? '').toLowerCase();
-  if (v && v !== '0' && v !== 'false' && v !== 'off') {
-    cachedIgnore = true;
-    return true;
-  }
+  if (v && v !== '0' && v !== 'false' && v !== 'off') return true;
   try {
     const ignorePath = path.join(process.cwd(), '.cc-habits-ignore');
     await fs.promises.access(ignorePath);
-    cachedIgnore = true;
     return true;
   } catch {
-    cachedIgnore = false;
     return false;
   }
 }
 
-export function captureDisabled(): boolean {
-  if (cachedIgnore !== null) return cachedIgnore;
+export function captureDisabled(cached?: boolean | null): boolean {
+  if (cached !== undefined && cached !== null) return cached;
   if (isGloballyDisabled()) return true;
   const v = (process.env['CC_HABITS_DISABLE'] ?? '').toLowerCase();
   if (v && v !== '0' && v !== 'false' && v !== 'off') return true;
@@ -247,8 +248,8 @@ export function autoApplyWarning(count: number): string | null {
 // persisted `memories_enabled` flag in config.yml. See memoriesEnabled() in config.ts.
 
 // Pure logic ───────────────────────────────────────────────────────────────
-export function processPostToolUse(input: Record<string, unknown> | NormalizedHookInput, ctx?: StorageContext): void {
-  if (captureDisabled()) return;
+export function processPostToolUse(input: Record<string, unknown> | NormalizedHookInput, ctx?: StorageContext, ignored?: boolean | null): void {
+  if (captureDisabled(ignored)) return;
 
   const data = (('filePath' in input) ? input : normalizeInput(input, 'claude-code')) as NormalizedHookInput;
 
@@ -299,8 +300,8 @@ export interface StopResult {
   updatedMemories?: string[];
 }
 
-export async function processStop(sessionId: string, ctx?: StorageContext): Promise<StopResult | null> {
-  if (captureDisabled()) return null;
+export async function processStop(sessionId: string, ctx?: StorageContext, ignored?: boolean | null): Promise<StopResult | null> {
+  if (captureDisabled(ignored)) return null;
 
   // Phase 1 (no lock): read + gate signals, then run the slow LLM extraction. These
   // steps only READ shared state before hitting the provider, which can take 60-180s
@@ -943,6 +944,8 @@ export function processSessionStart(ctx?: StorageContext): string | null {
 // stdin/stdout wrappers ────────────────────────────────────────────────────
 export async function handleSessionStart(adapter = 'claude-code'): Promise<void> {
   await checkIgnoreAsync();
+  // SessionStart never captures, so there is nothing to gate; the await above
+  // simply keeps the ignore-check surface uniform with the other handlers.
   // SessionStart hooks may receive a small JSON payload on stdin, but we only
   // need local state, so drain and ignore it. Always exit 0 so a session never
   // fails to start because of cc-habits.
@@ -984,7 +987,7 @@ export async function handleSessionStart(adapter = 'claude-code'): Promise<void>
 }
 
 export async function handlePostToolUse(adapter = 'claude-code'): Promise<void> {
-  await checkIgnoreAsync();
+  const ignored = await checkIgnoreAsync();
   let raw = '';
   let oversized = false;
   process.stdin.setEncoding('utf-8');
@@ -1006,7 +1009,7 @@ export async function handlePostToolUse(adapter = 'claude-code'): Promise<void> 
         const check = validatePayload('post-tool-use', rawJson as Record<string, unknown>, adapter);
         if (!check.ok) logSchemaWarning('post-tool-use', check.missing);
         const normalized = normalizeInput(rawJson, adapter);
-        processPostToolUse(normalized);
+        processPostToolUse(normalized, undefined, ignored);
       } catch (e) {
         logError(`post-tool-use (${adapter}): malformed stdin or normalization failed: ${String(e)}`);
       }
@@ -1017,7 +1020,7 @@ export async function handlePostToolUse(adapter = 'claude-code'): Promise<void> 
 }
 
 export async function handleStop(): Promise<void> {
-  await checkIgnoreAsync();
+  const ignored = await checkIgnoreAsync();
   const raw = await new Promise<string>(resolve => {
     let buf = '';
     let oversized = false;
@@ -1046,7 +1049,7 @@ export async function handleStop(): Promise<void> {
       return;
     }
     const sessionId = String(data['session_id'] ?? data['sessionId'] ?? data['session'] ?? '');
-    const result = await processStop(sessionId);
+    const result = await processStop(sessionId, undefined, ignored);
     if (result !== null) {
       process.stderr.write(formatStopSummary(result) + '\n');
     }
@@ -1075,7 +1078,7 @@ export async function handleStop(): Promise<void> {
 }
 
 export async function handleUserPromptSubmit(): Promise<void> {
-  await checkIgnoreAsync();
+  const ignored = await checkIgnoreAsync();
   let raw = '';
   let oversized = false;
   process.stdin.setEncoding('utf-8');
