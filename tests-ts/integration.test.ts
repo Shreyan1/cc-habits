@@ -19,6 +19,7 @@ const origStorage = { ...storagePaths };
 const origInstall = { ...installPaths };
 
 let tmpDir: string;
+let origCwd: string;
 
 const SESSION = 'test-session-abc';
 
@@ -39,6 +40,12 @@ beforeEach(() => {
   const baseTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-test-'));
   tmpDir = path.join(baseTmp, '.cc-habits');
   fs.mkdirSync(tmpDir, { recursive: true });
+  // cmdInit installs the post-commit git hook, and that path is resolved from
+  // the current working directory, not from installPaths. Without pinning cwd
+  // to a throwaway repo, the suite writes to the developer's own .git/hooks.
+  origCwd = process.cwd();
+  fs.mkdirSync(path.join(baseTmp, 'repo', '.git', 'hooks'), { recursive: true });
+  process.chdir(path.join(baseTmp, 'repo'));
   storagePaths.habitsDir = tmpDir;
   storagePaths.habitsFile = path.join(tmpDir, 'habits.md');
   storagePaths.memoriesFile = path.join(tmpDir, 'memories.md');
@@ -70,6 +77,7 @@ beforeEach(() => {
 afterEach(() => {
   Object.assign(storagePaths, origStorage);
   Object.assign(installPaths, origInstall);
+  process.chdir(origCwd);
   fs.rmSync(tmpDir, { recursive: true, force: true });
   vi.clearAllMocks();
 });
