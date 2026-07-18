@@ -38,6 +38,7 @@ const FAKE_UPDATES = [
 
 beforeEach(() => {
   const baseTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-test-'));
+  vi.spyOn(os, 'homedir').mockReturnValue(baseTmp);
   tmpDir = path.join(baseTmp, '.cc-habits');
   fs.mkdirSync(tmpDir, { recursive: true });
   // cmdInit installs the post-commit git hook, and that path is resolved from
@@ -58,7 +59,7 @@ beforeEach(() => {
   storagePaths.historyFile = path.join(tmpDir, '.history.jsonl');
   storagePaths.provenanceFile = path.join(tmpDir, '.provenance.json');
   storagePaths.configFile = path.join(tmpDir, 'config.yml');
-  const claudeDir = path.join(tmpDir, 'dot_claude');
+  const claudeDir = path.join(baseTmp, '.claude');
   fs.mkdirSync(claudeDir, { recursive: true });
   installPaths.claudeDir = claudeDir;
   installPaths.settingsFile = path.join(claudeDir, 'settings.json');

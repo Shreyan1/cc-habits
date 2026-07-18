@@ -86,22 +86,23 @@ describe('command surface: MENU_ITEMS pipeline order', () => {
 describe('command surface: nextSteps hint coverage', () => {
   const pipelineCommands = ['init', 'learn', 'view', 'sync', 'capture'];
 
-  it('returns a non-empty hint for each pipeline command', () => {
+  it('returns a non-empty hint for each pipeline command', async () => {
     for (const command of pipelineCommands) {
-      const steps = nextSteps(command, []);
+      const steps = await nextSteps(command, []);
       expect(steps, `expected a hint for '${command}'`).toBeDefined();
       expect(steps!.length).toBeGreaterThan(0);
     }
   });
 
-  it('export points at cch import on the receiving side', () => {
-    expect(nextSteps('export', [])?.some(s => s.includes('cch import'))).toBe(true);
+  it('export points at cch import on the receiving side', async () => {
+    const steps = await nextSteps('export', []);
+    expect(steps?.some(s => s.includes('cch import'))).toBe(true);
   });
 
-  it('keeps the description column at or after 22 for every "cch " hint', () => {
+  it('keeps the description column at or after 22 for every "cch " hint', async () => {
     const checked = [...pipelineCommands, 'status', 'on', 'off', 'bootstrap', 'export'];
     for (const command of checked) {
-      const steps = nextSteps(command, []) ?? [];
+      const steps = (await nextSteps(command, [])) ?? [];
       for (const line of steps) {
         if (!line.startsWith('cch ')) continue;
         assertColumnContract(line);

@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import {
   Provider,
   ProviderRateLimitError,
@@ -12,44 +12,62 @@ export class ClaudeCliProvider implements Provider {
   name = 'claude-cli';
 
   async generate(prompt: string, opts: { maxTokens: number; timeoutMs: number }): Promise<string> {
-    const result = spawnSync('claude', ['-p', prompt], {
-      timeout: opts.timeoutMs,
-      encoding: 'utf-8',
+    return new Promise<string>((resolve, reject) => {
+      const child = spawn('claude', ['-p', '-'], {
+        timeout: opts.timeoutMs,
+      });
+
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', chunk => { stdout += chunk; });
+      child.stderr.on('data', chunk => { stderr += chunk; });
+
+      child.on('error', (err: any) => {
+        if (err.code === 'ENOENT') {
+          reject(new ProviderNotInstalledError(this.name));
+        } else if (err.code === 'ETIMEDOUT') {
+          reject(new ProviderTimeoutError(this.name, opts.timeoutMs));
+        } else {
+          reject(err);
+        }
+      });
+
+      child.on('close', (status, signal) => {
+        if (signal === 'SIGTERM') {
+          reject(new ProviderTimeoutError(this.name, opts.timeoutMs));
+          return;
+        }
+
+        const combined = (stdout + '\n' + stderr).toLowerCase();
+
+        if (status !== 0) {
+          if (combined.includes('quota') || combined.includes('credit') || combined.includes('balance exhausted')) {
+            reject(new ProviderQuotaError(this.name, stderr || undefined));
+            return;
+          }
+          if (combined.includes('rate limit') || combined.includes('429') || combined.includes('too many requests')) {
+            reject(new ProviderRateLimitError(this.name));
+            return;
+          }
+          if (
+            combined.includes('auth') ||
+            combined.includes('login') ||
+            combined.includes('unauthorized') ||
+            combined.includes('key') ||
+            combined.includes('token')
+          ) {
+            reject(new ProviderAuthError(this.name, stderr || undefined));
+            return;
+          }
+          reject(new Error(`claude CLI failed with exit code ${status}: ${stderr || stdout}`));
+          return;
+        }
+
+        resolve(stdout || '');
+      });
+
+      child.stdin.write(prompt);
+      child.stdin.end();
     });
-
-    if (result.error) {
-      if ((result.error as any).code === 'ENOENT') {
-        throw new ProviderNotInstalledError(this.name);
-      }
-      if (result.signal === 'SIGTERM' || (result.error as any).code === 'ETIMEDOUT') {
-        throw new ProviderTimeoutError(this.name, opts.timeoutMs);
-      }
-      throw result.error;
-    }
-
-    const stderr = result.stderr || '';
-    const stdout = result.stdout || '';
-    const combined = (stdout + '\n' + stderr).toLowerCase();
-
-    if (result.status !== 0) {
-      if (combined.includes('quota') || combined.includes('credit') || combined.includes('balance exhausted')) {
-        throw new ProviderQuotaError(this.name, result.stderr || undefined);
-      }
-      if (combined.includes('rate limit') || combined.includes('429') || combined.includes('too many requests')) {
-        throw new ProviderRateLimitError(this.name);
-      }
-      if (
-        combined.includes('auth') ||
-        combined.includes('login') ||
-        combined.includes('unauthorized') ||
-        combined.includes('key') ||
-        combined.includes('token')
-      ) {
-        throw new ProviderAuthError(this.name, result.stderr || undefined);
-      }
-      throw new Error(`claude CLI failed with exit code ${result.status}: ${result.stderr || result.stdout}`);
-    }
-
-    return result.stdout || '';
   }
 }

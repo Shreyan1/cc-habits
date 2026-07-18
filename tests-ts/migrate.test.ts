@@ -45,7 +45,9 @@ function nonExistentOldDir(): string {
 describe('runMigration, CLAUDE.md @import rewrite (Fix 2)', () => {
   it('rewrites @import <habitsFile> to preferences.md when no legacy dir exists (v0.6.x user)', () => {
     // Seed CLAUDE.md with the exact string that would have been written by v0.6.x install.
-    const oldImport = `@import ${storagePaths.habitsFile}`;
+    const habitsNormalized = storagePaths.habitsFile.replace(/\\/g, '/');
+    const prefsNormalized = storagePaths.preferencesFile.replace(/\\/g, '/');
+    const oldImport = `@import ${habitsNormalized}`;
     fs.writeFileSync(claudeMd, `# My project\n\n${oldImport}\n`);
 
     const result = runMigration(false, nonExistentOldDir());
@@ -54,14 +56,15 @@ describe('runMigration, CLAUDE.md @import rewrite (Fix 2)', () => {
     expect(result.migrated).toBe(false); // no file copy, legacy dir absent
 
     const content = fs.readFileSync(claudeMd, 'utf-8');
-    expect(content).toContain(`@import ${storagePaths.preferencesFile}`);
-    expect(content).not.toContain(`@import ${storagePaths.habitsFile}`);
+    expect(content).toContain(`@import ${prefsNormalized}`);
+    expect(content).not.toContain(`@import ${habitsNormalized}`);
     // Surrounding user content preserved.
     expect(content).toContain('# My project');
   });
 
   it('is idempotent: second runMigration is a no-op when already pointing at preferences.md', () => {
-    const newImport = `@import ${storagePaths.preferencesFile}`;
+    const prefsNormalized = storagePaths.preferencesFile.replace(/\\/g, '/');
+    const newImport = `@import ${prefsNormalized}`;
     fs.writeFileSync(claudeMd, `${newImport}\n`);
 
     const result = runMigration(false, nonExistentOldDir());

@@ -17,7 +17,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import {
   storagePaths, initHabitsMd, initLog, readHabitsMd, readSignals, parseHabits,
   writeHabitsMd, serialiseHabits, writeSnapshot,
@@ -49,7 +49,7 @@ import { detectInstalledTools, isAntigravityMigrated } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.9.3';
+export const VERSION = '0.9.4';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -450,7 +450,7 @@ export async function cmdInit(providerFlag?: string): Promise<number> {
   const hasExistingHabits = Object.values(habitsEmpty).some(h => h.length > 0);
 
   if (providerReady && !hasExistingHabits) {
-    const sessions = discoverSessions();
+    const sessions = await discoverSessions();
     if (sessions.length > 0) {
       process.stdout.write('\n');
       process.stdout.write(
@@ -1126,12 +1126,12 @@ export async function cmdUninstall(yes: boolean): Promise<number> {
     for (const tool of detected) {
       try {
         if (tool.id === 'gemini') {
-          const { postAdded } = deregisterJsonHooks(tool.settingsPath);
-          if (postAdded) process.stdout.write(`  ${tick} Removed hooks from Gemini CLI (${tool.settingsPath})\n`);
+          const { postRemoved } = deregisterJsonHooks(tool.settingsPath);
+          if (postRemoved) process.stdout.write(`  ${tick} Removed hooks from Gemini CLI (${tool.settingsPath})\n`);
         } else if (tool.id === 'codex') {
           const jsonFile = path.join(path.dirname(tool.settingsPath), 'hooks.json');
-          const { postAdded } = deregisterJsonHooks(jsonFile);
-          if (postAdded) process.stdout.write(`  ${tick} Removed hooks from Codex CLI (${jsonFile})\n`);
+          const { postRemoved } = deregisterJsonHooks(jsonFile);
+          if (postRemoved) process.stdout.write(`  ${tick} Removed hooks from Codex CLI (${jsonFile})\n`);
         } else if (tool.id === 'kimi') {
           if (deregisterKimiHooks(tool.settingsPath)) {
             process.stdout.write(`  ${tick} Removed hooks from Kimi Code CLI (${tool.settingsPath})\n`);
@@ -1183,8 +1183,18 @@ export async function cmdUninstall(yes: boolean): Promise<number> {
     const parsed = JSON.parse(globalList) as { dependencies?: Record<string, unknown> };
     if (parsed.dependencies?.['cc-habits']) {
       try {
-        execSync('npm uninstall -g cc-habits', { stdio: 'pipe' });
-        process.stdout.write(`  ${tick} Removed global npm installation (cch binary)\n`);
+        if (process.platform === 'win32') {
+          // On Windows, the binary is locked while running, so spawn a detached script
+          // that waits for this process to exit and then deletes it.
+          spawn('cmd.exe', ['/c', 'timeout /t 1 /nobreak >nul && npm uninstall -g cc-habits'], {
+            detached: true,
+            stdio: 'ignore',
+          }).unref();
+          process.stdout.write(`  ${tick} Spawned background process to remove global npm installation (cch binary)\n`);
+        } else {
+          execSync('npm uninstall -g cc-habits', { stdio: 'pipe' });
+          process.stdout.write(`  ${tick} Removed global npm installation (cch binary)\n`);
+        }
       } catch (e) {
         process.stdout.write(`  ${dash} Could not auto-remove the global binary. Run manually:\n      npm uninstall -g cc-habits\n`);
       }
@@ -1807,7 +1817,7 @@ export async function cmdLint(filePath: string, asJson: boolean): Promise<number
 
 // bootstrap ───────────────────────────────────────────────────────────────
 export async function cmdBootstrap(): Promise<number> {
-  const sessions = discoverSessions();
+  const sessions = await discoverSessions();
 
   if (sessions.length === 0) {
     process.stdout.write(c(DIM, '  No developer tool sessions found for this project.\n'));
@@ -2005,7 +2015,7 @@ export async function cmdGitCapture(range?: string): Promise<number> {
   // Stay silent (like cmdCapture) so a disabled tool adds no output per commit;
   // `cch status` is the place that reports the disabled state.
   if (isGloballyDisabled()) return 0;
-  const { signalsCaptured, captured } = runGitCapture(range);
+  const { signalsCaptured, captured } = await runGitCapture(range);
   if (signalsCaptured > 0) {
     process.stdout.write(`  captured ${signalsCaptured} git commit signal${signalsCaptured === 1 ? '' : 's'} to the local capture log:\n`);
     // Show what landed, capped so a big commit does not flood the terminal. Full

@@ -125,21 +125,24 @@ describe('looksLikeEnvVar', () => {
 
 // Next-step hints ─────────────────────────────────────────────────────────────
 describe('nextSteps mapping', () => {
-  it('suggests sync after view', () => {
-    const steps = nextSteps('view', []);
+  it('suggests sync after view', async () => {
+    const steps = await nextSteps('view', []);
     expect(steps?.some(s => s.includes('sync'))).toBe(true);
   });
 
-  it('suggests learn after capture', () => {
-    expect(nextSteps('capture', [])?.some(s => s.includes('learn'))).toBe(true);
+  it('suggests learn after capture', async () => {
+    const steps = await nextSteps('capture', []);
+    expect(steps?.some(s => s.includes('learn'))).toBe(true);
   });
 
-  it('suggests import on the other side after export', () => {
-    expect(nextSteps('export', [])?.some(s => s.includes('cch import'))).toBe(true);
+  it('suggests import on the other side after export', async () => {
+    const steps = await nextSteps('export', []);
+    expect(steps?.some(s => s.includes('cch import'))).toBe(true);
   });
 
-  it('returns nothing for commands without a follow-up', () => {
-    expect(nextSteps('reset', [])).toBeUndefined();
+  it('returns nothing for commands without a follow-up', async () => {
+    const steps = await nextSteps('reset', []);
+    expect(steps).toBeUndefined();
   });
 });
 

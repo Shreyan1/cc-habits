@@ -71,9 +71,10 @@ const { execFileSyncMock } = vi.hoisted(() => ({
   execFileSyncMock: vi.fn()
 }));
 
-vi.mock('child_process', () => ({
-  execFileSync: execFileSyncMock
-}));
+vi.mock('child_process', async (importActual) => {
+  const actual = await importActual<typeof import('child_process')>();
+  return { ...actual, execFileSync: execFileSyncMock };
+});
 
 describe('openBrowser (security)', () => {
   beforeEach(() => {

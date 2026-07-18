@@ -30,3 +30,8 @@ scratch/
 AGENTS.md
 GEMINI.md
 .cch/
+
+# Debug / scratch artifacts (never commit)
+patch.diff
+fix-await.ps1
+fix_tests.py
