@@ -36,6 +36,7 @@ Output ONLY a JSON array. No prose. Each object:
 CRITICAL:
 - Only extract habits observable from 2+ signals OR extremely clear single signals.
 - Stick to syntactic/stylistic patterns. Do not infer architectural intent.
+- Prose/documentation edits (markdown) are habits too: extract the writing conventions they show (heading case, voice and person, callout style, formatting of UI terms) under a category like "Documentation" or "Writing Style".
 - CONSOLIDATE RELATED PREFERENCES: Do not split a single coding style pattern into multiple, hyper-specific rules (e.g., do not write one rule for 'parameter type annotations' and another for 'return type annotations'; instead, consolidate them under a single comprehensive rule like 'Use explicit TypeScript type annotations for function signatures'). Prefer broad, consolidated instructions.
 - DO NOT EXTRACT BUG FIXES OR MISTAKES: If a change represents a specific agent bug fix (such as forgetting a null check, failing to close a stream, or writing incorrect API arguments), do NOT capture it as a habit. Those belong exclusively in memories, not habits. Only capture repeating, positive coding style/formatting preferences.
 - Never output content marked <REDACTED:...>.
@@ -93,11 +94,35 @@ export async function extractRules(
 
   try {
     const updates = JSON.parse(cleaned) as unknown;
-    if (Array.isArray(updates)) return updates.filter(isValidUpdate).map(coerceUpdate);
+    if (Array.isArray(updates)) return updates.filter(isValidUpdate).map(coerceUpdate).filter(u => !isPromptInstructionEcho(u.rule));
   } catch {
     // malformed, treat as no updates
   }
   return [];
+}
+
+// Instruction-echo guard for habit rules. Small local models sometimes quote the
+// prompt's own instruction text back as a "habit" (observed with llama3.2:1b:
+// "Always follow the 'Single Declarative Sentence' rule in coding"). These
+// normalized fragments are distinctive to the prompts above and never occur in
+// a genuine style preference, so a rule containing one is a prompt echo. The
+// mirror of the memory-side isPromptExampleEcho() guard.
+const PROMPT_INSTRUCTION_FRAGMENTS: readonly string[] = [
+  'single declarative sentence',
+  'consolidate related preferences',
+  'do not extract bug fixes',
+  'stating the preference',
+  'stating the convention',
+  'extremely clear single signals',
+];
+
+function isPromptInstructionEcho(rule: string): boolean {
+  try {
+    const norm = normalizeForEcho(rule);
+    return PROMPT_INSTRUCTION_FRAGMENTS.some(f => norm.includes(f));
+  } catch {
+    return false; // fail-open: guard failure must never drop real habits
+  }
 }
 
 // The provider response is untrusted (a self-hosted/MITM'd or simply buggy endpoint
@@ -382,6 +407,7 @@ Output ONLY a JSON array. No prose. Each object:
 CRITICAL:
 - Only extract a convention visible CONSISTENTLY across multiple files or many times in one file. Skip one-offs.
 - Stick to observable syntactic/stylistic patterns (naming, quoting, typing, import style, comment style, error handling shape). Do NOT infer architecture, business logic, or intent.
+- Markdown/prose files are first-class input: infer the WRITING conventions they consistently follow (heading case, voice and person, callout style, frontmatter shape, formatting of UI terms) under a category like "Documentation" or "Writing Style".
 - CONSOLIDATE: prefer broad rules over many hyper-specific ones.
 - Use "reinforce" when a sampled convention matches an existing habit; otherwise "create".
 - Do NOT extract bug fixes, TODOs, or one-off mistakes. Only durable positive conventions.
@@ -467,7 +493,7 @@ export async function extractHabitsFromRepo(
   const cleaned = stripCodeFences(raw);
   try {
     const updates = JSON.parse(cleaned) as unknown;
-    if (Array.isArray(updates)) return updates.filter(isValidUpdate).map(coerceUpdate);
+    if (Array.isArray(updates)) return updates.filter(isValidUpdate).map(coerceUpdate).filter(u => !isPromptInstructionEcho(u.rule));
   } catch {
     // malformed, treat as no updates
   }

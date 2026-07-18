@@ -343,6 +343,8 @@ UserPromptSubmit (every prompt)
   → injects top-12 active habits by confidence (~150-350 tokens depending on habit count), dynamically filtered to match the programming languages of files edited in the current session
   → also injects top-3 trigger-matched memories (~40-90 tokens), unless memories are disabled
   → total injection overhead: < 0.5% of a typical 100k context window
+  → logs one metadata line per injection to ~/.cc-habits/events.jsonl (timestamp, tool,
+    session, counts): the proof `cch view` renders as its capture-vs-injection graph
   → set CC_HABITS_INJECT=0 to disable
 
 SessionStart (session begins)

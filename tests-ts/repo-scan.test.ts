@@ -197,3 +197,17 @@ describe('memoriesEnabled default', () => {
     expect(memoriesEnabled()).toBe(false);
   });
 });
+
+describe('prose page sampling (writer support)', () => {
+  it('includes article .md files in the source sample, excluding instruction docs and README', async () => {
+    fs.mkdirSync(path.join(repoDir, 'articles'), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, 'articles', 'getting-started.md'), '# Get started\n\nYou can set up a workspace.\n');
+    fs.writeFileSync(path.join(repoDir, 'README.md'), '# Boilerplate\n');
+    await scanRepo({ cwd: repoDir });
+    const files = vi.mocked(extractor.extractHabitsFromRepo).mock.calls[0][0] as { path: string }[];
+    const names = files.map(f => f.path);
+    expect(names).toContain(path.join('articles', 'getting-started.md'));
+    expect(names).not.toContain('README.md');
+    expect(names).not.toContain('CLAUDE.md'); // handled by readDocFiles, not the source sample
+  });
+});

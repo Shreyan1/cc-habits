@@ -36,6 +36,13 @@ const SOURCE_EXTS = new Set([
   '.vue', '.svelte',
 ]);
 
+// Prose content worth sampling for writing-style inference: a technical writer's
+// article corpus carries house style (voice, heading case, structure, callout
+// conventions) exactly the way source files carry code style. Sampled through
+// the same stride/byte budget as source files. Instruction docs (CLAUDE.md and
+// friends) are excluded here because readDocFiles already reads them whole.
+const PROSE_EXTS = new Set(['.md', '.mdx']);
+
 // Path fragments that mark generated, vendored, or minified content to skip.
 const SKIP_FRAGMENTS = [
   'node_modules/', 'dist/', 'build/', 'vendor/', '.min.', 'coverage/',
@@ -196,8 +203,17 @@ function walk(dir: string, root: string, depth: number): string[] {
 
 // Pick a representative, size-bounded sample spread across directories.
 function sampleSourceFiles(repoRoot: string): RepoFile[] {
+  const docSet = new Set(DOC_CANDIDATES.map(d => d.toLowerCase()));
   const all = listCandidateFiles(repoRoot)
-    .filter(rel => SOURCE_EXTS.has(path.extname(rel).toLowerCase()))
+    .filter(rel => {
+      const ext = path.extname(rel).toLowerCase();
+      if (SOURCE_EXTS.has(ext)) return true;
+      // Prose pages count, but not the instruction docs readDocFiles handles,
+      // and not README (project boilerplate, weak style signal).
+      return PROSE_EXTS.has(ext)
+        && !docSet.has(rel.toLowerCase())
+        && !path.basename(rel).toLowerCase().startsWith('readme');
+    })
     .filter(rel => !skip(rel));
   if (all.length === 0) return [];
 
@@ -287,7 +303,7 @@ export async function scanRepo(opts: ScanOptions = {}): Promise<RepoScanResult> 
     process.stdout.write(
       `\n⚠️  cc-habits repository scan\n` +
       `   Reads ${files.length} source file${files.length === 1 ? '' : 's'}${docNote} ` +
-      `(code and instruction docs only; data, lockfiles, and assets are skipped).\n` +
+      `(code, prose pages, and instruction docs; data, lockfiles, and assets are skipped).\n` +
       `   Redacted context is sent to ${resolveProviderLabel()} and consumes tokens.\n`
     );
     if (opts.confirm) {

@@ -24,8 +24,8 @@ import {
   readTombstones, addTombstone, initMemoriesMd, readMemoriesMd, writeMemoriesMd,
   parseMemories, serialiseMemories, addMemoryTombstone, readMemoryTombstones,
   readHistory, appendHistory, logError, detectManualDeletes, applyMemoryUpdates,
-  getRuleHash, repoStorageContext, findRepoRoot,
-  type Memory, type Signal, type Habit, type StorageContext,
+  getRuleHash, repoStorageContext, findRepoRoot, readInjectEvents, eventsFilePath,
+  type Memory, type Signal, type Habit, type StorageContext, type InjectEvent,
 } from './storage';
 import { applyUpdates, applyDecay, type AppliedChange } from './confidence';
 import { runSelectMenu } from './menu';
@@ -49,7 +49,7 @@ import { detectInstalledTools, isAntigravityMigrated } from './detect';
 import { SUPPORTED_TOOLS } from './supported';
 import { explainProviderError } from './provider-errors';
 
-export const VERSION = '0.9.0';
+export const VERSION = '0.9.1';
 
 // Turn a provider failure into a plain-language, actionable hint. Returns
 // undefined for non-provider errors so the caller can rethrow them.
@@ -784,6 +784,78 @@ function renderMemoriesSummary(ctx?: StorageContext): void {
   process.stdout.write('\n');
 }
 
+// Activity graph: capture vs injection over the last 14 days ────────────────
+// The transparency proof for injection. Signals come from log.jsonl (what was
+// captured), inject events from events.jsonl (what the prompt hook actually
+// handed to a tool, recorded at the moment it happened). Both rows render only
+// real logged lines; nothing here is inferred or estimated.
+const ACTIVITY_DAYS = 14;
+const ACTIVITY_BLOCKS = ['░', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+// One bar character per day, scaled to the row's own peak (labelled beside the
+// row so the two rows are not read as sharing a scale).
+export function activityRow(counts: number[]): string {
+  const max = Math.max(0, ...counts);
+  return counts
+    .map(n => (n === 0 || max === 0) ? ACTIVITY_BLOCKS[0] : ACTIVITY_BLOCKS[Math.min(8, Math.max(1, Math.ceil((n / max) * 8)))])
+    .join(' ');
+}
+
+export function renderActivitySection(ctx?: StorageContext): void {
+  let events: InjectEvent[] = [];
+  let signals: Signal[] = [];
+  try { events = readInjectEvents(ctx); } catch { events = []; }
+  try { signals = readSignals(undefined, ctx); } catch { signals = []; }
+  if (events.length === 0 && signals.length === 0) return; // nothing to show yet
+
+  // Bucket by UTC date, matching the ISO timestamps both files store.
+  const days: string[] = [];
+  const now = Date.now();
+  for (let i = ACTIVITY_DAYS - 1; i >= 0; i--) {
+    days.push(new Date(now - i * 86_400_000).toISOString().slice(0, 10));
+  }
+  const idx = new Map(days.map((d, i) => [d, i]));
+  const cap: number[] = new Array(ACTIVITY_DAYS).fill(0);
+  const inj: number[] = new Array(ACTIVITY_DAYS).fill(0);
+  for (const s of signals) {
+    const i = idx.get((s.ts ?? '').slice(0, 10));
+    if (i !== undefined) cap[i] = (cap[i] ?? 0) + 1;
+  }
+  for (const e of events) {
+    const i = idx.get((e.ts ?? '').slice(0, 10));
+    if (i !== undefined) inj[i] = (inj[i] ?? 0) + 1;
+  }
+  const capTotal = cap.reduce((a, b) => a + b, 0);
+  const injTotal = inj.reduce((a, b) => a + b, 0);
+
+  process.stdout.write(c(BOLD, '  ── Activity: capture vs injection ') + c(DIM, '─'.repeat(14)) + '\n');
+  process.stdout.write(
+    `  ${c(DIM, 'captured')}  ${c(CYAN, activityRow(cap))}  ` +
+    c(DIM, `${capTotal} edit${capTotal === 1 ? '' : 's'} · peak ${Math.max(0, ...cap)}/day`) + '\n',
+  );
+  process.stdout.write(
+    `  ${c(DIM, 'injected')}  ${c(GREEN, activityRow(inj))}  ` +
+    c(DIM, `${injTotal} prompt${injTotal === 1 ? '' : 's'} · peak ${Math.max(0, ...inj)}/day`) + '\n',
+  );
+  process.stdout.write(c(DIM, `            ${days[0]!.slice(5)} ${'─'.repeat(15)}▶ ${days[ACTIVITY_DAYS - 1]!.slice(5)}`) + '\n');
+
+  const last = events[events.length - 1];
+  if (last) {
+    const hab = `${last.habits} habit${last.habits === 1 ? '' : 's'}`;
+    const mem = last.memories > 0 ? `, ${last.memories} memor${last.memories === 1 ? 'y' : 'ies'}` : '';
+    const sess = term(String(last.session_id)).slice(0, 12);
+    process.stdout.write(
+      `  ${c(GREEN, '✓')} last injected ${formatTimeAgo(last.ts)} into ${c(BOLD, term(last.source))}` +
+      c(DIM, ` · ${hab}${mem}${sess ? ` · session ${sess}` : ''}`) + '\n',
+    );
+    process.stdout.write(c(DIM, `    proof, one line per injection: ${eventsFilePath(ctx)}\n`));
+  } else {
+    process.stdout.write(c(DIM, '  No injections yet. Habits inject after they graduate (2+ sessions);\n'));
+    process.stdout.write(c(DIM, '  every injection is then logged to events.jsonl and charted here.\n'));
+  }
+  process.stdout.write('\n');
+}
+
 // `cch view` with no subcommand: the one-glance unified view. Compact habits
 // (grouped) plus graduated memories, with no menu and no flags to remember. The
 // focused subviews (`cch view memories|prefs|habits`) and `--lang` still exist,
@@ -801,7 +873,10 @@ export function cmdView(langFilter?: string, requestedScope?: ViewScope): number
   renderScopeBanner(scope);
   const code = renderHabitsView(langFilter, scope.ctx);
   // Memories are not language-scoped, so only fold them into the unfiltered view.
-  if (!langFilter) renderMemoriesSummary(scope.ctx);
+  if (!langFilter) {
+    renderMemoriesSummary(scope.ctx);
+    renderActivitySection(scope.ctx);
+  }
   return code;
 }
 
