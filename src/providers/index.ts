@@ -51,7 +51,16 @@ function readConfig(): ProviderConfig {
   try {
     const text = fs.readFileSync(configPath, 'utf-8');
     const read = (key: string): string | undefined => {
-      const m = text.match(new RegExp(`${key}\\s*:\\s*["']?([^\\s"'\\n]+)["']?`));
+      // Anchor at column 0 with the multiline flag, consistent with
+      // setConfigValue/getConfigValue in config.ts. Without `^...`/`m` an
+      // unanchored match reads the first occurrence anywhere in the file, so a
+      // commented-out `# provider: openai` above `provider: ollama` would win,
+      // and a key that is a suffix of another (`x_provider:`) could match too.
+      // `#` inside a value stays intact: `[^\s"'\n]+` already stops the value at
+      // whitespace, so an inline `key: value # note` is handled without a naive
+      // comment-strip that would truncate a value legitimately containing `#`
+      // (e.g. an ollama_url with an embedded credential).
+      const m = text.match(new RegExp(`^[ \\t]*${key}\\s*:\\s*["']?([^\\s"'\\n]+)["']?`, 'm'));
       return m ? m[1] : undefined;
     };
     const provider = read('provider');
