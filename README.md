@@ -286,7 +286,7 @@ You can also run bootstrap any time with `cc-habits bootstrap`.
 | **Linux**                             | Fully supported                                   |
 | **Windows (WSL2)**                    | Supported, recommended path on Windows            |
 | **Windows (Git Bash)**                | Supported                                         |
-| **Windows (native PowerShell / cmd)** | Partial: the core CLI works, but Git hooks, the ` |
+| **Windows (native PowerShell / cmd)** | Partial: the core CLI works, but the POSIX-shell pieces below do not |
 
 The core CLI is pure Node.js and runs anywhere Node 20+ runs. The pieces that need a POSIX shell are the optional Git post-commit hook, the tool hook commands, and the `cch shell-init` wrapper. CI runs the full test suite on Linux, macOS, and Windows.
 
@@ -818,10 +818,10 @@ cc-habits is designed to never add perceptible latency to your coding sessions. 
 
 ### Test suite
 
-945 tests across 56 files, including 12 dedicated security suites (red-team, filesystem hardening, sanitizer fuzzing, adversarial corpus, terminal-escape / ANSI injection, LLM-specific prompt-injection and memory-poisoning). CI runs the full suite on Linux, macOS, and Windows. See [SECURITY.md](SECURITY.md) for the full breakdown of attack vectors tested.
+1,067 tests across 66 files, including 12 dedicated security suites (red-team, filesystem hardening, sanitizer fuzzing, adversarial corpus, terminal-escape / ANSI injection, LLM-specific prompt-injection and memory-poisoning). CI runs the full suite on Linux, macOS, and Windows. See [SECURITY.md](SECURITY.md) for the full breakdown of attack vectors tested.
 
 ```bash
-npm test    # 945 tests, runs serially for isolation (~15s on macOS M-series)
+npm test    # 1,067 tests, runs serially for isolation (~12s on macOS M-series)
 ```
 
 ---
