@@ -14,6 +14,7 @@ const origStorage = { ...storagePaths };
 const origInstall = { ...installPaths };
 
 let tmpDir: string;
+let origCwd: string;
 
 const FAKE_UPDATES = [{
   category: 'Python',
@@ -29,6 +30,13 @@ function makeEdit(file: string, old: string, nw: string, session: string): void 
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-global-'));
+  // cmdInit below installs the post-commit git hook, and that path is resolved
+  // from the current working directory, not from installPaths. Without pinning
+  // cwd to a throwaway repo, running the suite appends the hook line to the
+  // developer's own .git/hooks/post-commit.
+  origCwd = process.cwd();
+  fs.mkdirSync(path.join(tmpDir, 'repo', '.git', 'hooks'), { recursive: true });
+  process.chdir(path.join(tmpDir, 'repo'));
   storagePaths.habitsDir = path.join(tmpDir, 'habits');
   storagePaths.habitsFile = path.join(tmpDir, 'habits', 'habits.md');
   storagePaths.logFile = path.join(tmpDir, 'habits', 'log.jsonl');
@@ -55,6 +63,7 @@ beforeEach(() => {
 afterEach(() => {
   Object.assign(storagePaths, origStorage);
   Object.assign(installPaths, origInstall);
+  process.chdir(origCwd);
   fs.rmSync(tmpDir, { recursive: true, force: true });
   vi.clearAllMocks();
 });
