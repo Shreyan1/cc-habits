@@ -30,6 +30,7 @@ function makeEdit(file: string, old: string, nw: string, session: string): void 
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-habits-global-'));
+  vi.spyOn(os, 'homedir').mockReturnValue(tmpDir);
   // cmdInit below installs the post-commit git hook, and that path is resolved
   // from the current working directory, not from installPaths. Without pinning
   // cwd to a throwaway repo, running the suite appends the hook line to the
@@ -46,7 +47,7 @@ beforeEach(() => {
   storagePaths.historyFile = path.join(tmpDir, 'habits', '.history.jsonl');
   storagePaths.provenanceFile = path.join(tmpDir, 'habits', '.provenance.json');
   storagePaths.configFile = path.join(tmpDir, 'habits', 'config.yml');
-  const claudeDir = path.join(tmpDir, 'dot_claude');
+  const claudeDir = path.join(tmpDir, '.claude');
   fs.mkdirSync(claudeDir, { recursive: true });
   installPaths.claudeDir = claudeDir;
   installPaths.settingsFile = path.join(claudeDir, 'settings.json');

@@ -21,7 +21,7 @@ export interface Signal {
   file: string;
   diff: string;
   language?: string;
-  source?: 'claude-code' | 'git' | 'vscode' | 'cli' | 'gemini' | 'codex' | 'cline' | 'kimi' | 'antigravity';
+  source?: 'claude-code' | 'git' | 'vscode' | 'cli' | 'gemini' | 'codex' | 'cline' | 'kimi';
 }
 
 export interface Habit {
