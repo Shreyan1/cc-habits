@@ -292,6 +292,88 @@ export function addImportToClaudeMd(ctx?: InstallContext): boolean {
 
 import { execFileSync } from 'child_process';
 
+/**
+ * Absolute path to the cc-habits binary, resolved at install time.
+ *
+ * Same reasoning as resolveHookBinaryPath above: a git hook runs in a
+ * non-interactive shell, and a GUI git client runs it with a minimal PATH, so
+ * a bare `cc-habits` is not reliably resolvable even when it is installed.
+ */
+export function resolveGitBinaryPath(): string {
+  // argv[1] is absent when the module is loaded outside a CLI entry point
+  // (`node -e`, some test runners). Resolving undefined throws, and the callers
+  // below treat any throw as a failed install, so fall back to the bare name.
+  const self = process.argv[1];
+  if (!self) return 'cc-habits';
+  const binPath = path.join(path.dirname(path.resolve(self)), 'cc-habits');
+  return fs.existsSync(binPath) ? binPath : 'cc-habits'; // fallback for test/dev environments
+}
+
+/**
+ * The single post-commit line cc-habits owns.
+ *
+ * Two things beyond calling the binary:
+ *  - `command -v` guards the call. Calling it bare printed
+ *    `cc-habits: command not found` on every commit once the binary was
+ *    uninstalled or moved, which reads as a broken repo and is pure noise: if
+ *    there is no binary there is nothing to capture.
+ *  - stdout and stderr are discarded and the line ends in `|| true`, so capture
+ *    can never fail, slow, or clutter a commit.
+ *
+ * Kept to one line on purpose: install detection and uninstall both work by
+ * matching and filtering single lines, see isOwnedHookLine.
+ */
+/**
+ * POSIX-quote a string for safe interpolation into a /bin/sh command.
+ *
+ * Single quotes, not double. Inside double quotes a backslash still escapes,
+ * so escaping only `"` (as makeHooks above does) leaves a path containing `\"`
+ * able to close the string and append commands. Inside single quotes nothing is
+ * special except `'` itself, which is handled by closing, escaping, reopening.
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function gitHookCommand(): string {
+  const bin = shellQuote(resolveGitBinaryPath());
+  return `command -v ${bin} >/dev/null 2>&1 && ${bin} git-capture >/dev/null 2>&1 || true`;
+}
+
+/**
+ * True for any post-commit line cc-habits owns.
+ *
+ * Matches on the subcommand rather than the binary name, so it still recognizes
+ * hooks written by older versions (`cc-habits git-capture || true`,
+ * `cch git-capture || true`) as well as the absolute-path form above.
+ */
+function isOwnedHookLine(line: string): boolean {
+  return /(^|[\s"'/])(cc-habits|cch)["']?\s+git-capture(\s|$)/.test(line);
+}
+
+/**
+ * Rewrite a hook body so any cc-habits line written by an older version becomes
+ * the current guarded one. Returns null when nothing needs to change, so the
+ * caller can skip the write entirely.
+ */
+function upgradeHookBody(content: string): string | null {
+  const current = gitHookCommand();
+  const lines = content.split('\n');
+  const owned = lines.filter(isOwnedHookLine);
+  if (owned.length === 0) return null;
+  if (owned.length === 1 && owned[0] === current) return null;
+
+  // Collapse to a single current line, keeping the position of the first one so
+  // any surrounding lines the user added stay in their original order.
+  let seen = false;
+  const out: string[] = [];
+  for (const line of lines) {
+    if (!isOwnedHookLine(line)) { out.push(line); continue; }
+    if (!seen) { out.push(current); seen = true; }
+  }
+  return out.join('\n');
+}
+
 export function installLocalGitHook(): 'installed' | 'already' | 'failed' {
   try {
     if (!fs.existsSync('.git')) return 'failed';
@@ -311,7 +393,7 @@ export function installLocalGitHook(): 'installed' | 'already' | 'failed' {
 
     fs.mkdirSync(hooksDir, { recursive: true });
     const hookFile = path.join(hooksDir, 'post-commit');
-    const command = 'cc-habits git-capture || true';
+    const command = gitHookCommand();
 
     // A cloned repo could plant .git/hooks/post-commit as a symlink to a
     // sensitive file; refuse to read or write through it, and use O_NOFOLLOW on
@@ -341,7 +423,18 @@ export function installLocalGitHook(): 'installed' | 'already' | 'failed' {
         readBytes = fs.readSync(fd, buf, 0, st.size, 0);
       }
       const content = buf.subarray(0, readBytes).toString('utf-8');
-      if (content.includes('cc-habits git-capture') || content.includes('cch git-capture')) {
+      const upgraded = upgradeHookBody(content);
+      if (upgraded !== null) {
+        // A hook from an older version: rewrite it in place through the same
+        // fd, so the symlink guarantees above still hold. Truncate first, since
+        // the new body can be shorter than the old one.
+        const body = Buffer.from(upgraded, 'utf-8');
+        fs.ftruncateSync(fd, 0);
+        fs.writeSync(fd, body, 0, body.length, 0);
+        fs.closeSync(fd);
+        return 'installed';
+      }
+      if (content.split('\n').some(isOwnedHookLine)) {
         fs.closeSync(fd);
         return 'already';
       }
@@ -382,18 +475,30 @@ export function installGlobalGitTemplateHook(): 'installed' | 'already' | 'faile
     fs.mkdirSync(hooksDir, { recursive: true });
 
     const hookFile = path.join(hooksDir, 'post-commit');
-    const command = 'cc-habits git-capture || true';
+    const command = gitHookCommand();
+
+    // Let the read itself decide whether the file exists. An existsSync guard
+    // followed by a read is a time-of-check/time-of-use race: the file can be
+    // created, removed, or swapped for a symlink in between.
+    let content: string | null = null;
+    try {
+      content = fs.readFileSync(hookFile, 'utf-8');
+    } catch {
+      content = null;
+    }
 
     let result: 'installed' | 'already' = 'installed';
-    if (fs.existsSync(hookFile)) {
-      const content = fs.readFileSync(hookFile, 'utf-8');
-      if (content.includes('cc-habits git-capture') || content.includes('cch git-capture')) {
+    if (content === null) {
+      fs.writeFileSync(hookFile, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
+    } else {
+      const upgraded = upgradeHookBody(content);
+      if (upgraded !== null) {
+        fs.writeFileSync(hookFile, upgraded, { mode: 0o755 });
+      } else if (content.split('\n').some(isOwnedHookLine)) {
         result = 'already';
       } else {
         fs.appendFileSync(hookFile, `\n${command}\n`);
       }
-    } else {
-      fs.writeFileSync(hookFile, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
     }
 
     // execFileSync with an argument array, never a shell string, so a home dir
@@ -752,9 +857,7 @@ export function uninstallLocalGitHook(): boolean {
     const content = fs.readFileSync(hookFile, 'utf-8');
     if (!content.includes('cc-habits') && !content.includes('cch')) return false;
 
-    const lines = content.split('\n').filter(line => 
-      !line.includes('cc-habits git-capture') && !line.includes('cch git-capture')
-    );
+    const lines = content.split('\n').filter(line => !isOwnedHookLine(line));
 
     const nonShebang = lines.filter(line => line.trim() && !line.startsWith('#!'));
     if (nonShebang.length === 0) {
@@ -776,9 +879,7 @@ export function uninstallGlobalGitTemplateHook(): boolean {
     const content = fs.readFileSync(hookFile, 'utf-8');
     if (!content.includes('cc-habits') && !content.includes('cch')) return false;
 
-    const lines = content.split('\n').filter(line => 
-      !line.includes('cc-habits git-capture') && !line.includes('cch git-capture')
-    );
+    const lines = content.split('\n').filter(line => !isOwnedHookLine(line));
 
     const nonShebang = lines.filter(line => line.trim() && !line.startsWith('#!'));
     if (nonShebang.length === 0) {

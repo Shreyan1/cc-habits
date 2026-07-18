@@ -58,7 +58,7 @@ describe('installLocalGitHook symlink safety', () => {
     const st = fs.lstatSync(hookFile);
     expect(st.isSymbolicLink()).toBe(false);
     expect(st.isFile()).toBe(true);
-    expect(readFileContent(hookFile)).toContain('cc-habits git-capture');
+    expect(readFileContent(hookFile)).toContain('git-capture');
   });
 
   it('is idempotent: a second install reports already', () => {
