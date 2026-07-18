@@ -111,6 +111,29 @@ describe('post-commit hook is quiet and fail-open', () => {
     }
   });
 
+  it('a binary path containing quotes and backslashes cannot inject commands', () => {
+    if (isWindows) return; // /bin/sh is not the hook interpreter on Windows
+    // Escaping only `"` is not enough: inside double quotes a backslash still
+    // escapes, so a path ending in `\"` closes the string and whatever follows
+    // runs as a command. Single-quote escaping closes that off.
+    // The binary must really exist at the malicious path, otherwise
+    // resolveGitBinaryPath falls back to the bare name and the payload never
+    // reaches the command, making this test vacuous.
+    const evil = path.join(repoDir, String.raw`ev\"; touch PWNED; "`);
+    fs.mkdirSync(evil, { recursive: true });
+    fs.writeFileSync(path.join(evil, 'cc-habits'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const orig = process.argv[1];
+    try {
+      process.argv[1] = path.join(evil, 'cc-habits');
+      installLocalGitHook();
+      const r = spawnSync('/bin/sh', [hookPath()], { encoding: 'utf-8', cwd: repoDir });
+      expect(r.status).toBe(0);
+      expect(fs.existsSync(path.join(repoDir, 'PWNED'))).toBe(false);
+    } finally {
+      process.argv[1] = orig;
+    }
+  });
+
   it('is idempotent once upgraded', () => {
     installLocalGitHook();
     const first = readHook();

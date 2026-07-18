@@ -323,10 +323,20 @@ export function resolveGitBinaryPath(): string {
  * Kept to one line on purpose: install detection and uninstall both work by
  * matching and filtering single lines, see isOwnedHookLine.
  */
+/**
+ * POSIX-quote a string for safe interpolation into a /bin/sh command.
+ *
+ * Single quotes, not double. Inside double quotes a backslash still escapes,
+ * so escaping only `"` (as makeHooks above does) leaves a path containing `\"`
+ * able to close the string and append commands. Inside single quotes nothing is
+ * special except `'` itself, which is handled by closing, escaping, reopening.
+ */
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 function gitHookCommand(): string {
-  // Quote the path to survive spaces, escaping embedded quotes first, exactly
-  // as makeHooks does for the Claude hook commands.
-  const bin = `"${resolveGitBinaryPath().replace(/"/g, '\\"')}"`;
+  const bin = shellQuote(resolveGitBinaryPath());
   return `command -v ${bin} >/dev/null 2>&1 && ${bin} git-capture >/dev/null 2>&1 || true`;
 }
 
@@ -467,9 +477,20 @@ export function installGlobalGitTemplateHook(): 'installed' | 'already' | 'faile
     const hookFile = path.join(hooksDir, 'post-commit');
     const command = gitHookCommand();
 
+    // Let the read itself decide whether the file exists. An existsSync guard
+    // followed by a read is a time-of-check/time-of-use race: the file can be
+    // created, removed, or swapped for a symlink in between.
+    let content: string | null = null;
+    try {
+      content = fs.readFileSync(hookFile, 'utf-8');
+    } catch {
+      content = null;
+    }
+
     let result: 'installed' | 'already' = 'installed';
-    if (fs.existsSync(hookFile)) {
-      const content = fs.readFileSync(hookFile, 'utf-8');
+    if (content === null) {
+      fs.writeFileSync(hookFile, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
+    } else {
       const upgraded = upgradeHookBody(content);
       if (upgraded !== null) {
         fs.writeFileSync(hookFile, upgraded, { mode: 0o755 });
@@ -478,8 +499,6 @@ export function installGlobalGitTemplateHook(): 'installed' | 'already' | 'faile
       } else {
         fs.appendFileSync(hookFile, `\n${command}\n`);
       }
-    } else {
-      fs.writeFileSync(hookFile, `#!/bin/sh\n${command}\n`, { mode: 0o755 });
     }
 
     // execFileSync with an argument array, never a shell string, so a home dir
