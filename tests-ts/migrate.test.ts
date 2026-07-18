@@ -86,3 +86,48 @@ describe('runMigration, CLAUDE.md @import rewrite (Fix 2)', () => {
     expect(() => runMigration(false, nonExistentOldDir())).not.toThrow();
   });
 });
+
+// Migration must be additive: it copies legacy data into a store that has none,
+// but must never clobber a file the store already has. The regression this
+// guards: a user runs `cch init` (writing config.yml with their provider) before
+// any habit exists, so habits.md is absent and the copy step runs; copying the
+// legacy config.yml over the fresh one silently reverted their provider/api key
+// to a stale one (e.g. a leftover `provider: groq`).
+describe('runMigration, does not overwrite an existing config.yml', () => {
+  // Build a legacy dir with a habits.md (so the copy step has something to do)
+  // and a config.yml carrying a different, stale provider.
+  function seedLegacyDir(providerLine: string): string {
+    const legacy = path.join(tmpDir, 'legacy-habits');
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, 'habits.md'), '# habits\n');
+    fs.writeFileSync(path.join(legacy, 'config.yml'), `${providerLine}\n`);
+    return legacy;
+  }
+
+  it('preserves the current config.yml while still migrating other files', () => {
+    // Current store: a config the user just wrote, but no habits.md yet.
+    fs.writeFileSync(path.join(tmpDir, 'config.yml'), 'provider: ollama\n');
+    const legacy = seedLegacyDir('provider: groq');
+
+    const result = runMigration(false, legacy);
+
+    // config.yml is left untouched: the user keeps ollama, not the legacy groq.
+    const cfg = fs.readFileSync(path.join(tmpDir, 'config.yml'), 'utf-8');
+    expect(cfg).toContain('provider: ollama');
+    expect(cfg).not.toContain('groq');
+    expect(result.copiedFiles).not.toContain('config.yml');
+    // But the migration still ran for files the store did not already have.
+    expect(fs.existsSync(storagePaths.habitsFile)).toBe(true);
+    expect(result.copiedFiles).toContain('habits.md');
+  });
+
+  it('still overwrites on an explicit force re-migration', () => {
+    fs.writeFileSync(path.join(tmpDir, 'config.yml'), 'provider: ollama\n');
+    const legacy = seedLegacyDir('provider: groq');
+
+    runMigration(true, legacy);
+
+    const cfg = fs.readFileSync(path.join(tmpDir, 'config.yml'), 'utf-8');
+    expect(cfg).toContain('provider: groq');
+  });
+});

@@ -127,7 +127,14 @@ export function runMigration(force = false, oldDirOverride?: string): MigrationR
     for (const filename of filesToMigrate) {
       const src = path.join(oldDir, filename);
       const dest = path.join(storagePaths.habitsDir, filename);
-      if (fs.existsSync(src)) {
+      // Migration is additive: never clobber a file the current store already
+      // has (unless an explicit force re-migration is requested). The gate above
+      // only checks habits.md, but config.yml can exist on its own, e.g. right
+      // after `cch init` sets a provider before any habit is learned. Copying the
+      // legacy config over it silently reverts the user's chosen provider and
+      // api key to a stale one. Skipping existing files keeps the user's config
+      // and any other data they already have intact.
+      if (fs.existsSync(src) && (force || !fs.existsSync(dest))) {
         try {
           fs.copyFileSync(src, dest);
           result.copiedFiles.push(filename);
